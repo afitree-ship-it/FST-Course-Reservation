@@ -1,0 +1,37 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;405;500;600;700;800&family=Kanit:wght@300;400;500;600;700&family=Prompt:wght@300;400;500;600;700&family=Sarabun:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-mangosteen: #7A1F2B;
+  --color-mangosteen-dark: #5C151F;
+  --color-mangosteen-light: #942E3D;
+  --color-mangosteen-hover: #8C2331;
+  --font-sans: "Prompt", "Kanit", "Sarabun", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "Inter", "Prompt", "Kanit", ui-monospace, sans-serif;
+}
+
+/* Custom scrollbars and transition timings */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #7A1F2B;
+}
+
+.dark-theme {
+  filter: invert(1) hue-rotate(180deg);
+  background-color: #f8fafc; /* Inverts to a very dark background #070503 */
+}
+.dark-theme img, 
+.dark-theme video, 
+.dark-theme iframe {
+  filter: invert(1) hue-rotate(180deg);
+}
