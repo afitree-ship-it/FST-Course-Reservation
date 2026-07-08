@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   GraduationCap, 
@@ -20,21 +20,52 @@ import {
   ChevronRight,
   Database,
   Moon,
-  Sun
+  Sun,
+  Bell,
+  BellRing,
+  Check,
+  Trash2,
+  User,
+  X
 } from 'lucide-react';
 
 import FormSection from './components/FormSection';
 import StatusCheckSection from './components/StatusCheckSection';
 import AdminSection from './components/AdminSection';
 import ToastContainer, { ToastMessage, ToastType } from './components/Toast';
-import { isApiConfigured, isGoogleSheetUrlInstead } from './services/api';
+import { isApiConfigured, isGoogleSheetUrlInstead, getAllRequests, submitRequest } from './services/api';
 import { ReservationRequest } from './types';
 import { useTranslation } from './contexts/LanguageContext';
 
 export default function App() {
   const { language, setLanguage, t, isTh } = useTranslation();
-  const [activeTab, setActiveTab] = useState<'reserve' | 'status' | 'admin'>('reserve');
-  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
+  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(() => {
+    try {
+      return !!localStorage.getItem('logged_in_admin_name');
+    } catch (e) {
+      return false;
+    }
+  });
+
+  const [activeTab, setActiveTab] = useState<'reserve' | 'status' | 'admin'>(() => {
+    try {
+      const savedTab = localStorage.getItem('active_tab') as 'reserve' | 'status' | 'admin';
+      if (savedTab === 'admin' && !localStorage.getItem('logged_in_admin_name')) {
+        return 'reserve';
+      }
+      return savedTab || 'reserve';
+    } catch (e) {
+      return 'reserve';
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('active_tab', activeTab);
+    } catch (e) {
+      // ignore
+    }
+  }, [activeTab]);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   
   // Transition states for post-submission success view
@@ -82,6 +113,431 @@ export default function App() {
   const handleFormSubmitSuccess = (studentId: string, request: ReservationRequest) => {
     setLatestSubmission({ studentId, request });
   };
+
+  // --- REAL-TIME NOTIFICATION SYSTEM ---
+  const [allRequestsState, setAllRequestsState] = useState<ReservationRequest[]>([]);
+  
+  // Store recent status overrides to prevent background polls from overriding fresh local changes
+  const recentStatusOverridesRef = useRef<Record<string, { 
+    status: any; 
+    timestamp: number;
+    courses: Record<string, { status: any; timestamp: number }>
+  }>>({});
+
+  const allRequests = allRequestsState;
+  
+  const setAllRequests = useCallback((update: ReservationRequest[] | ((prev: ReservationRequest[]) => ReservationRequest[])) => {
+    setAllRequestsState(prev => {
+      const next = typeof update === 'function' ? update(prev) : update;
+      
+      const now = Date.now();
+      next.forEach(nextReq => {
+        const prevReq = prev.find(p => p.id === nextReq.id);
+        if (prevReq) {
+          let hasDiff = false;
+          const courseOverrides: Record<string, { status: any; timestamp: number }> = {};
+          
+          if (prevReq.status !== nextReq.status) {
+            hasDiff = true;
+          }
+          
+          if (nextReq.courses && prevReq.courses) {
+            nextReq.courses.forEach(nc => {
+              const pc = prevReq.courses.find(c => c.courseCode === nc.courseCode);
+              if (pc && pc.status !== nc.status) {
+                hasDiff = true;
+                courseOverrides[nc.courseCode] = { status: nc.status, timestamp: now };
+              }
+            });
+          }
+          
+          if (hasDiff) {
+            const existing = recentStatusOverridesRef.current[nextReq.id] || { 
+              status: nextReq.status, 
+              timestamp: now, 
+              courses: {} 
+            };
+            
+            recentStatusOverridesRef.current[nextReq.id] = {
+              status: prevReq.status !== nextReq.status ? nextReq.status : existing.status,
+              timestamp: prevReq.status !== nextReq.status ? now : existing.timestamp,
+              courses: {
+                ...existing.courses,
+                ...courseOverrides
+              }
+            };
+          }
+        }
+      });
+      
+      return next;
+    });
+  }, []);
+  const [bellDropdownOpen, setBellDropdownOpen] = useState(false);
+  const [bottomNotifications, setBottomNotifications] = useState<Array<{
+    id: string;
+    title: string;
+    message: string;
+    count: number;
+    items?: Array<{ name: string; courses: Array<{ courseCode: string; courseName: string; section: string }> }>;
+    requestId?: string | null;
+  }>>([]);
+  
+  // Target Request ID to search/highlight in Admin Dashboard
+  const [targetRequestId, setTargetRequestId] = useState<string | null>(null);
+
+  // Set of cleared notification IDs (manually dismissed by the user)
+  const [clearedNotificationIds, setClearedNotificationIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('cleared_notification_ids');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const saveClearedNotificationIds = (ids: string[]) => {
+    setClearedNotificationIds(ids);
+    try {
+      localStorage.setItem('cleared_notification_ids', JSON.stringify(ids));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+  
+  // Ref to track known request IDs and first-fetch baseline
+  const knownRequestIdsRef = useRef<Set<string>>(new Set());
+  const isFirstFetchRef = useRef(true);
+
+  // --- BROWSER NATIVE NOTIFICATIONS ---
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setNotificationPermission(Notification.permission);
+    }
+  }, []);
+
+  const requestBrowserNotificationPermission = async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      showToast(
+        isTh 
+          ? 'เบราว์เซอร์นี้ไม่สนับสนุนระบบรับการแจ้งเตือนพุชบนหน้าจอ' 
+          : 'Your browser does not support browser notifications.', 
+        'warning'
+      );
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+      if (permission === 'granted') {
+        showToast(
+          isTh 
+            ? 'อนุมัติการแจ้งเตือนบนเบราว์เซอร์สำเร็จ!' 
+            : 'Browser notifications successfully enabled!', 
+          'success'
+        );
+        // Play a test native notification
+        try {
+          new Notification(
+            isTh ? 'ระบบแจ้งเตือนเจ้าหน้าที่เปิดใช้งานแล้ว' : 'Notifications Enabled',
+            { 
+              body: isTh 
+                ? 'คุณจะได้รับข้อความแจ้งเตือนทันทีเมื่อมีผู้ส่งคำร้องใหม่ยื่นเข้ามา' 
+                : 'You will receive notifications for new seat reservation requests.' 
+            }
+          );
+        } catch (e) {
+          console.error('Failed to trigger test notification:', e);
+        }
+      } else if (permission === 'denied') {
+        showToast(
+          isTh 
+            ? 'คุณได้ปฏิเสธสิทธิ์แจ้งเตือน กรุณาเปลี่ยนการตั้งค่าของเบราว์เซอร์เพื่อรับการแจ้งเตือน' 
+            : 'Notifications denied. Please adjust your browser settings to allow.', 
+          'warning'
+        );
+      }
+    } catch (err) {
+      console.error('Error requesting notification permission:', err);
+    }
+  };
+
+  // Helper to trigger a real native browser notification
+  const triggerNativeNotification = (title: string, options?: NotificationOptions) => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification(title, {
+          icon: '/favicon.ico', // Simple fallback favicon
+          ...options
+        });
+      } catch (err) {
+        console.error('Failed to trigger native notification:', err);
+      }
+    }
+  };
+
+  // Poll for requests from the database (either LocalStorage or live GAS Sheet)
+  const pollRequests = async () => {
+    try {
+      const response = await getAllRequests();
+      if (response.success && response.data) {
+        let fetchedRequests = response.data;
+
+        // Merge with fresh local status overrides (less than 15 seconds old)
+        const now = Date.now();
+        const freshThreshold = 15000; // 15 seconds
+        
+        // Clean up expired overrides first
+        Object.keys(recentStatusOverridesRef.current).forEach(reqId => {
+          const override = recentStatusOverridesRef.current[reqId];
+          const isRequestOverrideFresh = (now - override.timestamp) < freshThreshold;
+          
+          const freshCourses: Record<string, { status: any; timestamp: number }> = {};
+          let hasFreshCourses = false;
+          Object.keys(override.courses).forEach(cc => {
+            if ((now - override.courses[cc].timestamp) < freshThreshold) {
+              freshCourses[cc] = override.courses[cc];
+              hasFreshCourses = true;
+            }
+          });
+          
+          if (!isRequestOverrideFresh && !hasFreshCourses) {
+            delete recentStatusOverridesRef.current[reqId];
+          } else {
+            recentStatusOverridesRef.current[reqId].courses = freshCourses;
+          }
+        });
+        
+        // Apply fresh overrides to the fetched requests
+        fetchedRequests = fetchedRequests.map(req => {
+          const override = recentStatusOverridesRef.current[req.id];
+          if (!override) return req;
+          
+          let updatedReq = { ...req };
+          const isRequestOverrideFresh = (now - override.timestamp) < freshThreshold;
+          
+          if (isRequestOverrideFresh) {
+            updatedReq.status = override.status;
+          }
+          
+          if (updatedReq.courses) {
+            updatedReq.courses = updatedReq.courses.map(c => {
+              const courseOverride = override.courses[c.courseCode];
+              if (courseOverride && (now - courseOverride.timestamp) < freshThreshold) {
+                return { ...c, status: courseOverride.status };
+              }
+              return c;
+            });
+          }
+          
+          return updatedReq;
+        });
+
+        setAllRequestsState(fetchedRequests);
+
+        if (!isAdminLoggedIn) {
+          // If not logged in as admin, keep the baseline fully synchronized so we don't spam on login
+          const ids = new Set(fetchedRequests.map(r => r.id));
+          knownRequestIdsRef.current = ids;
+          isFirstFetchRef.current = true;
+          return;
+        }
+
+        if (isFirstFetchRef.current) {
+          // Establish the initial baseline of known requests
+          const ids = new Set(fetchedRequests.map(r => r.id));
+          knownRequestIdsRef.current = ids;
+          isFirstFetchRef.current = false;
+        } else {
+          // Identify newly submitted requests
+          const newReqs = fetchedRequests.filter(r => !knownRequestIdsRef.current.has(r.id));
+          
+          if (newReqs.length > 0) {
+            // Update the baseline of known request IDs
+            newReqs.forEach(r => knownRequestIdsRef.current.add(r.id));
+
+            // Create notification pop-up
+            const count = newReqs.length;
+            const notificationId = Date.now().toString() + '-' + Math.random().toString().substring(2, 6);
+            let title = '';
+            let message = '';
+            let items: Array<{ name: string; courses: Array<{ courseCode: string; courseName: string; section: string }> }>;
+
+            if (count === 1) {
+              const req = newReqs[0];
+              const coursesList = req.courses && req.courses.length > 0 
+                ? req.courses 
+                : [{ courseCode: req.courseCode || '', courseName: req.courseName || '', section: req.section || '' }];
+              title = language === 'th' ? 'มีคำร้องใหม่เข้ามาในระบบ!' : 'New Request Received!';
+              message = language === 'th'
+                ? `คุณ ${req.fullName} ได้ยื่นคำร้องขอสำรองวิชา (${coursesList.length} วิชา)`
+                : `${req.fullName} submitted a course reservation for ${coursesList.length} course(s)`;
+              items = [{ name: req.fullName, courses: coursesList }];
+
+              // Trigger Native Browser Notification
+              const nativeBody = coursesList.map(c => `• [${c.courseCode}] ${c.courseName} (กลุ่ม ${c.section})`).join('\n');
+              triggerNativeNotification(
+                isTh 
+                  ? `คำร้องใหม่จากคุณ ${req.fullName} (${coursesList.length} วิชา)`
+                  : `New Request: ${req.fullName} (${coursesList.length} course(s))`,
+                {
+                  body: nativeBody,
+                  tag: req.id,
+                  requireInteraction: true
+                }
+              );
+            } else {
+              title = language === 'th' 
+                ? `มีคำร้องใหม่เข้ามาจำนวน ${count} รายการ!`
+                : `${count} New Requests Received!`;
+              message = language === 'th'
+                ? `พบข้อมูลคำร้องขอสำรองที่นั่งวิชาเรียนใหม่ถูกยื่นเข้ามาพร้อมกันในระบบ`
+                : `Multiple student seat reservation requests submitted simultaneously.`;
+              items = newReqs.map(req => {
+                const coursesList = req.courses && req.courses.length > 0 
+                  ? req.courses 
+                  : [{ courseCode: req.courseCode || '', courseName: req.courseName || '', section: req.section || '' }];
+                return { name: req.fullName, courses: coursesList };
+              });
+
+              // Trigger Native Browser Notification for multiple requests
+              const nativeBody = newReqs.map(req => {
+                const coursesList = req.courses && req.courses.length > 0 
+                  ? req.courses 
+                  : [{ courseCode: req.courseCode || 'N/A', courseName: '', section: '' }];
+                const coursesSummary = coursesList.map(c => c.courseCode).join(', ');
+                return `• ${req.fullName} (${coursesList.length} วิชา: ${coursesSummary})`;
+              }).join('\n');
+              
+              triggerNativeNotification(
+                isTh 
+                  ? `พบคำร้องใหม่เข้ามาพร้อมกัน ${count} รายการ!`
+                  : `${count} new requests submitted simultaneously!`,
+                {
+                  body: nativeBody,
+                  requireInteraction: true
+                }
+              );
+            }
+
+            // Trigger the bottom-right floating popup notification
+            setBottomNotifications(prev => [
+              ...prev,
+              {
+                id: notificationId,
+                title,
+                message,
+                count,
+                items,
+                requestId: count === 1 ? newReqs[0].id : null
+              }
+            ]);
+
+            // Auto-dismiss bottom notification after 8 seconds
+            setTimeout(() => {
+              setBottomNotifications(prev => prev.filter(n => n.id !== notificationId));
+            }, 8000);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error polling requests:', err);
+    }
+  };
+
+  // Keep polling function ref fresh to avoid stale closures
+  const pollRequestsRef = useRef(pollRequests);
+  useEffect(() => {
+    pollRequestsRef.current = pollRequests;
+  });
+
+  // Run the polling interval once on mount
+  useEffect(() => {
+    pollRequestsRef.current();
+
+    const interval = setInterval(() => {
+      pollRequestsRef.current();
+    }, 6000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Monitor admin logged-in state changes to properly align the notification baseline
+  useEffect(() => {
+    if (isAdminLoggedIn) {
+      // Refresh baseline immediately when admin logs in so we only show notifications for new requests
+      isFirstFetchRef.current = true;
+      pollRequestsRef.current();
+    } else {
+      // Clear previous notifications on logout
+      setBottomNotifications([]);
+    }
+  }, [isAdminLoggedIn]);
+
+  // Helper to simulate request submission for testing purposes
+  const simulateNewRequest = async (count: number) => {
+    const firstNames = ['อดิศร', 'วิลาวัลย์', 'ซูไฮมิน', 'อันวาร์', 'ซูไบดะห์', 'อัสมาร์', 'รุสลัน', 'นูรฮูดา', 'มารียะห์', 'ซอฟวาน'];
+    const lastNames = ['แวหะมะ', 'สาและ', 'หะยีสาและ', 'มะมิง', 'สะแลแม', 'ยูโซะ', 'รักษ์ดี', 'แก้วมณี', 'เจ๊ะมา', 'มะยา'];
+    const courses = [
+      { code: 'IT201', name: 'Object-Oriented Programming' },
+      { code: 'CS302', name: 'Software Engineering' },
+      { code: 'DS101', name: 'Data Science Foundations' },
+      { code: 'DT305', name: 'Web Application Development' },
+      { code: 'CH102', name: 'Organic Chemistry' }
+    ];
+    const instructors = ['ดร.อานัส ยูโซะ', 'ผศ.ฟาฏิมะห์ มะมิง', 'ดร.มูฮัมหมัด หะยี', 'อาจารย์ฮาซัน สะแลแม'];
+
+    for (let i = 0; i < count; i++) {
+      const randomFirstName = firstNames[Math.floor(Math.random() * firstNames.length)];
+      const randomLastName = lastNames[Math.floor(Math.random() * lastNames.length)];
+      const isFemale = Math.random() > 0.5;
+      const prefix = isFemale ? 'นางสาว' : 'นาย';
+      const fullName = `${prefix}${randomFirstName} ${randomLastName}`;
+      const studentId = `6${Math.floor(Math.random() * 8 + 2)}${Math.floor(Math.random() * 10000000).toString().padStart(7, '0')}`;
+      const course = courses[Math.floor(Math.random() * courses.length)];
+      const instructor = instructors[Math.floor(Math.random() * instructors.length)];
+
+      const mockData: Partial<ReservationRequest> = {
+        fullName,
+        studentId,
+        department: 'เทคโนโลยีสารสนเทศ (Information Technology)',
+        faculty: 'คณะวิทยาศาสตร์และเทคโนโลยี',
+        year: (Math.floor(Math.random() * 4) + 1).toString(),
+        courses: [
+          {
+            courseCode: course.code,
+            courseName: course.name,
+            section: `0${Math.floor(Math.random() * 3 + 1)}`,
+            instructor,
+            status: 'รอดำเนินการ'
+          }
+        ],
+        proofType: 'link',
+        facebookProofLink: 'https://facebook.com/mock.profile.' + Math.floor(Math.random() * 1000),
+        phone: '08' + Math.floor(Math.random() * 100000000).toString().padStart(8, '0'),
+        consent: true,
+        status: 'รอดำเนินการ'
+      };
+
+      await submitRequest(mockData);
+    }
+    
+    // Refresh the list immediately to trigger notifications instantly
+    pollRequests();
+    showToast(
+      language === 'th' 
+        ? `จำลองคำร้องสำเร็จจำนวน ${count} รายการ กำลังอัปเดตระบบ...` 
+        : `Simulated ${count} requests. Updating system...`,
+      'success'
+    );
+  };
+
+  // Filter pending requests for the badge counter (excluding cleared ones)
+  const pendingRequestsList = allRequests.filter(r => r.status === 'รอดำเนินการ' && !clearedNotificationIds.includes(r.id));
+  const pendingCount = pendingRequestsList.length;
 
   const hasGASUrl = isApiConfigured();
   const hasSheetUrlConflict = isGoogleSheetUrlInstead();
@@ -215,6 +671,174 @@ export default function App() {
               </button>
             </div>
             
+            {/* Notification Bell Icon & Dropdown Center (Admin Only) */}
+            {isAdminLoggedIn && activeTab === 'admin' && (
+              <div className="relative" id="notification-bell-container">
+                <button
+                  onClick={() => setBellDropdownOpen(!bellDropdownOpen)}
+                  className={`p-2 rounded-full transition-all duration-300 relative cursor-pointer ${
+                    bellDropdownOpen 
+                      ? 'bg-mangosteen/10 text-mangosteen' 
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700'
+                  }`}
+                  title={isTh ? "การแจ้งเตือน" : "Notifications"}
+                >
+                  {pendingCount > 0 ? (
+                    <BellRing className="w-4 h-4 text-rose-500 animate-pulse" />
+                  ) : (
+                    <Bell className="w-4 h-4" />
+                  )}
+                  
+                  {pendingCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[9px] font-black w-4.5 h-4.5 rounded-full flex items-center justify-center border border-white shadow-xs">
+                      {pendingCount}
+                    </span>
+                  )}
+                </button>
+
+                <AnimatePresence>
+                  {bellDropdownOpen && (
+                    <>
+                      {/* Click-away backdrop */}
+                      <div 
+                        className="fixed inset-0 z-40" 
+                        onClick={() => setBellDropdownOpen(false)} 
+                      />
+                      
+                      <motion.div
+                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                        transition={{ duration: 0.2 }}
+                        className="absolute right-0 mt-2.5 w-80 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 overflow-hidden"
+                      >
+                        {/* Dropdown Header */}
+                        <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-extrabold text-xs sm:text-sm text-slate-800">
+                              {isTh ? 'แจ้งเตือนคำร้อง' : 'Request Notifications'}
+                            </span>
+                            {pendingCount > 0 && (
+                              <span className="bg-rose-100 text-rose-700 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">
+                                {pendingCount} {isTh ? 'รอดำเนินการ' : 'Pending'}
+                              </span>
+                            )}
+                          </div>
+                          
+                          {pendingCount > 0 && (
+                            <button
+                              onClick={() => {
+                                const currentPendingIds = pendingRequestsList.map(r => r.id);
+                                const newCleared = [...new Set([...clearedNotificationIds, ...currentPendingIds])];
+                                saveClearedNotificationIds(newCleared);
+                                showToast(isTh ? 'ล้างการแจ้งเตือนทั้งหมดแล้ว' : 'All notifications cleared.', 'success');
+                              }}
+                              className="text-[10px] font-bold text-slate-400 hover:text-mangosteen transition-colors flex items-center gap-1 cursor-pointer bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded-lg"
+                              title={isTh ? "เคลียร์แจ้งเตือนทั้งหมด" : "Clear all notifications"}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>{isTh ? 'เคลียร์ทั้งหมด' : 'Clear All'}</span>
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Pending Requests List */}
+                        <div className="max-h-60 overflow-y-auto divide-y divide-slate-100">
+                          {pendingRequestsList.length === 0 ? (
+                            <div className="p-8 text-center text-slate-400 space-y-1.5">
+                              <CheckCircle className="w-8 h-8 text-slate-300 mx-auto" />
+                              <p className="text-xs font-semibold">{isTh ? 'ไม่มีคำร้องค้างพิจารณา' : 'All clear! No pending requests.'}</p>
+                            </div>
+                          ) : (
+                            pendingRequestsList.slice(0, 5).map((req, rIdx) => {
+                              const coursesList = req.courses && req.courses.length > 0 
+                                ? req.courses 
+                                : [{ courseCode: req.courseCode || 'N/A', courseName: req.courseName || '', section: req.section || '' }];
+                              
+                              return (
+                                <div 
+                                  key={rIdx} 
+                                  onClick={() => {
+                                    setActiveTab('admin');
+                                    setTargetRequestId(req.id);
+                                    setBellDropdownOpen(false);
+                                  }}
+                                  className="p-3 hover:bg-slate-50 transition-colors cursor-pointer text-left space-y-1 group relative pr-10"
+                                >
+                                  {/* Individual Dismiss Button */}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation(); // Avoid triggering card click
+                                      const newCleared = [...new Set([...clearedNotificationIds, req.id])];
+                                      saveClearedNotificationIds(newCleared);
+                                      showToast(isTh ? 'ซ่อนการแจ้งเตือนนี้แล้ว' : 'Notification hidden.', 'info');
+                                    }}
+                                    className="absolute right-2 top-3 p-1 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-slate-100 transition-all cursor-pointer opacity-0 group-hover:opacity-100 focus:opacity-100 z-10"
+                                    title={isTh ? "ซ่อนแจ้งเตือนนี้" : "Hide this notification"}
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-bold text-xs text-slate-800 group-hover:text-mangosteen transition-colors truncate max-w-[150px]">
+                                      {req.fullName}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 font-mono">
+                                      {req.studentId}
+                                    </span>
+                                  </div>
+                                  <div className="text-[11px] text-slate-500 font-medium">
+                                    {isTh ? 'ขอสำรองวิชา:' : 'Requested:'}{' '}
+                                    <span className="font-bold text-mangosteen font-mono">{coursesList.length} {isTh ? 'วิชา' : 'course(s)'}</span>
+                                  </div>
+                                  
+                                  {/* Compact Course details list inside the notification dropdown */}
+                                  <div className="mt-1.5 pl-2 border-l border-slate-200/80 dark:border-slate-800 space-y-1">
+                                    {coursesList.map((course, cIdx) => (
+                                      <div key={cIdx} className="text-[10px] text-slate-500 dark:text-slate-400 font-sans leading-tight">
+                                        <div className="flex flex-wrap items-center gap-1">
+                                          <span className="font-bold font-mono text-mangosteen text-[9.5px] shrink-0">{course.courseCode}</span>
+                                          <span className="truncate max-w-[140px] text-slate-600 dark:text-slate-300 font-medium">{course.courseName}</span>
+                                          <span className="text-slate-450 shrink-0 text-[9px] font-mono">(Sec {course.section || '-'})</span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  <div className="text-[9px] text-slate-400 flex items-center gap-1 pt-1">
+                                    <Clock className="w-2.5 h-2.5" />
+                                    <span>
+                                      {isTh ? 'ยื่นเมื่อ:' : 'Submitted:'}{' '}
+                                      {new Date(req.createdAt || new Date().toISOString()).toLocaleTimeString(isTh ? 'th-TH' : 'en-US', {
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                      })}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+
+                        {/* Dropdown Footer Action */}
+                        <button
+                          onClick={() => {
+                            setActiveTab('admin');
+                            setBellDropdownOpen(false);
+                          }}
+                          className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 font-sans font-bold text-xs text-center border-t border-slate-200 transition-colors cursor-pointer flex items-center justify-center gap-1"
+                        >
+                          <span>{isTh ? 'ดูบอร์ดควบคุมคำร้องทั้งหมด' : 'Go to Admin Dashboard'}</span>
+                          <ArrowRight className="w-3 h-3" />
+                        </button>
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+            
             {/* Dark Mode Toggle */}
             <button
               onClick={() => setDarkMode(!darkMode)}
@@ -300,13 +924,23 @@ export default function App() {
               {activeTab === 'admin' && (
                 <AdminSection 
                   isInitiallyLoggedIn={isAdminLoggedIn}
-                  onLoginSuccess={() => setIsAdminLoggedIn(true)}
+                  onLoginSuccess={() => {
+                    setIsAdminLoggedIn(true);
+                    requestBrowserNotificationPermission();
+                  }}
                   onLogout={() => {
                     setIsAdminLoggedIn(false);
                     showToast(t('logoutAdmin'), 'info');
                     setActiveTab('reserve');
                   }}
                   showToast={showToast}
+                  requestBrowserNotificationPermission={requestBrowserNotificationPermission}
+                  notificationPermission={notificationPermission}
+                  targetRequestId={targetRequestId}
+                  onClearTargetRequestId={() => setTargetRequestId(null)}
+                  requests={allRequests}
+                  setRequests={setAllRequests}
+                  onFetchRequests={pollRequests}
                 />
               )}
             </>
@@ -343,6 +977,126 @@ export default function App() {
 
       {/* Embedded Global Toast Containers */}
       <ToastContainer toasts={toasts} onClose={removeToast} />
+
+      {/* Custom Bottom-Right Floating Notifications Container for Newly Submitted Requests */}
+      {isAdminLoggedIn && activeTab === 'admin' && bottomNotifications.length > 0 && (
+        <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-3 w-full max-w-sm pointer-events-none">
+          {bottomNotifications.length > 1 && (
+            <button
+              onClick={() => setBottomNotifications([])}
+              className="pointer-events-auto self-end px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-sans text-[10px] font-black rounded-lg shadow-md flex items-center gap-1.5 cursor-pointer transition-all active:scale-[0.98] z-50"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>{isTh ? 'เคลียร์แจ้งเตือนลอยทั้งหมด' : 'Dismiss All Popups'}</span>
+            </button>
+          )}
+          <AnimatePresence>
+            {bottomNotifications.map((noti) => (
+              <motion.div
+                key={noti.id}
+                initial={{ opacity: 0, x: 50, y: 20, scale: 0.9 }}
+                animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
+                exit={{ opacity: 0, x: 50, scale: 0.9, transition: { duration: 0.2 } }}
+                className="pointer-events-auto bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xl p-4 flex flex-col gap-2.5 relative overflow-hidden cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors"
+                style={{ minHeight: '80px' }}
+                onClick={() => {
+                  setActiveTab('admin');
+                  if (noti.requestId) {
+                    setTargetRequestId(noti.requestId);
+                  }
+                  setBottomNotifications(prev => prev.filter(n => n.id !== noti.id));
+                }}
+              >
+                {/* Decorative side accent bar */}
+                <div className="absolute top-0 left-0 bottom-0 w-1.5 bg-mangosteen" />
+                
+                <div className="flex items-start gap-3 pl-1.5">
+                  <div className="p-2 bg-mangosteen/10 text-mangosteen rounded-xl animate-bounce shrink-0">
+                    <BellRing className="w-5 h-5" />
+                  </div>
+                  
+                  <div className="flex-1 space-y-1 text-left">
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="font-extrabold text-xs sm:text-sm text-slate-800 dark:text-white flex items-center gap-1.5">
+                        {noti.title}
+                        {noti.count > 1 && (
+                          <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shrink-0">
+                            {noti.count}
+                          </span>
+                        )}
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation(); // Avoid triggering card details click
+                          setBottomNotifications(prev => prev.filter(n => n.id !== noti.id));
+                        }}
+                        className="text-slate-400 hover:text-slate-600 transition-colors shrink-0 cursor-pointer p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
+                      {noti.message}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Show items breakdown with counts/names */}
+                {noti.items && noti.items.length > 0 && (
+                  <div className="pl-11 pr-2 space-y-1">
+                    <div className="bg-slate-50 dark:bg-slate-950 p-2 rounded-xl border border-slate-100 dark:border-slate-800 text-[11px] space-y-1 text-slate-600 dark:text-slate-300">
+                      {noti.items.slice(0, 3).map((item, itemIdx) => (
+                        <div key={itemIdx} className="flex flex-col gap-1 border-b border-slate-200/50 dark:border-slate-800/50 pb-1.5 last:border-0 last:pb-0">
+                          <div className="flex justify-between items-center gap-2">
+                            <span className="font-extrabold truncate text-slate-700 dark:text-slate-200">
+                              คุณ {item.name}
+                            </span>
+                            <span className="text-[9px] text-slate-500 font-bold bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 rounded shrink-0">
+                              {isTh ? `${item.courses.length} วิชา` : `${item.courses.length} courses`}
+                            </span>
+                          </div>
+                          <div className="space-y-0.5 pl-2 border-l-2 border-slate-200 dark:border-slate-700">
+                            {item.courses.map((course, cIdx) => (
+                              <div key={cIdx} className="flex gap-1.5 items-start text-[9px] leading-tight">
+                                <span className="font-mono font-bold text-mangosteen shrink-0">{course.courseCode}</span>
+                                <span className="truncate flex-1" title={course.courseName}>{course.courseName}</span>
+                                <span className="text-slate-400 shrink-0">Sec {course.section}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                      {noti.items.length > 3 && (
+                        <div className="text-[10px] text-slate-400 text-center font-bold pt-0.5 border-t border-dashed border-slate-200/60">
+                          {isTh ? `...และอีก ${noti.items.length - 3} คำร้อง` : `...and ${noti.items.length - 3} more requests`}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Action buttons on notification popup */}
+                <div className="pl-11 pr-2 flex justify-end">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation(); // Card click already handles this, but let's make the button work perfectly
+                      setActiveTab('admin');
+                      if (noti.requestId) {
+                        setTargetRequestId(noti.requestId);
+                      }
+                      setBottomNotifications(prev => prev.filter(n => n.id !== noti.id));
+                    }}
+                    className="px-3 py-1 bg-mangosteen text-white hover:bg-mangosteen-hover text-[11px] font-black rounded-lg shadow-xs transition-colors cursor-pointer flex items-center gap-1"
+                  >
+                    <span>{isTh ? 'เปิดจัดการคำร้อง' : 'Open Dashboard'}</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
     </div>
   );
 }

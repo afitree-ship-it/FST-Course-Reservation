@@ -400,9 +400,6 @@ const getStatusBadge = (status: RequestStatus) => {
                                     <span>{isTh ? 'ยื่นเมื่อ' : 'Submitted:'} {formatDate(request.createdAt)}</span>
                                   </div>
                                 </div>
-                                <div className="shrink-0">
-                                  {getStatusBadge(request.status)}
-                                </div>
                               </div>
 
                               {/* Course Cards / Main Details */}

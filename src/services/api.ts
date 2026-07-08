@@ -4,7 +4,15 @@ const API_URL_KEY = 'gs_api_url';
 const LOCAL_OVERRIDES_KEY = 'mock_local_overrides';
 
 export function getApiUrl(): string {
-  return localStorage.getItem(API_URL_KEY) || 'https://script.google.com/macros/s/AKfycbygnnK7sTVm64hY70dyYYf-17Jh_sBAQQJeK4WDdnfz4sZMTftEUPJdcgCEiHxiETKRfw/exec';
+  const saved = localStorage.getItem(API_URL_KEY);
+  const oldDefault = 'https://script.google.com/macros/s/AKfycbygnnK7sTVm64hY70dyYYf-17Jh_sBAQQJeK4WDdnfz4sZMTftEUPJdcgCEiHxiETKRfw/exec';
+  const newDefault = 'https://script.google.com/macros/s/AKfycbwGOeykUafIDYOWs6Bwk3cInxhnTESNyGpGVvKUEJhA5XbyrIgc2vmNNR_hBc-5S-d8aA/exec';
+  
+  if (saved === oldDefault) {
+    localStorage.setItem(API_URL_KEY, newDefault);
+    return newDefault;
+  }
+  return saved || newDefault;
 }
 
 export function saveApiUrl(url: string): void {
@@ -23,7 +31,7 @@ export function getSavedStudentId(): string {
   return localStorage.getItem('saved_student_id') || '';
 }
 
-async function hashString(message: string) {
+export async function hashString(message: string) {
   const msgBuffer = new TextEncoder().encode(message);
   const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
@@ -111,30 +119,7 @@ export async function adminLogin(password: string): Promise<{ success: boolean; 
       return { success: true, name: adminName };
     }
 
-    // No default hardcoded admin passwords anymore
-
-    if (isApiConfigured()) {
-      try {
-        const response = await fetch(getApiUrl(), {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            action: 'adminLogin',
-            password
-          })
-        });
-        const result = await response.json();
-        if (result.success) {
-          const adminName = result.adminName || 'เจ้าหน้าที่ (Google Sheet)';
-          localStorage.setItem('logged_in_admin_name', adminName);
-          return { success: true, name: adminName };
-        }
-        return { success: false, error: result.error || 'รหัสผ่านไม่ถูกต้อง' };
-      } catch (err) {
-        return { success: false, error: 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้' };
-      }
-    }
-    return { success: false, error: 'รหัสผ่านไม่ถูกต้อง (ไม่ได้ตั้งค่า API)' };
+    return { success: false, error: 'รหัสผ่านไม่ถูกต้อง' };
   } catch (err) {
     return { success: false, error: 'เกิดข้อผิดพลาดในการตรวจสอบสิทธิ์' };
   }
