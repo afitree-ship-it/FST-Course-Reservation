@@ -87,34 +87,56 @@ export default function App() {
   });
 
   useEffect(() => {
-    // ลบ link rel="icon" ที่มีอยู่ทั้งหมดเพื่อบังคับให้เบราว์เซอร์รับรู้ความเปลี่ยนแปลงและโหลดภาพใหม่ทันที
+    // ลบ link rel="icon" หรือ rel="shortcut icon" ที่มีอยู่ทั้งหมดเพื่อล้างของเก่าออกทั้งหมด
     const existingFavicons = document.querySelectorAll("link[rel*='icon']");
     existingFavicons.forEach(el => el.parentNode?.removeChild(el));
 
-    const newLink = document.createElement('link');
-    newLink.id = 'web-favicon';
-    newLink.rel = 'icon';
-
     const activeFavicon = customFavicon || customLogo;
     
+    // สร้างอันใหม่สำหรับ 'shortcut icon'
+    const shortcutLink = document.createElement('link');
+    shortcutLink.id = 'web-favicon-shortcut';
+    shortcutLink.rel = 'shortcut icon';
+
+    // สร้างอันใหม่สำหรับ 'icon' เพื่อรองรับทุกเบราว์เซอร์
+    const iconLink = document.createElement('link');
+    iconLink.id = 'web-favicon-icon';
+    iconLink.rel = 'icon';
+
     if (activeFavicon) {
-      newLink.href = activeFavicon;
-      if (activeFavicon.startsWith('data:image/svg+xml') || activeFavicon.endsWith('.svg')) {
-        newLink.setAttribute('type', 'image/svg+xml');
-      } else if (activeFavicon.startsWith('data:image/x-icon') || activeFavicon.endsWith('.ico')) {
-        newLink.setAttribute('type', 'image/x-icon');
-      } else if (activeFavicon.startsWith('data:image/png') || activeFavicon.endsWith('.png')) {
-        newLink.setAttribute('type', 'image/png');
-      } else {
-        newLink.setAttribute('type', 'image/png');
+      // เพิ่ม timestamp cache-buster สำหรับ url ที่ไม่ใช่ base64 (data:) เพื่อบังคับเบราว์เซอร์ล้างแคชทันที
+      let cacheBustHref = activeFavicon;
+      if (!activeFavicon.startsWith('data:')) {
+        const separator = activeFavicon.includes('?') ? '&' : '?';
+        cacheBustHref = `${activeFavicon}${separator}t=${Date.now()}`;
       }
+      
+      shortcutLink.href = cacheBustHref;
+      iconLink.href = cacheBustHref;
+
+      let typeAttr = 'image/png';
+      if (activeFavicon.startsWith('data:image/svg+xml') || activeFavicon.endsWith('.svg')) {
+        typeAttr = 'image/svg+xml';
+      } else if (activeFavicon.startsWith('data:image/x-icon') || activeFavicon.endsWith('.ico')) {
+        typeAttr = 'image/x-icon';
+      } else if (activeFavicon.startsWith('data:image/png') || activeFavicon.endsWith('.png')) {
+        typeAttr = 'image/png';
+      } else if (activeFavicon.startsWith('data:image/jpeg') || activeFavicon.endsWith('.jpg') || activeFavicon.endsWith('.jpeg')) {
+        typeAttr = 'image/jpeg';
+      }
+      
+      shortcutLink.setAttribute('type', typeAttr);
+      iconLink.setAttribute('type', typeAttr);
     } else {
       const defaultFavicon = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%236b1d4f'/%3E%3Cstop offset='100%25' stop-color='%23450e30'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100' height='100' rx='24' fill='url(%23grad)'/%3E%3Cpath d='M25,40 L50,28 L75,40 L50,52 Z' fill='%2310b981' opacity='0.9'/%3E%3Cpath d='M35,45 L35,58 C35,64 65,64 65,58 L65,45' fill='none' stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round'/%3E%3Cpath d='M70,41 L70,62 L73,62 L73,41 Z' fill='%23ffffff'/%3E%3Ccircle cx='71.5' cy='63' r='2' fill='%23ffffff'/%3E%3Ctext x='50' y='82' dominant-baseline='middle' text-anchor='middle' fill='%23ffffff' font-family='system-ui, -apple-system, sans-serif' font-weight='900' font-size='18' letter-spacing='0.5'%3EFST FTU%3C/text%3E%3C/svg%3E";
-      newLink.href = defaultFavicon;
-      newLink.setAttribute('type', 'image/svg+xml');
+      shortcutLink.href = defaultFavicon;
+      shortcutLink.setAttribute('type', 'image/svg+xml');
+      iconLink.href = defaultFavicon;
+      iconLink.setAttribute('type', 'image/svg+xml');
     }
 
-    document.head.appendChild(newLink);
+    document.head.appendChild(shortcutLink);
+    document.head.appendChild(iconLink);
   }, [customFavicon, customLogo]);
 
   useEffect(() => {
