@@ -23,7 +23,7 @@ import {
   Trash2
 } from 'lucide-react';
 import { YEARS, ReservationRequest } from '../types';
-import { submitRequest, getStatusByStudentId } from '../services/api';
+import { submitRequest, getStatusByStudentId, getCachedRequestsByStudentId } from '../services/api';
 import { useTranslation } from '../contexts/LanguageContext';
 
 interface TypewriterTextProps {
@@ -320,8 +320,27 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     }
 
     setCheckingStudentId(true);
+
+    // 1. Instant Cache Check (takes 0ms!)
+    const cached = getCachedRequestsByStudentId(studentId.trim());
+    if (cached && cached.length > 0) {
+      const sortedData = [...cached].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      const latest = sortedData[0];
+      setFullName(String(latest.fullName || ''));
+      setFaculty(String(latest.faculty || ''));
+      setDepartment(String(latest.department || ''));
+      setYear(String(latest.year || ''));
+      setPhone(String(latest.phone || ''));
+      setHasProfile(true);
+      setTouched({});
+      setStep(2);
+      setCheckingStudentId(false);
+      return;
+    }
+
+    // 2. Fetch from network if not in cache
     try {
-      const res = await getStatusByStudentId(studentId);
+      const res = await getStatusByStudentId(studentId.trim());
       setTouched({}); // Reset touched state for step 2
       if (res.success && res.data && res.data.length > 0) {
         // found past records! Pre-fill latest info

@@ -24,7 +24,7 @@ import {
   Filter
 } from 'lucide-react';
 import { ReservationRequest, RequestStatus } from '../types';
-import { getStatusByStudentId } from '../services/api';
+import { getStatusByStudentId, getCachedRequestsByStudentId } from '../services/api';
 
 interface StatusCheckSectionProps {
   initialStudentId?: string;
@@ -91,36 +91,63 @@ export default function StatusCheckSection({ initialStudentId = '', showToast }:
   }, [initialStudentId]);
 
   const performSearch = async (targetId: string) => {
-    if (!targetId.trim()) {
+    const trimmedId = targetId.trim();
+    if (!trimmedId) {
       showToast('กรุณากรอกรหัสนักศึกษาเพื่อใช้ตรวจสอบสถานะ', 'warning');
       return;
     }
     
-    if (!/^\d{9}$/.test(targetId.trim())) {
+    if (!/^\d{9}$/.test(trimmedId)) {
       showToast('รหัสนักศึกษาต้องประกอบด้วยตัวเลข 9 หลักเท่านั้น', 'warning');
       return;
     }
 
-    setLoading(true);
-    setHasSearched(true);
+    // 1. Instant Cache Check (takes 0ms!)
+    const cached = getCachedRequestsByStudentId(trimmedId);
+    let hasShownCache = false;
+    if (cached && cached.length > 0) {
+      const sortedData = [...cached].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setResults(sortedData);
+      setHasSearched(true);
+      setExpandedId(sortedData[0].id);
+      hasShownCache = true;
+    }
+
+    // 2. Background fresh fetch
+    // If we didn't show cache, we show full screen loader. If we showed cache, we do it in the background.
+    if (!hasShownCache) {
+      setLoading(true);
+      setHasSearched(true);
+    }
+
     try {
-      const response = await getStatusByStudentId(targetId.trim());
+      const response = await getStatusByStudentId(trimmedId, true);
       if (response.success) {
-        // Sort by newest first (newest createdAt at index 0)
         const sortedData = [...response.data].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         setResults(sortedData);
+        setHasSearched(true);
+        
         if (sortedData.length > 0) {
-          // Auto-expand the newest request
-          setExpandedId(sortedData[0].id);
-          showToast(`พบคำร้องจำนวน ${sortedData.length} รายการสำหรับนักศึกษานี้`, 'success');
+          if (!expandedId || !sortedData.some(r => r.id === expandedId)) {
+            setExpandedId(sortedData[0].id);
+          }
+          if (!hasShownCache) {
+            showToast(`พบคำร้องจำนวน ${sortedData.length} รายการสำหรับนักศึกษานี้`, 'success');
+          }
         } else {
-          showToast('ไม่พบข้อมูลคำร้องของรหัสนักศึกษานี้', 'info');
+          if (!hasShownCache) {
+            showToast('ไม่พบข้อมูลคำร้องของรหัสนักศึกษานี้', 'info');
+          }
         }
       } else {
-        showToast(response.error || 'ไม่สามารถดึงข้อมูลได้สำเร็จ', 'error');
+        if (!hasShownCache) {
+          showToast(response.error || 'ไม่สามารถดึงข้อมูลได้สำเร็จ', 'error');
+        }
       }
     } catch (err) {
-      showToast('เกิดข้อผิดพลาดในการตรวจสอบสถานะ', 'error');
+      if (!hasShownCache) {
+        showToast('เกิดข้อผิดพลาดในการตรวจสอบสถานะ', 'error');
+      }
     } finally {
       setLoading(false);
     }

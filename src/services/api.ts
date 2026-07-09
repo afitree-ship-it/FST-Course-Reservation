@@ -3,6 +3,11 @@ import { ReservationRequest, RequestStatus } from '../types';
 const API_URL_KEY = 'gs_api_url';
 const LOCAL_OVERRIDES_KEY = 'mock_local_overrides';
 
+// Module-level cache to make queries instantaneous for students and check status
+let cachedRequests: ReservationRequest[] | null = null;
+let lastFetchTime = 0;
+let activeFetchPromise: Promise<{ success: boolean; data?: ReservationRequest[]; error?: string }> | null = null;
+
 export function getApiUrl(): string {
   const saved = localStorage.getItem(API_URL_KEY);
   const oldDefault = 'https://script.google.com/macros/s/AKfycbygnnK7sTVm64hY70dyYYf-17Jh_sBAQQJeK4WDdnfz4sZMTftEUPJdcgCEiHxiETKRfw/exec';
@@ -17,6 +22,10 @@ export function getApiUrl(): string {
 
 export function saveApiUrl(url: string): void {
   localStorage.setItem(API_URL_KEY, url);
+  // Clear cache on API URL change
+  cachedRequests = null;
+  lastFetchTime = 0;
+  activeFetchPromise = null;
 }
 
 export function isApiConfigured(): boolean {
@@ -138,6 +147,9 @@ export async function submitReservation(data: Partial<ReservationRequest>): Prom
       });
       const result = await response.json();
       if (result.success) {
+        // Clear cache so the next call is guaranteed to fetch new data
+        cachedRequests = null;
+        lastFetchTime = 0;
         return { success: true, data: result.data };
       }
       return { success: false, error: result.error || 'เกิดข้อผิดพลาดในการส่งข้อมูล' };
@@ -157,26 +169,51 @@ export async function submitReservation(data: Partial<ReservationRequest>): Prom
   
   requests.push(newReq);
   localStorage.setItem('local_requests', JSON.stringify(requests));
+  
+  // Update cache
+  cachedRequests = requests;
+  lastFetchTime = Date.now();
+  
   return { success: true, data: newReq };
 }
 
-export async function getAllRequests(): Promise<{ success: boolean; data?: ReservationRequest[]; error?: string }> {
+export async function getAllRequests(forceRefresh = false): Promise<{ success: boolean; data?: ReservationRequest[]; error?: string }> {
+  const now = Date.now();
+  // If cache is fresh (less than 15 seconds) and we are not forcing, return cache instantly
+  if (!forceRefresh && cachedRequests && (now - lastFetchTime) < 15000) {
+    return { success: true, data: cachedRequests };
+  }
+
+  // Reuse existing promise if active
+  if (activeFetchPromise) {
+    return activeFetchPromise;
+  }
+
   if (isApiConfigured()) {
-    try {
-      const response = await fetch(`${getApiUrl()}?action=getAllRequests`, {
-        method: 'GET'
-      });
-      const result = await response.json();
-      if (result.success) {
-        return { success: true, data: result.data };
+    activeFetchPromise = (async () => {
+      try {
+        const response = await fetch(`${getApiUrl()}?action=getAllRequests`, {
+          method: 'GET'
+        });
+        const result = await response.json();
+        if (result.success) {
+          cachedRequests = result.data;
+          lastFetchTime = Date.now();
+          return { success: true, data: result.data };
+        }
+        return { success: false, error: result.error || 'เกิดข้อผิดพลาดในการดึงข้อมูล' };
+      } catch (err) {
+        return { success: false, error: 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้' };
+      } finally {
+        activeFetchPromise = null;
       }
-      return { success: false, error: result.error || 'เกิดข้อผิดพลาดในการดึงข้อมูล' };
-    } catch (err) {
-      return { success: false, error: 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้' };
-    }
+    })();
+    return activeFetchPromise;
   }
   
   const requests: ReservationRequest[] = JSON.parse(localStorage.getItem('local_requests') || '[]');
+  cachedRequests = requests;
+  lastFetchTime = Date.now();
   return { success: true, data: requests };
 }
 
@@ -212,6 +249,9 @@ export async function updateStatus(
       });
       const result = await response.json();
       if (result.success) {
+        // Clear cache so the next fetch is guaranteed fresh
+        cachedRequests = null;
+        lastFetchTime = 0;
         return { success: true, data: result.data };
       }
       return { success: false, error: result.error || 'เกิดข้อผิดพลาดในการอัปเดตสถานะ' };
@@ -251,6 +291,11 @@ export async function updateStatus(
     }
     
     localStorage.setItem('local_requests', JSON.stringify(requests));
+    
+    // Update local cache
+    cachedRequests = requests;
+    lastFetchTime = Date.now();
+    
     return { success: true, data: requests[index] };
   }
   
@@ -280,6 +325,9 @@ export async function updateCourseStatus(
       });
       const result = await response.json();
       if (result.success) {
+        // Clear cache so the next fetch is guaranteed fresh
+        cachedRequests = null;
+        lastFetchTime = 0;
         return { success: true, data: result.data };
       }
       return { success: false, error: result.error || 'เกิดข้อผิดพลาดในการอัปเดตสถานะรายวิชา' };
@@ -340,7 +388,29 @@ export async function submitRequest(data: Partial<ReservationRequest>): Promise<
   return submitReservation(data);
 }
 
-export async function getStatusByStudentId(studentId: string): Promise<{ success: boolean; data?: ReservationRequest[]; error?: string }> {
+export function getCachedRequestsByStudentId(studentId: string): ReservationRequest[] | null {
+  if (cachedRequests) {
+    return cachedRequests.filter(r => String(r.studentId).trim() === String(studentId).trim());
+  }
+  return null;
+}
+
+export async function getStatusByStudentId(studentId: string, forceRefresh = false): Promise<{ success: boolean; data?: ReservationRequest[]; error?: string }> {
+  const now = Date.now();
+  // If we have cached requests and they are fresh (less than 15s), return them instantly
+  if (!forceRefresh && cachedRequests && (now - lastFetchTime) < 15000) {
+    const filtered = cachedRequests.filter(r => String(r.studentId).trim() === String(studentId).trim());
+    return { success: true, data: filtered };
+  }
+
+  // Otherwise, pull all requests to warm the cache (highly efficient because it powers all tabs)
+  const result = await getAllRequests(forceRefresh);
+  if (result.success && result.data) {
+    const filtered = result.data.filter(r => String(r.studentId).trim() === String(studentId).trim());
+    return { success: true, data: filtered };
+  }
+
+  // Fallback to direct query if it fails or isn't configured
   if (isApiConfigured()) {
     try {
       const response = await fetch(`${getApiUrl()}?action=getStatusByStudentId&studentId=${encodeURIComponent(studentId)}`, {
@@ -350,15 +420,11 @@ export async function getStatusByStudentId(studentId: string): Promise<{ success
       if (result.success) {
         return { success: true, data: result.data };
       }
-      return { success: false, error: result.error || 'เกิดข้อผิดพลาดในการดึงข้อมูลสถานะ' };
     } catch (err) {
       // Fallback
     }
   }
-  const result = await getAllRequests();
-  if (result.success && result.data) {
-    return { success: true, data: result.data.filter(r => r.studentId === studentId) };
-  }
-  return result;
+
+  return { success: false, error: 'ไม่สามารถดึงข้อมูลสถานะได้' };
 }
 
