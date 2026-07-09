@@ -74,11 +74,57 @@ export async function getSavedAdminPasswords(): Promise<SavedPassword[]> {
   }
 }
 
+export async function syncAdminPasswordsWithGoogleSheets(): Promise<SavedPassword[]> {
+  if (!isApiConfigured()) {
+    return getSavedAdminPasswords();
+  }
+  
+  try {
+    const url = `${getApiUrl()}?action=getAdmins`;
+    const response = await fetch(url, { method: 'GET' });
+    const result = await response.json();
+    
+    if (result.success && Array.isArray(result.data)) {
+      const remoteAdmins: SavedPassword[] = result.data.map((item: any) => ({
+        hash: item.hash || item.แฮชรหัสผ่าน || '',
+        name: item.name || item.ชื่อเจ้าหน้าที่ || 'แอดมินทั่วไป',
+        addedAt: item.addedAt || item.วันที่เพิ่ม || new Date().toISOString()
+      })).filter(item => !!item.hash);
+      
+      if (remoteAdmins.length > 0) {
+        // Keep in local storage as local cache for instant logins
+        localStorage.setItem('admin_password_hashes', JSON.stringify(remoteAdmins));
+        return remoteAdmins;
+      }
+    }
+  } catch (err) {
+    console.error('Error syncing admin passwords from sheet:', err);
+  }
+  
+  return getSavedAdminPasswords();
+}
+
 export async function removeAdminPassword(hash: string): Promise<void> {
   try {
     let data = await getSavedAdminPasswords();
     data = data.filter(p => p.hash !== hash);
     localStorage.setItem('admin_password_hashes', JSON.stringify(data));
+
+    // Sync deletion to Google Sheets
+    if (isApiConfigured()) {
+      try {
+        await fetch(getApiUrl(), {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'deleteAdmin',
+            hash: hash
+          })
+        });
+      } catch (err) {
+        console.error('Failed to delete admin from Google Sheets:', err);
+      }
+    }
   } catch (err) {
     console.error(err);
   }
@@ -89,12 +135,29 @@ export async function addAdminPassword(password: string, name: string): Promise<
     const data = await getSavedAdminPasswords();
     const newHash = await hashString(password);
     if (!data.some(p => p.hash === newHash)) {
-      data.push({ 
+      const newAdmin = { 
         hash: newHash, 
         name: name.trim() || 'แอดมินทั่วไป', 
         addedAt: new Date().toISOString() 
-      });
+      };
+      data.push(newAdmin);
       localStorage.setItem('admin_password_hashes', JSON.stringify(data));
+
+      // Sync creation to Google Sheets
+      if (isApiConfigured()) {
+        try {
+          await fetch(getApiUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'addAdmin',
+              ...newAdmin
+            })
+          });
+        } catch (err) {
+          console.error('Failed to save new admin to Google Sheets:', err);
+        }
+      }
     }
   } catch (err) {
     console.error(err);
@@ -118,14 +181,29 @@ export function adminLogout(): void {
 export async function adminLogin(password: string): Promise<{ success: boolean; name?: string; error?: string }> {
   try {
     const hashedPass = await hashString(password);
-    const savedPasswords = await getSavedAdminPasswords();
+    let savedPasswords = await getSavedAdminPasswords();
     
-    // Check if matching custom admin password
-    const matched = savedPasswords.find(p => p.hash === hashedPass);
+    // 1. Instant local authentication from cache
+    let matched = savedPasswords.find(p => p.hash === hashedPass);
     if (matched) {
       const adminName = matched.name || 'แอดมินทั่วไป';
       localStorage.setItem('logged_in_admin_name', adminName);
       return { success: true, name: adminName };
+    }
+
+    // 2. Fallback to live synchronization check from Google Sheets (handles cases on brand new devices)
+    if (isApiConfigured()) {
+      try {
+        savedPasswords = await syncAdminPasswordsWithGoogleSheets();
+        matched = savedPasswords.find(p => p.hash === hashedPass);
+        if (matched) {
+          const adminName = matched.name || 'แอดมินทั่วไป';
+          localStorage.setItem('logged_in_admin_name', adminName);
+          return { success: true, name: adminName };
+        }
+      } catch (syncErr) {
+        console.error('Failed on-demand login sync:', syncErr);
+      }
     }
 
     return { success: false, error: 'รหัสผ่านไม่ถูกต้อง' };

@@ -82,13 +82,22 @@ export default function App() {
     return localStorage.getItem('custom_logo') || '';
   });
 
+  const [customFavicon, setCustomFavicon] = useState<string>(() => {
+    return localStorage.getItem('custom_favicon') || '';
+  });
+
   useEffect(() => {
     const faviconElement = document.getElementById('web-favicon') as HTMLLinkElement | null;
     if (faviconElement) {
-      if (customLogo) {
-        faviconElement.href = customLogo;
-        if (customLogo.startsWith('data:image/svg+xml') || customLogo.endsWith('.svg')) {
+      const activeFavicon = customFavicon || customLogo;
+      if (activeFavicon) {
+        faviconElement.href = activeFavicon;
+        if (activeFavicon.startsWith('data:image/svg+xml') || activeFavicon.endsWith('.svg')) {
           faviconElement.setAttribute('type', 'image/svg+xml');
+        } else if (activeFavicon.startsWith('data:image/x-icon') || activeFavicon.endsWith('.ico')) {
+          faviconElement.setAttribute('type', 'image/x-icon');
+        } else if (activeFavicon.startsWith('data:image/png') || activeFavicon.endsWith('.png')) {
+          faviconElement.setAttribute('type', 'image/png');
         } else {
           faviconElement.removeAttribute('type');
         }
@@ -98,7 +107,7 @@ export default function App() {
         faviconElement.setAttribute('type', 'image/svg+xml');
       }
     }
-  }, [customLogo]);
+  }, [customFavicon, customLogo]);
 
   useEffect(() => {
     if (darkMode) {
@@ -992,6 +1001,15 @@ export default function App() {
                       localStorage.setItem('custom_logo', newLogo);
                     } else {
                       localStorage.removeItem('custom_logo');
+                    }
+                  }}
+                  customFavicon={customFavicon}
+                  onUpdateFavicon={(newFavicon) => {
+                    setCustomFavicon(newFavicon);
+                    if (newFavicon) {
+                      localStorage.setItem('custom_favicon', newFavicon);
+                    } else {
+                      localStorage.removeItem('custom_favicon');
                     }
                   }}
                 />

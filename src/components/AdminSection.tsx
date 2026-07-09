@@ -32,10 +32,11 @@ import {
   Palette,
   Image as ImageIcon,
   Upload,
-  Link2
+  Link2,
+  X
 } from 'lucide-react';
 import { ReservationRequest, RequestStatus } from '../types';
-import { adminLogin, addAdminPassword, getSavedAdminPasswords, removeAdminPassword, getAllRequests, updateStatus, updateCourseStatus, saveApiUrl, getApiUrl, isApiConfigured, getLoggedInAdminName, adminLogout, hashString } from '../services/api';
+import { adminLogin, addAdminPassword, getSavedAdminPasswords, removeAdminPassword, getAllRequests, updateStatus, updateCourseStatus, saveApiUrl, getApiUrl, isApiConfigured, getLoggedInAdminName, adminLogout, hashString, syncAdminPasswordsWithGoogleSheets } from '../services/api';
 
 interface AdminSectionProps {
   isInitiallyLoggedIn: boolean;
@@ -51,6 +52,8 @@ interface AdminSectionProps {
   onFetchRequests?: () => Promise<void>;
   customLogo?: string;
   onUpdateLogo?: (newLogo: string) => void;
+  customFavicon?: string;
+  onUpdateFavicon?: (newFavicon: string) => void;
 }
 
 export default function AdminSection({ 
@@ -66,7 +69,9 @@ export default function AdminSection({
   setRequests,
   onFetchRequests,
   customLogo,
-  onUpdateLogo
+  onUpdateLogo,
+  customFavicon,
+  onUpdateFavicon
 }: AdminSectionProps) {
   // Authentication states
   const [password, setPassword] = useState('');
@@ -74,12 +79,13 @@ export default function AdminSection({
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loggedInName, setLoggedInName] = useState(getLoggedInAdminName());
 
-  // Google Sheet Integration configuration states
-  const [showGoogleSheetSettings, setShowGoogleSheetSettings] = useState(false);
+  // Unified System Settings states
+  const [showSystemSettings, setShowSystemSettings] = useState(false);
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'database' | 'logo' | 'password'>('database');
 
   // Custom logo configuration states
-  const [showLogoSettings, setShowLogoSettings] = useState(false);
   const [logoInput, setLogoInput] = useState(customLogo || '');
+  const [faviconInput, setFaviconInput] = useState(customFavicon || '');
 
   useEffect(() => {
     if (customLogo !== undefined) {
@@ -87,8 +93,13 @@ export default function AdminSection({
     }
   }, [customLogo]);
 
-  
-  const [showPasswordManager, setShowPasswordManager] = useState(false);
+  useEffect(() => {
+    if (customFavicon !== undefined) {
+      setFaviconInput(customFavicon);
+    }
+  }, [customFavicon]);
+
+  const showPasswordManager = showSystemSettings && activeSettingsTab === 'password';
   const [newAdminPassword, setNewAdminPassword] = useState('');
   const [newAdminName, setNewAdminName] = useState('');
   const [savedPasswords, setSavedPasswords] = useState<{hash: string, name: string, addedAt: string}[]>([]);
@@ -98,7 +109,25 @@ export default function AdminSection({
   useEffect(() => {
     getSavedAdminPasswords().then(passwords => {
       setSavedPasswords(passwords);
-      setHasRegisteredPasswords(passwords.length > 0);
+      if (passwords.length > 0) {
+        setHasRegisteredPasswords(true);
+      }
+      
+      // Perform background sync if API is configured to avoid "First-time Admin Setup" on new devices
+      if (isApiConfigured()) {
+        syncAdminPasswordsWithGoogleSheets().then(synced => {
+          setSavedPasswords(synced);
+          setHasRegisteredPasswords(synced.length > 0);
+        }).catch(() => {
+          if (passwords.length === 0) {
+            setHasRegisteredPasswords(false);
+          }
+        });
+      } else {
+        if (passwords.length === 0) {
+          setHasRegisteredPasswords(false);
+        }
+      }
     });
   }, []);
 
@@ -107,10 +136,10 @@ export default function AdminSection({
   }, [isInitiallyLoggedIn]);
 
   useEffect(() => {
-    if (showPasswordManager) {
+    if (showSystemSettings) {
       getSavedAdminPasswords().then(setSavedPasswords);
     }
-  }, [showPasswordManager]);
+  }, [showSystemSettings]);
 
   const handleDeletePassword = async (hash: string) => {
     if (savedPasswords.length <= 1) {
@@ -293,6 +322,7 @@ export default function AdminSection({
 
 var SPREADSHEET_ID = "1em96LFx0V2eiEyd5F9XbLFGebvHfGrFYXCGZhK22o50";
 var SHEET_NAME = "Requests";
+var ADMINS_SHEET_NAME = "Admins";
 
 function getSheet() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -322,6 +352,18 @@ function getSheet() {
     ]);
     // ปรับรูปแบบหัวตาราง
     sheet.getRange(1, 1, 1, 17).setFontWeight("bold").setBackground("#5F0F40").setFontColor("#FFFFFF");
+  }
+  return sheet;
+}
+
+function getAdminsSheet() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(ADMINS_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(ADMINS_SHEET_NAME);
+    // บันทึกหัวข้อคอลัมน์ (Headers)
+    sheet.appendRow(["แฮชรหัสผ่าน", "ชื่อเจ้าหน้าที่", "วันที่เพิ่ม"]);
+    sheet.getRange(1, 1, 1, 3).setFontWeight("bold").setBackground("#3B82F6").setFontColor("#FFFFFF");
   }
   return sheet;
 }
@@ -431,6 +473,19 @@ function doGet(e) {
       }
       
       out = { success: true, data: results };
+
+    } else if (action === "getAdmins") {
+      var adminSheet = getAdminsSheet();
+      var adminRows = adminSheet.getDataRange().getValues();
+      var admins = [];
+      for (var i = 1; i < adminRows.length; i++) {
+        admins.push({
+          hash: String(adminRows[i][0]),
+          name: String(adminRows[i][1]),
+          addedAt: String(adminRows[i][2])
+        });
+      }
+      out = { success: true, data: admins };
     }
   } catch (err) {
     out = { success: false, error: err.toString() };
@@ -519,9 +574,39 @@ function doPost(e) {
         }
       };
       
-    } else if (action === "adminLogin") {
-      out = { success: false, error: "กรุณาใช้รหัสผ่านแอดมินที่สร้างจากระบบแอดมินบนเว็บแอปเท่านั้น" };
+    } else if (action === "addAdmin") {
+      var adminSheet = getAdminsSheet();
+      var hash = postData.hash;
+      var name = postData.name;
+      var addedAt = postData.addedAt || new Date().toISOString();
       
+      // Check if duplicate
+      var adminRows = adminSheet.getDataRange().getValues();
+      var exists = false;
+      for (var i = 1; i < adminRows.length; i++) {
+        if (String(adminRows[i][0]) === String(hash)) {
+          exists = true;
+          break;
+        }
+      }
+      if (!exists) {
+        adminSheet.appendRow([hash, name, addedAt]);
+      }
+      out = { success: true };
+      
+    } else if (action === "deleteAdmin") {
+      var adminSheet = getAdminsSheet();
+      var hash = postData.hash;
+      var adminRows = adminSheet.getDataRange().getValues();
+      var deleted = false;
+      for (var i = adminRows.length - 1; i >= 1; i--) {
+        if (String(adminRows[i][0]) === String(hash)) {
+          adminSheet.deleteRow(i + 1);
+          deleted = true;
+        }
+      }
+      out = { success: true, deleted: deleted };
+
     } else if (action === "updateStatus") {
       var requestId = postData.requestId;
       var status = postData.status;
@@ -1137,62 +1222,22 @@ function doPost(e) {
           </div>
           
           <div className="flex items-center gap-2 self-stretch sm:self-auto flex-wrap sm:flex-nowrap">
+            <button
+              onClick={() => setShowSystemSettings(true)}
+              className="flex-1 sm:flex-initial px-3.5 py-1.5 text-xs font-black font-sans rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 border bg-slate-50 text-slate-700 border-slate-250 hover:bg-slate-100 hover:border-slate-350 shadow-3xs"
+              id="btn-toggle-system-settings"
+              title="ตั้งค่าปรับแต่งระบบทั้งหมด (จัดการรหัสผ่าน, ตั้งค่าฐานข้อมูล, รูปโลโก้ & Favicon)"
+            >
+              <Settings className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+              <span>ตั้งค่าระบบ</span>
+            </button>
+
             {loggedInName && (
               <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-mangosteen/15 text-mangosteen border border-mangosteen/25 rounded-lg text-xs font-bold font-sans">
                 <User className="w-3.5 h-3.5 text-mangosteen" />
                 <span>เจ้าหน้าที่: {loggedInName}</span>
               </div>
             )}
-
-            {notificationPermission === 'granted' && (
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/40 rounded-lg text-xs font-bold font-sans" title="ระบบแจ้งเตือนแบบเรียลไทม์บนเบราว์เซอร์พร้อมทำงาน">
-                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping shrink-0"></span>
-                <span>เปิดแจ้งเตือนเว็บแล้ว</span>
-              </div>
-            )}
-
-            <button
-              onClick={() => setShowPasswordManager(true)}
-              className="flex-1 sm:flex-initial px-3 py-1.5 text-xs font-bold font-sans rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 border bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 hover:border-indigo-300 shadow-3xs"
-              title="จัดการหรือเพิ่มบัญชีรหัสผ่านผู้ดูแลระบบในเครื่องนี้"
-            >
-              <Key className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-              จัดการรหัสผ่าน
-            </button>
-
-            <button
-              onClick={() => {
-                setShowGoogleSheetSettings(!showGoogleSheetSettings);
-                setShowLogoSettings(false);
-              }}
-              className={`flex-1 sm:flex-initial px-3 py-1.5 text-xs font-bold font-sans rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 border ${
-                showGoogleSheetSettings
-                  ? 'bg-amber-100 text-amber-900 border-amber-300 shadow-inner'
-                  : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 hover:border-amber-300 shadow-3xs'
-              }`}
-              id="btn-toggle-sheet-settings"
-              title="ตั้งค่าเชื่อมโยงสเปรดชีตฐานข้อมูลด้วย Google Sheets Web App"
-            >
-              <Settings className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-              {showGoogleSheetSettings ? 'ปิดตั้งค่าฐานข้อมูล' : 'ตั้งค่าฐานข้อมูล'}
-            </button>
-
-            <button
-              onClick={() => {
-                setShowLogoSettings(!showLogoSettings);
-                setShowGoogleSheetSettings(false);
-              }}
-              className={`flex-1 sm:flex-initial px-3 py-1.5 text-xs font-bold font-sans rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 border ${
-                showLogoSettings
-                  ? 'bg-purple-100 text-purple-900 border-purple-300 shadow-inner'
-                  : 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100 hover:border-purple-300 shadow-3xs'
-              }`}
-              id="btn-toggle-logo-settings"
-              title="ตั้งค่าปรับแต่งรูปโลโก้ประจำเว็บไซค์ตามใจคุณ"
-            >
-              <Palette className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-              {showLogoSettings ? 'ปิดตั้งค่ารูปโลโก้' : 'ตั้งค่ารูปโลโก้'}
-            </button>
             
             <div className="h-6 w-px bg-slate-200 hidden sm:block mx-1"></div>
 
@@ -1208,281 +1253,7 @@ function doPost(e) {
           </div>
         </div>
 
-        <AnimatePresence>
-          {showLogoSettings && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.25 }}
-              className="overflow-hidden"
-              id="logo-settings-container"
-            >
-              <div className="bg-slate-50 rounded-xl p-5 border border-slate-200/60 font-sans space-y-4 mb-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200/50 pb-2.5 gap-2">
-                  <span className="text-xs font-black text-slate-750 flex items-center gap-1.5 font-sans">
-                    <Palette className="w-4 h-4 text-purple-600" />
-                    ตั้งค่ารูปภาพโลโก้ประจำระบบ (Customize System Logo / Icon)
-                  </span>
-                  
-                  {customLogo ? (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-200">
-                      ใช้งานโลโก้กำหนดเอง (Custom Logo Active)
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-                      ใช้งานโลโก้เริ่มต้น (Default FST FTU Logo)
-                    </span>
-                  )}
-                </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-start">
-                  {/* Left panel: Preview */}
-                  <div className="md:col-span-3 flex flex-col items-center justify-center p-4 bg-white rounded-xl border border-slate-200/80 shadow-3xs">
-                    <span className="text-[10px] font-bold text-slate-400 mb-3 uppercase tracking-wider">ตัวอย่างการแสดงผล (Preview)</span>
-                    <div className="w-20 h-20 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden shadow-inner group">
-                      {logoInput ? (
-                        <img 
-                          src={logoInput} 
-                          alt="Logo Preview" 
-                          className="w-full h-full object-cover" 
-                          referrerPolicy="no-referrer"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23f43f5e' stroke-width='2'%3E%3Crect x='3' y='3' width='18' height='18' rx='2' ry='2'%3E%3C/rect%3E%3Cline x1='9' y1='9' x2='15' y2='15'%3E%3C/line%3E%3Cline x1='15' y1='9' x2='9' y2='15'%3E%3C/line%3E%3C/svg%3E";
-                          }}
-                        />
-                      ) : (
-                        <div className="flex flex-col items-center justify-center text-slate-300">
-                          <ImageIcon className="w-8 h-8 stroke-1" />
-                          <span className="text-[10px] font-bold mt-1 text-slate-400">เริ่มต้น</span>
-                        </div>
-                      )}
-                    </div>
-                    {logoInput && (
-                      <span className="text-[10px] font-semibold text-slate-500 mt-2 text-center break-all max-w-full">
-                        {logoInput.startsWith('data:') ? 'รูปภาพที่อัปโหลด' : 'ลิงก์ภายนอก'}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Right panel: Controls */}
-                  <div className="md:col-span-9 space-y-4">
-                    <p className="text-xs text-slate-500 leading-relaxed font-sans">
-                      คุณสามารถปรับเปลี่ยนโลโก้คณะมุมบนซ้ายได้ทันที โดยเลือกอัปโหลดรูปภาพจากอุปกรณ์ของคุณโดยตรง หรือวางลิงก์รูปภาพสาธารณะใดๆ เพื่อความสะดวก
-                    </p>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {/* Method A: Upload Image File */}
-                      <div className="space-y-2 p-3 bg-white rounded-xl border border-slate-200/60">
-                        <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                          <Upload className="w-3.5 h-3.5 text-purple-600" />
-                          วิธีที่ 1: อัปโหลดรูปภาพจากเครื่อง
-                        </span>
-                        
-                        <div className="relative border-2 border-dashed border-slate-200 hover:border-purple-300 rounded-lg p-3 text-center transition-colors cursor-pointer bg-slate-50 hover:bg-purple-50/20 group">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                if (file.size > 2 * 1024 * 1024) {
-                                  showToast('ขนาดไฟล์รูปภาพโลโก้ใหญ่เกินไป จำกัดไม่เกิน 2MB', 'warning');
-                                  return;
-                                }
-                                const reader = new FileReader();
-                                reader.onload = () => {
-                                  if (typeof reader.result === 'string') {
-                                    setLogoInput(reader.result);
-                                    showToast('โหลดรูปภาพเตรียมบันทึกเรียบร้อย', 'success');
-                                  }
-                                };
-                                reader.readAsDataURL(file);
-                              }
-                            }}
-                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                          />
-                          <ImageIcon className="w-5 h-5 mx-auto text-slate-400 group-hover:text-purple-500 transition-colors mb-1" />
-                          <span className="block text-[10px] font-bold text-slate-500 group-hover:text-purple-600">คลิกเพื่อเลือกไฟล์รูปภาพ</span>
-                          <span className="block text-[9px] text-slate-400">ขนาดไม่เกิน 2MB (PNG, JPG, SVG, WebP)</span>
-                        </div>
-                      </div>
-
-                      {/* Method B: URL input */}
-                      <div className="space-y-2 p-3 bg-white rounded-xl border border-slate-200/60 flex flex-col justify-between">
-                        <div>
-                          <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1 mb-1.5">
-                            <Link2 className="w-3.5 h-3.5 text-purple-600" />
-                            วิธีที่ 2: ใช้ลิงก์ที่อยู่รูปภาพ (Image URL)
-                          </span>
-                          <input
-                            type="text"
-                            placeholder="https://example.com/logo-image.png"
-                            value={logoInput.startsWith('data:') ? '' : logoInput}
-                            onChange={(e) => setLogoInput(e.target.value)}
-                            className="w-full px-3 py-2 text-xs rounded-lg border border-slate-250 focus:outline-hidden focus:border-purple-500 focus:ring-1 focus:ring-purple-500 font-mono"
-                          />
-                        </div>
-                        <span className="text-[9px] text-slate-400 leading-tight block mt-1.5">
-                          * วางลิงก์รูปภาพสาธารณะจากอินเทอร์เน็ต เช่น ลิงก์ที่โฮสต์บนเว็บฝากรูปหรือเซิร์ฟเวอร์ของคุณ
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 pt-1.5">
-                      <button
-                        onClick={() => {
-                          if (onUpdateLogo) {
-                            onUpdateLogo(logoInput);
-                            showToast('บันทึกปรับแต่งรูปโลโก้เสร็จสมบูรณ์ ระบบกำลังอัปเดตมุมมองหลัก...', 'success');
-                          }
-                        }}
-                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-sans text-xs font-bold rounded-lg cursor-pointer transition-colors shadow-xs flex items-center gap-1.5"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        บันทึกรูปภาพโลโก้
-                      </button>
-
-                      {logoInput && (
-                        <button
-                          onClick={() => {
-                            setLogoInput('');
-                            if (onUpdateLogo) {
-                              onUpdateLogo('');
-                              showToast('รีเซ็ตโลโก้กลับเป็นค่าเริ่มต้น FST FTU สำเร็จ!', 'info');
-                            }
-                          }}
-                          className="px-3 py-2 border border-slate-200 hover:bg-slate-100 text-slate-600 font-sans text-xs rounded-lg cursor-pointer transition-colors"
-                        >
-                          คืนค่าเริ่มต้น
-                        </button>
-                      )}
-                    </div>
-
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <AnimatePresence>
-          {showGoogleSheetSettings && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.25 }}
-              className="overflow-hidden"
-              id="sheet-settings-container"
-            >
-              <div className="bg-slate-50 rounded-xl p-4 border border-slate-200/60 font-sans space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-200/50 pb-2.5">
-                  <span className="text-xs font-black text-slate-750 flex items-center gap-1.5 font-sans">
-                    <Database className="w-4 h-4 text-mangosteen" />
-                    เชื่อมโยงฐานข้อมูลแผ่นงานหลัก (Google Sheets Configuration)
-                  </span>
-                  
-                  <div>
-                    {isApiConfigured() ? (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-850 border border-emerald-200">
-                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-1.5 animate-pulse"></span>
-                        ระบบเชื่อมต่อสเปรดชีตสด (API Live Mode)
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
-                        <span className="w-1.5 h-1.5 bg-amber-500 rounded-full mr-1.5 animate-pulse"></span>
-                        โหมดจำลอง (Demo Local Storage)
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <p className="text-xs text-slate-500 font-sans leading-relaxed">
-                  เชื่อมต่อตรงกับสเปรดชีตของคุณ <strong>https://docs.google.com/spreadsheets/d/1em96LFx0V2eiEyd5F9XbLFGebvHfGrFYXCGZhK22o50/edit</strong> ผ่านทาง Google Apps Script Web App เพื่อใช้ร่วมกันพิจารณาคุณสมบัติแบบหลายวิชาพร้อมกัน (Multi-course setup)
-                </p>
-
-                <div className="space-y-2">
-                  <label className="block text-xs font-bold text-slate-700 font-sans">
-                    URL ของเว็บแอปพลิเคชัน Google Apps Script (Web App Deployment URL)
-                  </label>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <input
-                      type="text"
-                      className="flex-1 px-3 py-2 text-xs font-mono rounded-lg border border-slate-350 focus:outline-hidden focus:border-mangosteen focus:ring-1 focus:ring-mangosteen"
-                      placeholder="https://script.google.com/macros/s/AKfycb.../exec"
-                      value={gasUrlInput}
-                      onChange={(e) => setGasUrlInput(e.target.value)}
-                    />
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={handleSaveGasUrl}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-sans text-xs font-bold rounded-lg cursor-pointer transition-colors shadow-xs flex items-center gap-1.5"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        บันทึกเชื่อมต่อ
-                      </button>
-                      <button
-                        onClick={handleTestConnection}
-                        disabled={isTestingConnection}
-                        className="px-3 py-2 bg-slate-705 hover:bg-slate-800 text-white font-sans text-xs font-bold rounded-lg cursor-pointer transition-colors flex items-center gap-1"
-                      >
-                        {isTestingConnection ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Settings className="w-3 h-3" />}
-                        ทดสอบการติดต่อ
-                      </button>
-                      {isApiConfigured() && (
-                        <button
-                          onClick={handleDisconnectGas}
-                          className="px-3 py-2 border border-rose-300 hover:bg-rose-50 text-rose-600 font-sans text-xs rounded-lg cursor-pointer transition-colors"
-                        >
-                          ตัดการเชื่อมต่อ
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-slate-200">
-                  <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                    <div className="p-3 bg-slate-100 flex items-center justify-between border-b border-slate-200">
-                      <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                        <Settings className="w-3.5 h-3.5 text-mangosteen" />
-                        โค้ด Google Apps Script สำหรับคัดลอกลงชีต (ติดตั้งครั้งเดียว)
-                      </div>
-                      <button
-                        onClick={handleCopyCode}
-                        className={`px-2.5 py-1 text-[10px] items-center font-bold font-sans rounded-md transition-all cursor-pointer flex gap-1 ${
-                          isCopied
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-mangosteen text-white hover:bg-mangosteen-hover shadow-xs'
-                        }`}
-                      >
-                        {isCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                        {isCopied ? 'คัดลอกสำเร็จแล้ว!' : 'คัดลอกโค้ดหลัก'}
-                      </button>
-                    </div>
-                    <div className="p-3 bg-slate-900 overflow-x-auto">
-                      <pre className="text-[10px] font-mono text-emerald-400 max-h-48 overflow-y-auto leading-normal whitespace-pre">
-                        {getGoogleAppsScriptCode()}
-                      </pre>
-                    </div>
-                    <div className="p-3 bg-indigo-50 border-t border-indigo-100 text-xs text-indigo-900 leading-relaxed space-y-1">
-                      <div className="font-bold">💡 คำแนะนำสั้นในการติดตั้ง (5 นาทีก็เสร็จ):</div>
-                      <ol className="list-decimal list-inside space-y-1 text-slate-700 pl-1">
-                        <li>เปิดสเปรดชีตของคุณในแท็บใหม่</li>
-                        <li>กดเมนู <strong>Extensions (ส่วนขยาย)</strong> &gt; <strong>Apps Script</strong></li>
-                        <li>ลบสคริปต์เก่าออกทั้งหมด แล้วกด <strong>วาง (Paste)</strong> โค้ดที่คัดลอกจากด้านบนนี้ลงไป</li>
-                        <li>กด <strong>บันทึก (แผ่นดิสก์)</strong> จากนั้นกดปุ่ม <strong>Deploy (การใช้งานด้านบนแอดมิน)</strong> &gt; เลือก <strong>New deployment</strong></li>
-                        <li>เลือกประเภทเป็น <strong>Web app</strong> ตั้งค่า <em>Execute as: Me</em> และ <em>Who has access: Anyone</em></li>
-                        <li>กดจัดส่ง (Deploy) อนุญาตสิทธิ์แล้วคัดลอก <strong>Web app URL</strong> นำมาวางที่ปุ่มตั้งค่านะครับ!</li>
-                      </ol>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         {/* Filters and search panel */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 border-t border-slate-100 pt-4" id="admin-filters-bar">
@@ -1596,14 +1367,14 @@ function doPost(e) {
         <button
           onClick={() => {
             fetchRequests();
-            showToast('กำลังซิงค์อัปเดตดึงข้อมูลล่าสุดจาก Google Sheets...', 'success');
+            showToast('กำลังซิงค์อัปเดตดึงข้อมูลล่าสุด...', 'success');
           }}
           disabled={loadingRequests}
-          className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-sans text-xs font-black rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 shadow-md shadow-emerald-600/25 border-none active:scale-[0.98] disabled:opacity-50 select-none"
-          title="ดึงข้อมูลคำร้องสำรองที่นั่งวิชาเรียนล่าสุดจากฐานข้อมูล Google Sheets"
+          className="w-full sm:w-auto px-5 py-2.5 bg-slate-600 hover:bg-slate-700 text-white font-sans text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 border border-slate-600 active:scale-[0.98] disabled:opacity-50 select-none shadow-3xs"
+          title="ดึงข้อมูลล่าสุด"
         >
-          <RefreshCw className={`w-4 h-4 ${loadingRequests ? 'animate-spin' : ''}`} />
-          <span>{loadingRequests ? 'กำลังดึงข้อมูลในระบบ...' : 'กดดึงข้อมูลล่าสุดจากระบบ (Sync Google Sheets)'}</span>
+          <RefreshCw className={`w-3.5 h-3.5 ${loadingRequests ? 'animate-spin' : ''}`} />
+          <span>{loadingRequests ? 'กำลังดึงข้อมูลล่าสุด...' : 'ดึงข้อมูลล่าสุด'}</span>
         </button>
       </div>
 
@@ -2203,133 +1974,532 @@ function doPost(e) {
       </AnimatePresence>
 
       
-      {/* Password Manager Modal */}
+      {/* Unified System Settings Modal */}
       <AnimatePresence>
-        {showPasswordManager && (
+        {showSystemSettings && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+              className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-100"
             >
-              <div className="p-4 border-b border-slate-100 flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
-                  <Key className="w-4 h-4 text-slate-600" />
-                </div>
-                <h3 className="font-extrabold font-sans text-slate-800">จัดการรหัสผ่าน (ในอุปกรณ์นี้)</h3>
-              </div>
-              <div className="p-5 space-y-4 overflow-y-auto">
-                <div className="space-y-3">
-                  <h4 className="text-xs font-extrabold text-slate-700 font-sans border-b border-slate-100 pb-1.5 uppercase tracking-wide">ลงทะเบียนรหัสเจ้าหน้าที่ใหม่</h4>
-                  
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-500 mb-1 font-sans">
-                      ชื่อเจ้าหน้าที่แอดมิน <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={newAdminName}
-                      onChange={e => setNewAdminName(e.target.value)}
-                      placeholder="เช่น อ.อาฟีตรี, อนันต์"
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-sans focus:outline-hidden focus:border-mangosteen focus:ring-2 focus:ring-mangosteen/20 mb-2.5"
-                    />
+              {/* Header */}
+              <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center shrink-0">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-mangosteen/10 flex items-center justify-center shrink-0">
+                    <Settings className="w-4 h-4 text-mangosteen" />
                   </div>
-
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-500 mb-1 font-sans">
-                      รหัสผ่านสำหรับการเข้าสู่ระบบ <span className="text-rose-500">*</span>
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="password"
-                        value={newAdminPassword}
-                        onChange={e => setNewAdminPassword(e.target.value)}
-                        placeholder="กำหนดรหัสผ่าน"
-                        className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-sans focus:outline-hidden focus:border-mangosteen focus:ring-2 focus:ring-mangosteen/20"
-                      />
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!newAdminName.trim()) {
-                            showToast('กรุณากรอกชื่อเจ้าหน้าที่แอดมิน', 'warning');
-                            return;
-                          }
-                          if (!newAdminPassword.trim()) {
-                            showToast('กรุณากรอกรหัสผ่านสำหรับเข้าสู่ระบบ', 'warning');
-                            return;
-                          }
-
-                          // Prevent duplicates and hash collisions
-                          const hashed = await hashString(newAdminPassword.trim());
-                          const existsHash = savedPasswords.some(p => p.hash === hashed);
-                          if (existsHash) {
-                            showToast('รหัสผ่านนี้ถูกใช้ในระบบแล้ว กรุณาใช้รหัสผ่านอื่นเพื่อความปลอดภัย', 'warning');
-                            return;
-                          }
-                          const existsName = savedPasswords.some(p => p.name.trim().toLowerCase() === newAdminName.trim().toLowerCase());
-                          if (existsName) {
-                            showToast('ชื่อผู้ดูแลระบบนี้มีอยู่แล้วในเครื่องนี้ กรุณาใช้ชื่ออื่น', 'warning');
-                            return;
-                          }
-
-                          await addAdminPassword(newAdminPassword.trim(), newAdminName.trim());
-                          showToast('เพิ่มรหัสผ่านและชื่อเจ้าหน้าที่คณะใหม่เรียบร้อยแล้ว', 'success');
-                          setNewAdminPassword('');
-                          setNewAdminName('');
-                          const latest = await getSavedAdminPasswords();
-                          setSavedPasswords(latest);
-                        }}
-                        className="px-4 py-2 text-xs font-bold text-white bg-mangosteen hover:bg-mangosteen-hover rounded-xl transition-colors shadow-sm cursor-pointer whitespace-nowrap"
-                      >
-                        บันทึกรหัส
-                      </button>
-                    </div>
+                    <h3 className="font-extrabold font-sans text-slate-800 text-sm">ตั้งค่าระบบ (System Settings)</h3>
+                    <p className="text-[10px] text-slate-400 font-sans">จัดการฐานข้อมูล, ปรับแต่งหน้าเว็บ และบัญชีแอดมิน</p>
                   </div>
-
-                  <p className="text-[10px] text-slate-400 leading-relaxed italic">
-                    * รหัสผ่านจะถูกเข้ารหัส SHA-256 (Hash) อย่างปลอดภัยและบันทึกในอุปกรณ์นี้
-                  </p>
                 </div>
-                
-                <div className="pt-3 border-t border-slate-100">
-                  <label className="block text-xs font-extrabold text-slate-600 mb-2 font-sans uppercase tracking-wider">
-                    รหัสผ่านเจ้าหน้าที่ในระบบ ({savedPasswords.length})
-                  </label>
-                  {savedPasswords.length === 0 ? (
-                    <div className="text-center py-4 bg-slate-50 rounded-xl border border-slate-100">
-                      <p className="text-xs text-slate-400 font-sans">ไม่มีรหัสผ่านสำรองที่บันทึกไว้ในอุปกรณ์นี้</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                      {savedPasswords.map((p, idx) => (
-                        <div key={idx} className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-100 rounded-xl">
-                          <div className="space-y-0.5">
-                            <div className="text-xs font-extrabold text-slate-800 font-sans flex items-center gap-1">
-                              <User className="w-3.5 h-3.5 text-slate-400" />
-                              <span>{p.name || 'เจ้าหน้าที่คณะ'}</span>
-                            </div>
-                            <div className="text-[9px] text-slate-400 font-mono truncate max-w-[150px]" title={p.hash}>
-                              แฮช: {p.hash.substring(0, 16)}...
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => handleDeletePassword(p.hash)}
-                            className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                            title="ลบรหัสผ่านนี้"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
                 <button
                   type="button"
-                  onClick={() => setShowPasswordManager(false)}
+                  onClick={() => setShowSystemSettings(false)}
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-200/50 cursor-pointer transition-colors"
+                  title="ปิดหน้าต่าง"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Tabs list */}
+              <div className="flex bg-slate-100/85 p-1 border-b border-slate-250/30 gap-1 shrink-0">
+                <button
+                  onClick={() => setActiveSettingsTab('database')}
+                  className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold font-sans flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                    activeSettingsTab === 'database'
+                      ? 'bg-white text-mangosteen shadow-3xs border border-slate-200/40'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+                  }`}
+                >
+                  <Database className="w-3.5 h-3.5" />
+                  <span>ตั้งค่าฐานข้อมูล</span>
+                </button>
+                <button
+                  onClick={() => setActiveSettingsTab('logo')}
+                  className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold font-sans flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                    activeSettingsTab === 'logo'
+                      ? 'bg-white text-mangosteen shadow-3xs border border-slate-200/40'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+                  }`}
+                >
+                  <Palette className="w-3.5 h-3.5" />
+                  <span>ตั้งค่ารูปโลโก้ & Favicon</span>
+                </button>
+                <button
+                  onClick={() => setActiveSettingsTab('password')}
+                  className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold font-sans flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                    activeSettingsTab === 'password'
+                      ? 'bg-white text-mangosteen shadow-3xs border border-slate-200/40'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+                  }`}
+                >
+                  <Key className="w-3.5 h-3.5" />
+                  <span>จัดการรหัสผ่าน</span>
+                </button>
+              </div>
+
+              {/* Tab Contents */}
+              <div className="p-5 overflow-y-auto space-y-4 flex-1">
+                {activeSettingsTab === 'database' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                      <span className="text-xs font-extrabold text-slate-750 flex items-center gap-1.5 font-sans">
+                        <Database className="w-4 h-4 text-mangosteen" />
+                        เชื่อมโยงฐานข้อมูลแผ่นงานหลัก (Google Sheets Configuration)
+                      </span>
+                      
+                      <div>
+                        {isApiConfigured() ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-850 border border-emerald-200">
+                            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-1.5 animate-pulse"></span>
+                            ระบบเชื่อมต่อสเปรดชีตสด (API Live Mode)
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-850 border border-amber-200">
+                            <span className="w-1.5 h-1.5 bg-amber-500 rounded-full mr-1.5 animate-pulse"></span>
+                            โหมดจำลอง (Demo Local Storage)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-slate-500 font-sans leading-relaxed">
+                      เชื่อมต่อตรงกับสเปรดชีตของคุณ <strong>https://docs.google.com/spreadsheets/d/1em96LFx0V2eiEyd5F9XbLFGebvHfGrFYXCGZhK22o50/edit</strong> ผ่านทาง Google Apps Script Web App เพื่อใช้ร่วมกันพิจารณาคุณสมบัติแบบหลายวิชาพร้อมกัน (Multi-course setup)
+                    </p>
+
+                    <div className="space-y-2">
+                      <label className="block text-xs font-bold text-slate-700 font-sans">
+                        URL ของเว็บแอปพลิเคชัน Google Apps Script (Web App Deployment URL)
+                      </label>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="text"
+                          className="flex-1 px-3 py-2 text-xs font-mono rounded-lg border border-slate-350 focus:outline-hidden focus:border-mangosteen focus:ring-1 focus:ring-mangosteen bg-slate-50/50"
+                          placeholder="https://script.google.com/macros/s/AKfycb.../exec"
+                          value={gasUrlInput}
+                          onChange={(e) => setGasUrlInput(e.target.value)}
+                        />
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={handleSaveGasUrl}
+                            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-sans text-xs font-bold rounded-lg cursor-pointer transition-colors shadow-xs flex items-center gap-1.5"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            บันทึกเชื่อมต่อ
+                          </button>
+                          <button
+                            onClick={handleTestConnection}
+                            disabled={isTestingConnection}
+                            className="px-3 py-2 bg-slate-700 hover:bg-slate-800 text-white font-sans text-xs font-bold rounded-lg cursor-pointer transition-colors flex items-center gap-1 disabled:opacity-50"
+                          >
+                            {isTestingConnection ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Settings className="w-3 h-3" />}
+                            ทดสอบ
+                          </button>
+                          {isApiConfigured() && (
+                            <button
+                              onClick={handleDisconnectGas}
+                              className="px-3 py-2 border border-rose-300 hover:bg-rose-50 text-rose-600 font-sans text-xs rounded-lg cursor-pointer transition-colors"
+                            >
+                              ตัดการเชื่อมต่อ
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100">
+                      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                        <div className="p-3 bg-slate-100 flex items-center justify-between border-b border-slate-200">
+                          <div className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                            <Settings className="w-3.5 h-3.5 text-mangosteen" />
+                            โค้ด Google Apps Script สำหรับคัดลอกลงชีต (ติดตั้งครั้งเดียว)
+                          </div>
+                          <button
+                            onClick={handleCopyCode}
+                            className={`px-2.5 py-1 text-[10px] items-center font-bold font-sans rounded-md transition-all cursor-pointer flex gap-1 ${
+                              isCopied
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-mangosteen text-white hover:bg-mangosteen-hover shadow-xs'
+                            }`}
+                          >
+                            {isCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                            {isCopied ? 'คัดลอกสำเร็จแล้ว!' : 'คัดลอกโค้ดหลัก'}
+                          </button>
+                        </div>
+                        <div className="p-3 bg-slate-900 overflow-x-auto">
+                          <pre className="text-[10px] font-mono text-emerald-400 max-h-40 overflow-y-auto leading-normal whitespace-pre">
+                            {getGoogleAppsScriptCode()}
+                          </pre>
+                        </div>
+                        <div className="p-3 bg-indigo-50 border-t border-indigo-100 text-[11px] text-indigo-900 leading-relaxed space-y-1">
+                          <div className="font-bold">💡 คำแนะนำสั้นในการติดตั้ง (5 นาทีก็เสร็จ):</div>
+                          <ol className="list-decimal list-inside space-y-1 text-slate-700 pl-1">
+                            <li>เปิดสเปรดชีตของคุณในแท็บใหม่</li>
+                            <li>กดเมนู <strong>Extensions (ส่วนขยาย)</strong> &gt; <strong>Apps Script</strong></li>
+                            <li>ลบสคริปต์เก่าออกทั้งหมด แล้วกด <strong>วาง (Paste)</strong> โค้ดที่คัดลอกจากด้านบนนี้ลงไป</li>
+                            <li>กด <strong>บันทึก (แผ่นดิสก์)</strong> จากนั้นกดปุ่ม <strong>Deploy (การใช้งานด้านบนแอดมิน)</strong> &gt; เลือก <strong>New deployment</strong></li>
+                            <li>เลือกประเภทเป็น <strong>Web app</strong> ตั้งค่า <em>Execute as: Me</em> และ <em>Who has access: Anyone</em></li>
+                            <li>กดจัดส่ง (Deploy) อนุญาตสิทธิ์แล้วคัดลอก <strong>Web app URL</strong> นำมาวางที่ปุ่มตั้งค่านะครับ!</li>
+                          </ol>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeSettingsTab === 'logo' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                      <span className="text-xs font-extrabold text-slate-750 flex items-center gap-1.5 font-sans">
+                        <Palette className="w-4 h-4 text-purple-600" />
+                        ตั้งค่ารูปภาพปรับแต่งระบบ (Customize System Logo & Web Favicon)
+                      </span>
+                      
+                      <div className="flex gap-1.5 flex-wrap">
+                        {customLogo ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                            ใช้งานโลโก้กำหนดเอง
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                            ใช้งานโลโก้เริ่มต้น
+                          </span>
+                        )}
+                        {customFavicon ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                            ใช้งาน Favicon กำหนดเอง
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                            ใช้งาน Favicon เริ่มต้น
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* --- BLOCK A: MAIN SYSTEM LOGO (TOP LEFT) --- */}
+                    <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-200/50 space-y-4">
+                      <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
+                        <div className="w-2.5 h-2.5 rounded-full bg-purple-500"></div>
+                        <span className="text-xs font-extrabold text-slate-700">1. โลโก้หลักของระบบ (System Logo - แสดงตรงมุมบนซ้าย)</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                        {/* Preview Area */}
+                        <div className="md:col-span-3 flex flex-col items-center justify-center p-3 bg-slate-100/50 rounded-lg border border-slate-200">
+                          <span className="text-[9px] font-black text-slate-400 mb-2 uppercase tracking-wider">ตัวอย่างโลโก้</span>
+                          <div className="w-14 h-14 bg-white rounded-xl border border-slate-200 flex items-center justify-center overflow-hidden shadow-3xs">
+                            {logoInput ? (
+                              <img 
+                                src={logoInput} 
+                                alt="Logo Preview" 
+                                className="w-full h-full object-cover" 
+                                referrerPolicy="no-referrer"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23f43f5e' stroke-width='2'%3E%3Crect x='3' y='3' width='18' height='18' rx='2' ry='2'%3E%3C/rect%3E%3Cline x1='9' y1='9' x2='15' y2='15'%3E%3C/line%3E%3Cline x1='15' y1='9' x2='9' y2='15'%3E%3C/line%3E%3C/svg%3E";
+                                }}
+                              />
+                            ) : (
+                              <div className="flex flex-col items-center justify-center text-slate-300">
+                                <ImageIcon className="w-5 h-5 stroke-1" />
+                                <span className="text-[8px] font-bold mt-0.5 text-slate-400">เริ่มต้น</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Inputs Area */}
+                        <div className="md:col-span-9 space-y-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {/* Upload File */}
+                            <div className="relative border border-dashed border-slate-250 hover:border-purple-300 rounded-lg p-2.5 text-center transition-all bg-white hover:bg-purple-50/10 cursor-pointer group">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    if (file.size > 2 * 1024 * 1024) {
+                                      showToast('ขนาดไฟล์รูปภาพโลโก้ใหญ่เกินไป จำกัดไม่เกิน 2MB', 'warning');
+                                      return;
+                                    }
+                                    const reader = new FileReader();
+                                    reader.onload = () => {
+                                      if (typeof reader.result === 'string') {
+                                        setLogoInput(reader.result);
+                                        showToast('โหลดรูปภาพเตรียมบันทึกเรียบร้อย', 'success');
+                                      }
+                                    };
+                                    reader.readAsDataURL(file);
+                                  }
+                                }}
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                              />
+                              <Upload className="w-4 h-4 mx-auto text-slate-400 group-hover:text-purple-500 transition-colors mb-0.5" />
+                              <span className="block text-[10px] font-extrabold text-slate-500 group-hover:text-purple-600">อัปโหลดไฟล์รูปโลโก้</span>
+                              <span className="block text-[8px] text-slate-400">ขนาดไม่เกิน 2MB (PNG, JPG, SVG, WebP)</span>
+                            </div>
+
+                            {/* URL input */}
+                            <div className="flex flex-col justify-center space-y-1">
+                              <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1">
+                                <Link2 className="w-3 h-3 text-slate-400" /> หรือวางที่อยู่รูปภาพ (URL)
+                              </span>
+                              <input
+                                type="text"
+                                placeholder="https://example.com/logo-image.png"
+                                value={logoInput.startsWith('data:') ? '' : logoInput}
+                                onChange={(e) => setLogoInput(e.target.value)}
+                                className="w-full px-2.5 py-1.5 text-[11px] rounded-lg border border-slate-250 focus:outline-hidden focus:border-purple-500 focus:ring-1 focus:ring-purple-500 font-mono bg-white"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* --- BLOCK B: WEB FAVICON (BROWSER TAB ICON) --- */}
+                    <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-200/50 space-y-4">
+                      <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
+                        <div className="w-2.5 h-2.5 rounded-full bg-indigo-500"></div>
+                        <span className="text-xs font-extrabold text-slate-700">2. รูปภาพสัญลักษณ์แท็บเบราว์เซอร์ (Web Favicon - ไอคอนขนาดเล็กบนแท็บ)</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                        {/* Preview Area */}
+                        <div className="md:col-span-3 flex flex-col items-center justify-center p-3 bg-slate-100/50 rounded-lg border border-slate-200">
+                          <span className="text-[9px] font-black text-slate-400 mb-2 uppercase tracking-wider">ตัวอย่าง Favicon</span>
+                          <div className="w-10 h-10 bg-white rounded-lg border border-slate-200 flex items-center justify-center overflow-hidden shadow-3xs">
+                            {faviconInput ? (
+                              <img 
+                                src={faviconInput} 
+                                alt="Favicon Preview" 
+                                className="w-full h-full object-contain p-1" 
+                                referrerPolicy="no-referrer"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23f43f5e' stroke-width='2'%3E%3Crect x='3' y='3' width='18' height='18' rx='2' ry='2'%3E%3C/rect%3E%3Cline x1='9' y1='9' x2='15' y2='15'%3E%3C/line%3E%3Cline x1='15' y1='9' x2='9' y2='15'%3E%3C/line%3E%3C/svg%3E";
+                                }}
+                              />
+                            ) : (
+                              <div className="flex flex-col items-center justify-center text-slate-300">
+                                <ImageIcon className="w-4 h-4 stroke-1" />
+                                <span className="text-[8px] font-bold text-slate-400">เริ่มต้น</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Inputs Area */}
+                        <div className="md:col-span-9 space-y-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {/* Upload File */}
+                            <div className="relative border border-dashed border-slate-250 hover:border-indigo-300 rounded-lg p-2.5 text-center transition-all bg-white hover:bg-indigo-50/10 cursor-pointer group">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    if (file.size > 1 * 1024 * 1024) {
+                                      showToast('ขนาดไฟล์รูปภาพ Favicon ใหญ่เกินไป จำกัดไม่เกิน 1MB', 'warning');
+                                      return;
+                                    }
+                                    const reader = new FileReader();
+                                    reader.onload = () => {
+                                      if (typeof reader.result === 'string') {
+                                        setFaviconInput(reader.result);
+                                        showToast('โหลดรูป Favicon เตรียมบันทึกเรียบร้อย', 'success');
+                                      }
+                                    };
+                                    reader.readAsDataURL(file);
+                                  }
+                                }}
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                              />
+                              <Upload className="w-4 h-4 mx-auto text-slate-400 group-hover:text-indigo-500 transition-colors mb-0.5" />
+                              <span className="block text-[10px] font-extrabold text-slate-500 group-hover:text-indigo-600">อัปโหลดไฟล์ Favicon</span>
+                              <span className="block text-[8px] text-slate-400">แนะนำรูปทรงจัตุรัส ไม่เกิน 1MB (PNG, ICO, SVG)</span>
+                            </div>
+
+                            {/* URL input */}
+                            <div className="flex flex-col justify-center space-y-1">
+                              <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1">
+                                <Link2 className="w-3 h-3 text-slate-400" /> หรือวางที่อยู่รูปภาพ (URL)
+                              </span>
+                              <input
+                                type="text"
+                                placeholder="https://example.com/favicon.ico"
+                                value={faviconInput.startsWith('data:') ? '' : faviconInput}
+                                onChange={(e) => setFaviconInput(e.target.value)}
+                                className="w-full px-2.5 py-1.5 text-[11px] rounded-lg border border-slate-250 focus:outline-hidden focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono bg-white"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                      <button
+                        onClick={() => {
+                          let changed = false;
+                          if (onUpdateLogo) {
+                            onUpdateLogo(logoInput);
+                            changed = true;
+                          }
+                          if (onUpdateFavicon) {
+                            onUpdateFavicon(faviconInput);
+                            changed = true;
+                          }
+                          if (changed) {
+                            showToast('บันทึกปรับแต่งโลโก้หลักและ Favicon บนแท็บเสร็จสมบูรณ์!', 'success');
+                          }
+                        }}
+                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-sans text-xs font-bold rounded-lg cursor-pointer transition-colors shadow-xs flex items-center gap-1.5"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        บันทึกโลโก้ & Favicon
+                      </button>
+
+                      {(logoInput || faviconInput) && (
+                        <button
+                          onClick={() => {
+                            setLogoInput('');
+                            setFaviconInput('');
+                            if (onUpdateLogo) onUpdateLogo('');
+                            if (onUpdateFavicon) onUpdateFavicon('');
+                            showToast('รีเซ็ตโลโก้และ Favicon กลับเป็นค่าเริ่มต้นเรียบร้อย!', 'info');
+                          }}
+                          className="px-3 py-2 border border-slate-250 hover:bg-slate-100 text-slate-600 font-sans text-xs rounded-lg cursor-pointer transition-colors"
+                        >
+                          คืนค่าเริ่มต้นทั้งหมด
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {activeSettingsTab === 'password' && (
+                  <div className="space-y-4 font-sans">
+                    <div className="bg-slate-50 rounded-xl p-4 border border-slate-200/60 space-y-3">
+                      <h4 className="text-xs font-extrabold text-slate-700 font-sans border-b border-slate-100 pb-1.5 uppercase tracking-wide">ลงทะเบียนรหัสเจ้าหน้าที่ใหม่</h4>
+                      
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-500 mb-1 font-sans">
+                          ชื่อเจ้าหน้าที่แอดมิน <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={newAdminName}
+                          onChange={e => setNewAdminName(e.target.value)}
+                          placeholder="เช่น อ.อาฟีตรี, อนันต์"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-sans focus:outline-hidden focus:border-mangosteen focus:ring-2 focus:ring-mangosteen/20 mb-2.5 bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-500 mb-1 font-sans">
+                          รหัสผ่านสำหรับการเข้าสู่ระบบ <span className="text-rose-500">*</span>
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="password"
+                            value={newAdminPassword}
+                            onChange={e => setNewAdminPassword(e.target.value)}
+                            placeholder="กำหนดรหัสผ่าน"
+                            className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-sans focus:outline-hidden focus:border-mangosteen focus:ring-2 focus:ring-mangosteen/20 bg-white"
+                          />
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!newAdminName.trim()) {
+                                showToast('กรุณากรอกชื่อเจ้าหน้าที่แอดมิน', 'warning');
+                                return;
+                              }
+                              if (!newAdminPassword.trim()) {
+                                showToast('กรุณากรอกรหัสผ่านสำหรับเข้าสู่ระบบ', 'warning');
+                                return;
+                              }
+
+                              // Prevent duplicates and hash collisions
+                              const hashed = await hashString(newAdminPassword.trim());
+                              const existsHash = savedPasswords.some(p => p.hash === hashed);
+                              if (existsHash) {
+                                showToast('รหัสผ่านนี้ถูกใช้ในระบบแล้ว กรุณาใช้รหัสผ่านอื่นเพื่อความปลอดภัย', 'warning');
+                                return;
+                              }
+                              const existsName = savedPasswords.some(p => p.name.trim().toLowerCase() === newAdminName.trim().toLowerCase());
+                              if (existsName) {
+                                showToast('ชื่อผู้ดูแลระบบนี้มีอยู่แล้วในเครื่องนี้ กรุณาใช้ชื่ออื่น', 'warning');
+                                return;
+                              }
+
+                              await addAdminPassword(newAdminPassword.trim(), newAdminName.trim());
+                              showToast('เพิ่มรหัสผ่านและชื่อเจ้าหน้าที่คณะใหม่เรียบร้อยแล้ว', 'success');
+                              setNewAdminPassword('');
+                              setNewAdminName('');
+                              const latest = await getSavedAdminPasswords();
+                              setSavedPasswords(latest);
+                            }}
+                            className="px-4 py-2 text-xs font-bold text-white bg-mangosteen hover:bg-mangosteen-hover rounded-xl transition-colors shadow-sm cursor-pointer whitespace-nowrap"
+                          >
+                            บันทึกรหัส
+                          </button>
+                        </div>
+                      </div>
+
+                      <p className="text-[10px] text-slate-400 leading-relaxed italic">
+                        * รหัสผ่านจะถูกเข้ารหัส SHA-256 (Hash) อย่างปลอดภัยและบันทึกในอุปกรณ์นี้
+                      </p>
+                    </div>
+                    
+                    <div className="pt-3 border-t border-slate-100">
+                      <label className="block text-xs font-extrabold text-slate-600 mb-2 font-sans uppercase tracking-wider">
+                        รหัสผ่านเจ้าหน้าที่ในระบบ ({savedPasswords.length})
+                      </label>
+                      {savedPasswords.length === 0 ? (
+                        <div className="text-center py-4 bg-slate-50 rounded-xl border border-slate-100">
+                          <p className="text-xs text-slate-400 font-sans">ไม่มีรหัสผ่านสำรองที่บันทึกไว้ในอุปกรณ์นี้</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                          {savedPasswords.map((p, idx) => (
+                            <div key={idx} className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-100 rounded-xl">
+                              <div className="space-y-0.5">
+                                <div className="text-xs font-extrabold text-slate-800 font-sans flex items-center gap-1">
+                                  <User className="w-3.5 h-3.5 text-slate-400" />
+                                  <span>{p.name || 'เจ้าหน้าที่คณะ'}</span>
+                                </div>
+                                <div className="text-[9px] text-slate-400 font-mono truncate max-w-[150px]" title={p.hash}>
+                                  แฮช: {p.hash.substring(0, 16)}...
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => handleDeletePassword(p.hash)}
+                                className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer border-none"
+                                title="ลบรหัสผ่านนี้"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowSystemSettings(false)}
                   className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-200/50 rounded-lg transition-colors cursor-pointer"
                 >
                   ปิดหน้าต่าง
