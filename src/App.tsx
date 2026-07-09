@@ -33,7 +33,7 @@ import FormSection from './components/FormSection';
 import StatusCheckSection from './components/StatusCheckSection';
 import AdminSection from './components/AdminSection';
 import ToastContainer, { ToastMessage, ToastType } from './components/Toast';
-import { isApiConfigured, isGoogleSheetUrlInstead, getAllRequests, submitRequest } from './services/api';
+import { isApiConfigured, isGoogleSheetUrlInstead, getAllRequests, submitRequest, getRemoteSettings, saveRemoteSetting } from './services/api';
 import { ReservationRequest } from './types';
 import { useTranslation } from './contexts/LanguageContext';
 
@@ -85,6 +85,32 @@ export default function App() {
   const [customFavicon, setCustomFavicon] = useState<string>(() => {
     return localStorage.getItem('custom_favicon') || '';
   });
+
+  // ดึงค่าการตั้งค่าโลโก้และ Favicon จาก Google Sheets เพื่อให้เครื่องอื่นๆ และเบราว์เซอร์อื่นๆ ได้รับการอัปเดตแบบเรียลไทม์
+  useEffect(() => {
+    if (isApiConfigured()) {
+      getRemoteSettings().then(settings => {
+        if (settings.custom_logo !== undefined) {
+          setCustomLogo(settings.custom_logo);
+          if (settings.custom_logo) {
+            localStorage.setItem('custom_logo', settings.custom_logo);
+          } else {
+            localStorage.removeItem('custom_logo');
+          }
+        }
+        if (settings.custom_favicon !== undefined) {
+          setCustomFavicon(settings.custom_favicon);
+          if (settings.custom_favicon) {
+            localStorage.setItem('custom_favicon', settings.custom_favicon);
+          } else {
+            localStorage.removeItem('custom_favicon');
+          }
+        }
+      }).catch(err => {
+        console.error('Error loading remote settings:', err);
+      });
+    }
+  }, []);
 
   useEffect(() => {
     // ลบ link rel="icon" หรือ rel="shortcut icon" ที่มีอยู่ทั้งหมดเพื่อล้างของเก่าออกทั้งหมด
@@ -1032,6 +1058,7 @@ export default function App() {
                     } else {
                       localStorage.removeItem('custom_logo');
                     }
+                    saveRemoteSetting('custom_logo', newLogo);
                   }}
                   customFavicon={customFavicon}
                   onUpdateFavicon={(newFavicon) => {
@@ -1041,6 +1068,7 @@ export default function App() {
                     } else {
                       localStorage.removeItem('custom_favicon');
                     }
+                    saveRemoteSetting('custom_favicon', newFavicon);
                   }}
                 />
               )}

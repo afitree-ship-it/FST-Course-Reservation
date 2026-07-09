@@ -323,6 +323,7 @@ export default function AdminSection({
 var SPREADSHEET_ID = "1em96LFx0V2eiEyd5F9XbLFGebvHfGrFYXCGZhK22o50";
 var SHEET_NAME = "Requests";
 var ADMINS_SHEET_NAME = "Admins";
+var SETTINGS_SHEET_NAME = "Settings";
 
 function getSheet() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -364,6 +365,17 @@ function getAdminsSheet() {
     // บันทึกหัวข้อคอลัมน์ (Headers)
     sheet.appendRow(["แฮชรหัสผ่าน", "ชื่อเจ้าหน้าที่", "วันที่เพิ่ม"]);
     sheet.getRange(1, 1, 1, 3).setFontWeight("bold").setBackground("#3B82F6").setFontColor("#FFFFFF");
+  }
+  return sheet;
+}
+
+function getSettingsSheet() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(SETTINGS_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(SETTINGS_SHEET_NAME);
+    sheet.appendRow(["Key", "Value"]);
+    sheet.getRange(1, 1, 1, 2).setFontWeight("bold").setBackground("#10B981").setFontColor("#FFFFFF");
   }
   return sheet;
 }
@@ -486,6 +498,14 @@ function doGet(e) {
         });
       }
       out = { success: true, data: admins };
+    } else if (action === "getSettings") {
+      var settingsSheet = getSettingsSheet();
+      var rows = settingsSheet.getDataRange().getValues();
+      var settings = {};
+      for (var i = 1; i < rows.length; i++) {
+        settings[String(rows[i][0])] = String(rows[i][1]);
+      }
+      out = { success: true, data: settings };
     }
   } catch (err) {
     out = { success: false, error: err.toString() };
@@ -606,6 +626,25 @@ function doPost(e) {
         }
       }
       out = { success: true, deleted: deleted };
+
+    } else if (action === "saveSetting") {
+      var settingsSheet = getSettingsSheet();
+      var key = postData.key;
+      var value = postData.value;
+      
+      var rows = settingsSheet.getDataRange().getValues();
+      var updated = false;
+      for (var i = 1; i < rows.length; i++) {
+        if (String(rows[i][0]) === String(key)) {
+          settingsSheet.getRange(i + 1, 2).setValue(value);
+          updated = true;
+          break;
+        }
+      }
+      if (!updated) {
+        settingsSheet.appendRow([key, value]);
+      }
+      out = { success: true };
 
     } else if (action === "updateStatus") {
       var requestId = postData.requestId;

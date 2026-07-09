@@ -506,3 +506,39 @@ export async function getStatusByStudentId(studentId: string, forceRefresh = fal
   return { success: false, error: 'ไม่สามารถดึงข้อมูลสถานะได้' };
 }
 
+export async function getRemoteSettings(): Promise<Record<string, string>> {
+  if (!isApiConfigured()) {
+    return {};
+  }
+  try {
+    const response = await fetch(`${getApiUrl()}?action=getSettings`);
+    const result = await response.json();
+    if (result.success && result.data) {
+      return result.data;
+    }
+  } catch (err) {
+    console.error('Failed to fetch remote settings:', err);
+  }
+  return {};
+}
+
+export async function saveRemoteSetting(key: string, value: string): Promise<void> {
+  if (!isApiConfigured()) {
+    return;
+  }
+  try {
+    await fetch(getApiUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'saveSetting',
+        key,
+        value
+      })
+    });
+  } catch (err) {
+    console.error(`Failed to save remote setting ${key}:`, err);
+  }
+}
+
+
