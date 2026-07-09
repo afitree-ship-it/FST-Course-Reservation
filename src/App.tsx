@@ -86,6 +86,10 @@ export default function App() {
     return localStorage.getItem('custom_favicon') || '';
   });
 
+  const [isLoadingSettings, setIsLoadingSettings] = useState(() => {
+    return isApiConfigured() && !localStorage.getItem('custom_logo') && !localStorage.getItem('custom_favicon');
+  });
+
   // ดึงค่าการตั้งค่าโลโก้และ Favicon จาก Google Sheets เพื่อให้เครื่องอื่นๆ และเบราว์เซอร์อื่นๆ ได้รับการอัปเดตแบบเรียลไทม์
   useEffect(() => {
     if (isApiConfigured()) {
@@ -108,7 +112,11 @@ export default function App() {
         }
       }).catch(err => {
         console.error('Error loading remote settings:', err);
+      }).finally(() => {
+        setIsLoadingSettings(false);
       });
+    } else {
+      setIsLoadingSettings(false);
     }
   }, []);
 
@@ -658,30 +666,56 @@ export default function App() {
             className="flex items-center gap-3 cursor-pointer group select-none"
             id="brand-header-logo"
           >
-            <div className="w-10 h-10 shrink-0 transition-all duration-300 group-hover:rotate-6 group-hover:scale-105 flex items-center justify-center">
-              {customLogo ? (
-                <img 
-                  src={customLogo} 
-                  alt="FST FTU" 
-                  className="w-full h-full object-cover rounded-xl shadow-xs" 
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" className="w-full h-full filter drop-shadow-sm">
-                  <defs>
-                    <linearGradient id="headerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#6b1d4f" />
-                      <stop offset="100%" stopColor="#450e30" />
-                    </linearGradient>
-                  </defs>
-                  <rect width="100" height="100" rx="28" fill="url(#headerGrad)" />
-                  <path d="M25,42 L50,30 L75,42 L50,54 Z" fill="#10b981" opacity="0.95" />
-                  <path d="M35,47 L35,60 C35,66 65,66 65,60 L65,47" fill="none" stroke="#ffffff" strokeWidth="4" strokeLinecap="round" />
-                  <path d="M70,43 L70,64 L73,64 L73,43 Z" fill="#ffffff" />
-                  <circle cx="71.5" cy="65" r="2.5" fill="#ffffff" />
-                  <text x="50" y="83" dominantBaseline="middle" textAnchor="middle" fill="#ffffff" fontFamily="sans-serif" fontWeight="900" fontSize="16" letterSpacing="0.5">FST FTU</text>
-                </svg>
-              )}
+            <div className="w-10 h-10 shrink-0 transition-all duration-300 group-hover:rotate-6 group-hover:scale-105 flex items-center justify-center relative">
+              <AnimatePresence mode="wait">
+                {customLogo ? (
+                  <motion.img 
+                    key="custom-logo"
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    transition={{ duration: 0.3 }}
+                    src={customLogo} 
+                    alt="FST FTU" 
+                    className="w-full h-full object-cover rounded-xl shadow-xs" 
+                    referrerPolicy="no-referrer"
+                  />
+                ) : isLoadingSettings ? (
+                  <motion.div 
+                    key="logo-skeleton"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="w-full h-full bg-slate-100 rounded-xl animate-pulse flex items-center justify-center border border-slate-200"
+                  >
+                    <div className="w-4.5 h-4.5 rounded-full bg-slate-300/80 animate-bounce" />
+                  </motion.div>
+                ) : (
+                  <motion.svg 
+                    key="default-logo"
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    transition={{ duration: 0.3 }}
+                    xmlns="http://www.w3.org/2000/svg" 
+                    viewBox="0 0 100 100" 
+                    className="w-full h-full filter drop-shadow-sm"
+                  >
+                    <defs>
+                      <linearGradient id="headerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#6b1d4f" />
+                        <stop offset="100%" stopColor="#450e30" />
+                      </linearGradient>
+                    </defs>
+                    <rect width="100" height="100" rx="28" fill="url(#headerGrad)" />
+                    <path d="M25,42 L50,30 L75,42 L50,54 Z" fill="#10b981" opacity="0.95" />
+                    <path d="M35,47 L35,60 C35,66 65,66 65,60 L65,47" fill="none" stroke="#ffffff" strokeWidth="4" strokeLinecap="round" />
+                    <path d="M70,43 L70,64 L73,64 L73,43 Z" fill="#ffffff" />
+                    <circle cx="71.5" cy="65" r="2.5" fill="#ffffff" />
+                    <text x="50" y="83" dominantBaseline="middle" textAnchor="middle" fill="#ffffff" fontFamily="sans-serif" fontWeight="900" fontSize="16" letterSpacing="0.5">FST FTU</text>
+                  </motion.svg>
+                )}
+              </AnimatePresence>
             </div>
             <div>
               <h1 className="text-md sm:text-lg font-black font-sans tracking-tight text-slate-800 flex items-center gap-1.5 leading-tight">
