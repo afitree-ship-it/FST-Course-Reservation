@@ -26,7 +26,8 @@ import {
   Check,
   Trash2,
   User,
-  X
+  X,
+  ShoppingBag
 } from 'lucide-react';
 
 import FormSection from './components/FormSection';
@@ -89,6 +90,17 @@ export default function App() {
   const [isLoadingSettings, setIsLoadingSettings] = useState(() => {
     return isApiConfigured() && !localStorage.getItem('custom_logo') && !localStorage.getItem('custom_favicon');
   });
+
+  const [loadingIconIndex, setLoadingIconIndex] = useState(0);
+
+  // แอนิเมชันเปลี่ยนไอคอนแบบเรียลไทม์ระหว่างโหลดรูป
+  useEffect(() => {
+    if (!isLoadingSettings) return;
+    const interval = setInterval(() => {
+      setLoadingIconIndex((prev) => (prev + 1) % 3);
+    }, 850); // เปลี่ยนไอคอนทุกๆ 850ms (เร็วขึ้น เพื่อให้ลื่นไหลทันใจ)
+    return () => clearInterval(interval);
+  }, [isLoadingSettings]);
 
   // ดึงค่าการตั้งค่าโลโก้และ Favicon จาก Google Sheets เพื่อให้เครื่องอื่นๆ และเบราว์เซอร์อื่นๆ ได้รับการอัปเดตแบบเรียลไทม์
   useEffect(() => {
@@ -682,13 +694,51 @@ export default function App() {
                   />
                 ) : isLoadingSettings ? (
                   <motion.div 
-                    key="logo-skeleton"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="w-full h-full bg-slate-100 rounded-xl animate-pulse flex items-center justify-center border border-slate-200"
+                    key="logo-sequence-loader"
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                    transition={{ duration: 0.2 }}
+                    className="w-full h-full bg-white border border-slate-200 rounded-xl flex items-center justify-center relative overflow-hidden"
                   >
-                    <div className="w-4.5 h-4.5 rounded-full bg-slate-300/80 animate-bounce" />
+                    <AnimatePresence mode="wait">
+                      {loadingIconIndex === 0 && (
+                        <motion.div
+                          key="loader-search"
+                          initial={{ opacity: 0, scale: 0.6, rotate: -15 }}
+                          animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                          exit={{ opacity: 0, scale: 0.6, rotate: 15 }}
+                          transition={{ duration: 0.2, ease: "easeInOut" }}
+                          className="text-slate-800 flex items-center justify-center z-10"
+                        >
+                          <Search className="w-4 h-4 stroke-[1.8]" />
+                        </motion.div>
+                      )}
+                      {loadingIconIndex === 1 && (
+                        <motion.div
+                          key="loader-basket"
+                          initial={{ opacity: 0, scale: 0.6, y: 3 }}
+                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.6, y: -3 }}
+                          transition={{ duration: 0.2, ease: "easeInOut" }}
+                          className="text-slate-800 flex items-center justify-center z-10"
+                        >
+                          <ShoppingBag className="w-4 h-4 stroke-[1.8]" />
+                        </motion.div>
+                      )}
+                      {loadingIconIndex === 2 && (
+                        <motion.div
+                          key="loader-check"
+                          initial={{ opacity: 0, scale: 0.6, rotate: -10 }}
+                          animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                          exit={{ opacity: 0, scale: 0.6, rotate: 10 }}
+                          transition={{ duration: 0.2, ease: "easeInOut" }}
+                          className="text-slate-800 flex items-center justify-center z-10"
+                        >
+                          <Check className="w-4 h-4 stroke-[2]" />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </motion.div>
                 ) : (
                   <motion.svg 
