@@ -14,6 +14,7 @@ import {
   FileCheck, 
   CheckCircle, 
   ArrowRight,
+  ArrowLeft,
   GraduationCap,
   Sparkles,
   RefreshCw,
@@ -189,6 +190,35 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
+
+  // Synchronize step with browser history to allow physical/browser back button to go back to step 1
+  useEffect(() => {
+    if (step === 2) {
+      if (window.history.state?.formStep !== 2) {
+        window.history.pushState({ formStep: 2 }, '');
+      }
+
+      const handlePopState = () => {
+        setStep(1);
+      };
+
+      window.addEventListener('popstate', handlePopState);
+      return () => {
+        window.removeEventListener('popstate', handlePopState);
+        if (window.history.state?.formStep === 2) {
+          window.history.back();
+        }
+      };
+    }
+  }, [step]);
+
+  const goBackToStep1 = () => {
+    if (window.history.state?.formStep === 2) {
+      window.history.back();
+    } else {
+      setStep(1);
+    }
+  };
 
   const handleCourseChange = (index: number, field: string, value: string) => {
     setCourses(prev => {
@@ -1134,27 +1164,39 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
 
           {/* Submit Button */}
           <div className="pt-4">
-            <button
-               type="submit"
-              disabled={isSubmitting}
-              className={`w-full py-4 px-6 rounded-xl font-sans font-bold text-white tracking-wide shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer bg-mangosteen hover:bg-mangosteen-hover active:scale-[0.99] shadow-mangosteen/25 ${
-                isSubmitting ? 'bg-slate-400 cursor-not-allowed shadow-none opacity-50' : ''
-              }`}
-              id="btn-submit-request"
-            >
-              {isSubmitting ? (
-                <>
-                  <RefreshCw className="w-5 h-5 animate-spin" />
-                  {t('submitting')}
-                </>
-              ) : (
-                <>
-                  <FileCheck className="w-5 h-5" />
-                  {t('submitButton')}
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={goBackToStep1}
+                className="w-full sm:w-1/3 py-4 px-6 rounded-xl font-sans font-bold border-2 border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-all cursor-pointer flex items-center justify-center gap-2"
+                id="btn-back-to-step1"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                {isTh ? 'ย้อนกลับ' : 'Back'}
+              </button>
+              <button
+                 type="submit"
+                disabled={isSubmitting}
+                className={`w-full sm:w-2/3 py-4 px-6 rounded-xl font-sans font-bold text-white tracking-wide shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer bg-mangosteen hover:bg-mangosteen-hover active:scale-[0.99] shadow-mangosteen/25 ${
+                  isSubmitting ? 'bg-slate-400 cursor-not-allowed shadow-none opacity-50' : ''
+                }`}
+                id="btn-submit-request"
+              >
+                {isSubmitting ? (
+                  <>
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                    {t('submitting')}
+                  </>
+                ) : (
+                  <>
+                    <FileCheck className="w-5 h-5" />
+                    {t('submitButton')}
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </div>
             {!isValidForm && (
               <p className="text-center text-xs text-slate-400 font-sans mt-3">
                 {isTh 
