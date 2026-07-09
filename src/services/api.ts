@@ -507,6 +507,18 @@ export async function getStatusByStudentId(studentId: string, forceRefresh = fal
 }
 
 export async function getRemoteSettings(): Promise<Record<string, string>> {
+  // 1. ลองดึงจาก Express Server (Local Cache) ก่อน ซึ่งจะเร็วมาก (ไม่ถึง 50ms)
+  try {
+    const localRes = await fetch('/api/settings');
+    const localData = await localRes.json();
+    if (localData.success && localData.data && (localData.data.custom_logo || localData.data.custom_favicon)) {
+      return localData.data;
+    }
+  } catch (err) {
+    console.warn('Failed to fetch settings from local server cache, trying Google Sheets...', err);
+  }
+
+  // 2. ถ้าหากไม่มีใน Express Cache (เช่น เปิดครั้งแรกสุด หรือรีเซ็ตเซิร์ฟเวอร์) ให้ดึงจาก Google Sheets
   if (!isApiConfigured()) {
     return {};
   }
@@ -514,15 +526,38 @@ export async function getRemoteSettings(): Promise<Record<string, string>> {
     const response = await fetch(`${getApiUrl()}?action=getSettings`);
     const result = await response.json();
     if (result.success && result.data) {
-      return result.data;
+      // บันทึกเก็บไว้ที่ Express Server (Local Cache) ในเบื้องหลัง เพื่อให้การโหลดครั้งต่อไปและเครื่องอื่น ๆ โหลดได้ทันที
+      const settings = result.data;
+      for (const [key, val] of Object.entries(settings)) {
+        if (val) {
+          fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key, value: val })
+          }).catch(err => console.error('Failed to sync to local server cache:', err));
+        }
+      }
+      return settings;
     }
   } catch (err) {
-    console.error('Failed to fetch remote settings:', err);
+    console.error('Failed to fetch remote settings from Google Sheets:', err);
   }
   return {};
 }
 
 export async function saveRemoteSetting(key: string, value: string): Promise<void> {
+  // 1. บันทึกเก็บไว้ที่ Express Server (Local Cache) ทันที เพื่อความรวดเร็วสำหรับเบราว์เซอร์อื่น
+  try {
+    await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, value })
+    });
+  } catch (err) {
+    console.error(`Failed to save to local Express cache ${key}:`, err);
+  }
+
+  // 2. บันทึกลง Google Sheets เพื่อเป็นระบบสำรองข้อมูลถาวร (Persistent backup)
   if (!isApiConfigured()) {
     return;
   }
@@ -537,7 +572,7 @@ export async function saveRemoteSetting(key: string, value: string): Promise<voi
       })
     });
   } catch (err) {
-    console.error(`Failed to save remote setting ${key}:`, err);
+    console.error(`Failed to save remote setting to Google Sheets ${key}:`, err);
   }
 }
 
