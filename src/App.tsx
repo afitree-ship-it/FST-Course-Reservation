@@ -78,6 +78,28 @@ export default function App() {
     return localStorage.getItem('darkMode') === 'true';
   });
 
+  const [customLogo, setCustomLogo] = useState<string>(() => {
+    return localStorage.getItem('custom_logo') || '';
+  });
+
+  useEffect(() => {
+    const faviconElement = document.getElementById('web-favicon') as HTMLLinkElement | null;
+    if (faviconElement) {
+      if (customLogo) {
+        faviconElement.href = customLogo;
+        if (customLogo.startsWith('data:image/svg+xml') || customLogo.endsWith('.svg')) {
+          faviconElement.setAttribute('type', 'image/svg+xml');
+        } else {
+          faviconElement.removeAttribute('type');
+        }
+      } else {
+        const defaultFavicon = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%236b1d4f'/%3E%3Cstop offset='100%25' stop-color='%23450e30'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100' height='100' rx='24' fill='url(%23grad)'/%3E%3Cpath d='M25,40 L50,28 L75,40 L50,52 Z' fill='%2310b981' opacity='0.9'/%3E%3Cpath d='M35,45 L35,58 C35,64 65,64 65,58 L65,45' fill='none' stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round'/%3E%3Cpath d='M70,41 L70,62 L73,62 L73,41 Z' fill='%23ffffff'/%3E%3Ccircle cx='71.5' cy='63' r='2' fill='%23ffffff'/%3E%3Ctext x='50' y='82' dominant-baseline='middle' text-anchor='middle' fill='%23ffffff' font-family='system-ui, -apple-system, sans-serif' font-weight='900' font-size='18' letter-spacing='0.5'%3EFST FTU%3C/text%3E%3C/svg%3E";
+        faviconElement.href = defaultFavicon;
+        faviconElement.setAttribute('type', 'image/svg+xml');
+      }
+    }
+  }, [customLogo]);
+
   useEffect(() => {
     if (darkMode) {
       document.documentElement.classList.add('dark-theme');
@@ -571,8 +593,30 @@ export default function App() {
             className="flex items-center gap-3 cursor-pointer group select-none"
             id="brand-header-logo"
           >
-            <div className="w-10 h-10 bg-mangosteen/10 text-mangosteen rounded-2xl flex items-center justify-center font-black text-xl transition-all duration-300 group-hover:bg-mangosteen group-hover:text-white group-hover:rotate-3 group-hover:scale-105">
-              Sci
+            <div className="w-10 h-10 shrink-0 transition-all duration-300 group-hover:rotate-6 group-hover:scale-105 flex items-center justify-center">
+              {customLogo ? (
+                <img 
+                  src={customLogo} 
+                  alt="FST FTU" 
+                  className="w-full h-full object-cover rounded-xl shadow-xs" 
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" className="w-full h-full filter drop-shadow-sm">
+                  <defs>
+                    <linearGradient id="headerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#6b1d4f" />
+                      <stop offset="100%" stopColor="#450e30" />
+                    </linearGradient>
+                  </defs>
+                  <rect width="100" height="100" rx="28" fill="url(#headerGrad)" />
+                  <path d="M25,42 L50,30 L75,42 L50,54 Z" fill="#10b981" opacity="0.95" />
+                  <path d="M35,47 L35,60 C35,66 65,66 65,60 L65,47" fill="none" stroke="#ffffff" strokeWidth="4" strokeLinecap="round" />
+                  <path d="M70,43 L70,64 L73,64 L73,43 Z" fill="#ffffff" />
+                  <circle cx="71.5" cy="65" r="2.5" fill="#ffffff" />
+                  <text x="50" y="83" dominantBaseline="middle" textAnchor="middle" fill="#ffffff" fontFamily="sans-serif" fontWeight="900" fontSize="16" letterSpacing="0.5">FST FTU</text>
+                </svg>
+              )}
             </div>
             <div>
               <h1 className="text-md sm:text-lg font-black font-sans tracking-tight text-slate-800 flex items-center gap-1.5 leading-tight">
@@ -941,6 +985,15 @@ export default function App() {
                   requests={allRequests}
                   setRequests={setAllRequests}
                   onFetchRequests={pollRequests}
+                  customLogo={customLogo}
+                  onUpdateLogo={(newLogo) => {
+                    setCustomLogo(newLogo);
+                    if (newLogo) {
+                      localStorage.setItem('custom_logo', newLogo);
+                    } else {
+                      localStorage.removeItem('custom_logo');
+                    }
+                  }}
                 />
               )}
             </>

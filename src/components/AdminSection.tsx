@@ -28,7 +28,11 @@ import {
   Check,
   Settings, Key, Trash2, User,
   Edit,
-  BellRing
+  BellRing,
+  Palette,
+  Image as ImageIcon,
+  Upload,
+  Link2
 } from 'lucide-react';
 import { ReservationRequest, RequestStatus } from '../types';
 import { adminLogin, addAdminPassword, getSavedAdminPasswords, removeAdminPassword, getAllRequests, updateStatus, updateCourseStatus, saveApiUrl, getApiUrl, isApiConfigured, getLoggedInAdminName, adminLogout, hashString } from '../services/api';
@@ -45,6 +49,8 @@ interface AdminSectionProps {
   requests: ReservationRequest[];
   setRequests: React.Dispatch<React.SetStateAction<ReservationRequest[]>>;
   onFetchRequests?: () => Promise<void>;
+  customLogo?: string;
+  onUpdateLogo?: (newLogo: string) => void;
 }
 
 export default function AdminSection({ 
@@ -58,7 +64,9 @@ export default function AdminSection({
   onClearTargetRequestId,
   requests,
   setRequests,
-  onFetchRequests
+  onFetchRequests,
+  customLogo,
+  onUpdateLogo
 }: AdminSectionProps) {
   // Authentication states
   const [password, setPassword] = useState('');
@@ -68,6 +76,16 @@ export default function AdminSection({
 
   // Google Sheet Integration configuration states
   const [showGoogleSheetSettings, setShowGoogleSheetSettings] = useState(false);
+
+  // Custom logo configuration states
+  const [showLogoSettings, setShowLogoSettings] = useState(false);
+  const [logoInput, setLogoInput] = useState(customLogo || '');
+
+  useEffect(() => {
+    if (customLogo !== undefined) {
+      setLogoInput(customLogo);
+    }
+  }, [customLogo]);
 
   
   const [showPasswordManager, setShowPasswordManager] = useState(false);
@@ -1143,7 +1161,10 @@ function doPost(e) {
             </button>
 
             <button
-              onClick={() => setShowGoogleSheetSettings(!showGoogleSheetSettings)}
+              onClick={() => {
+                setShowGoogleSheetSettings(!showGoogleSheetSettings);
+                setShowLogoSettings(false);
+              }}
               className={`flex-1 sm:flex-initial px-3 py-1.5 text-xs font-bold font-sans rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 border ${
                 showGoogleSheetSettings
                   ? 'bg-amber-100 text-amber-900 border-amber-300 shadow-inner'
@@ -1154,6 +1175,23 @@ function doPost(e) {
             >
               <Settings className="w-3.5 h-3.5 text-amber-500 shrink-0" />
               {showGoogleSheetSettings ? 'ปิดตั้งค่าฐานข้อมูล' : 'ตั้งค่าฐานข้อมูล'}
+            </button>
+
+            <button
+              onClick={() => {
+                setShowLogoSettings(!showLogoSettings);
+                setShowGoogleSheetSettings(false);
+              }}
+              className={`flex-1 sm:flex-initial px-3 py-1.5 text-xs font-bold font-sans rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 border ${
+                showLogoSettings
+                  ? 'bg-purple-100 text-purple-900 border-purple-300 shadow-inner'
+                  : 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100 hover:border-purple-300 shadow-3xs'
+              }`}
+              id="btn-toggle-logo-settings"
+              title="ตั้งค่าปรับแต่งรูปโลโก้ประจำเว็บไซค์ตามใจคุณ"
+            >
+              <Palette className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+              {showLogoSettings ? 'ปิดตั้งค่ารูปโลโก้' : 'ตั้งค่ารูปโลโก้'}
             </button>
             
             <div className="h-6 w-px bg-slate-200 hidden sm:block mx-1"></div>
@@ -1169,6 +1207,164 @@ function doPost(e) {
             </button>
           </div>
         </div>
+
+        <AnimatePresence>
+          {showLogoSettings && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25 }}
+              className="overflow-hidden"
+              id="logo-settings-container"
+            >
+              <div className="bg-slate-50 rounded-xl p-5 border border-slate-200/60 font-sans space-y-4 mb-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200/50 pb-2.5 gap-2">
+                  <span className="text-xs font-black text-slate-750 flex items-center gap-1.5 font-sans">
+                    <Palette className="w-4 h-4 text-purple-600" />
+                    ตั้งค่ารูปภาพโลโก้ประจำระบบ (Customize System Logo / Icon)
+                  </span>
+                  
+                  {customLogo ? (
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-200">
+                      ใช้งานโลโก้กำหนดเอง (Custom Logo Active)
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                      ใช้งานโลโก้เริ่มต้น (Default FST FTU Logo)
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-start">
+                  {/* Left panel: Preview */}
+                  <div className="md:col-span-3 flex flex-col items-center justify-center p-4 bg-white rounded-xl border border-slate-200/80 shadow-3xs">
+                    <span className="text-[10px] font-bold text-slate-400 mb-3 uppercase tracking-wider">ตัวอย่างการแสดงผล (Preview)</span>
+                    <div className="w-20 h-20 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden shadow-inner group">
+                      {logoInput ? (
+                        <img 
+                          src={logoInput} 
+                          alt="Logo Preview" 
+                          className="w-full h-full object-cover" 
+                          referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23f43f5e' stroke-width='2'%3E%3Crect x='3' y='3' width='18' height='18' rx='2' ry='2'%3E%3C/rect%3E%3Cline x1='9' y1='9' x2='15' y2='15'%3E%3C/line%3E%3Cline x1='15' y1='9' x2='9' y2='15'%3E%3C/line%3E%3C/svg%3E";
+                          }}
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center justify-center text-slate-300">
+                          <ImageIcon className="w-8 h-8 stroke-1" />
+                          <span className="text-[10px] font-bold mt-1 text-slate-400">เริ่มต้น</span>
+                        </div>
+                      )}
+                    </div>
+                    {logoInput && (
+                      <span className="text-[10px] font-semibold text-slate-500 mt-2 text-center break-all max-w-full">
+                        {logoInput.startsWith('data:') ? 'รูปภาพที่อัปโหลด' : 'ลิงก์ภายนอก'}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Right panel: Controls */}
+                  <div className="md:col-span-9 space-y-4">
+                    <p className="text-xs text-slate-500 leading-relaxed font-sans">
+                      คุณสามารถปรับเปลี่ยนโลโก้คณะมุมบนซ้ายได้ทันที โดยเลือกอัปโหลดรูปภาพจากอุปกรณ์ของคุณโดยตรง หรือวางลิงก์รูปภาพสาธารณะใดๆ เพื่อความสะดวก
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Method A: Upload Image File */}
+                      <div className="space-y-2 p-3 bg-white rounded-xl border border-slate-200/60">
+                        <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                          <Upload className="w-3.5 h-3.5 text-purple-600" />
+                          วิธีที่ 1: อัปโหลดรูปภาพจากเครื่อง
+                        </span>
+                        
+                        <div className="relative border-2 border-dashed border-slate-200 hover:border-purple-300 rounded-lg p-3 text-center transition-colors cursor-pointer bg-slate-50 hover:bg-purple-50/20 group">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                if (file.size > 2 * 1024 * 1024) {
+                                  showToast('ขนาดไฟล์รูปภาพโลโก้ใหญ่เกินไป จำกัดไม่เกิน 2MB', 'warning');
+                                  return;
+                                }
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                  if (typeof reader.result === 'string') {
+                                    setLogoInput(reader.result);
+                                    showToast('โหลดรูปภาพเตรียมบันทึกเรียบร้อย', 'success');
+                                  }
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          />
+                          <ImageIcon className="w-5 h-5 mx-auto text-slate-400 group-hover:text-purple-500 transition-colors mb-1" />
+                          <span className="block text-[10px] font-bold text-slate-500 group-hover:text-purple-600">คลิกเพื่อเลือกไฟล์รูปภาพ</span>
+                          <span className="block text-[9px] text-slate-400">ขนาดไม่เกิน 2MB (PNG, JPG, SVG, WebP)</span>
+                        </div>
+                      </div>
+
+                      {/* Method B: URL input */}
+                      <div className="space-y-2 p-3 bg-white rounded-xl border border-slate-200/60 flex flex-col justify-between">
+                        <div>
+                          <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1 mb-1.5">
+                            <Link2 className="w-3.5 h-3.5 text-purple-600" />
+                            วิธีที่ 2: ใช้ลิงก์ที่อยู่รูปภาพ (Image URL)
+                          </span>
+                          <input
+                            type="text"
+                            placeholder="https://example.com/logo-image.png"
+                            value={logoInput.startsWith('data:') ? '' : logoInput}
+                            onChange={(e) => setLogoInput(e.target.value)}
+                            className="w-full px-3 py-2 text-xs rounded-lg border border-slate-250 focus:outline-hidden focus:border-purple-500 focus:ring-1 focus:ring-purple-500 font-mono"
+                          />
+                        </div>
+                        <span className="text-[9px] text-slate-400 leading-tight block mt-1.5">
+                          * วางลิงก์รูปภาพสาธารณะจากอินเทอร์เน็ต เช่น ลิงก์ที่โฮสต์บนเว็บฝากรูปหรือเซิร์ฟเวอร์ของคุณ
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-1.5">
+                      <button
+                        onClick={() => {
+                          if (onUpdateLogo) {
+                            onUpdateLogo(logoInput);
+                            showToast('บันทึกปรับแต่งรูปโลโก้เสร็จสมบูรณ์ ระบบกำลังอัปเดตมุมมองหลัก...', 'success');
+                          }
+                        }}
+                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-sans text-xs font-bold rounded-lg cursor-pointer transition-colors shadow-xs flex items-center gap-1.5"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        บันทึกรูปภาพโลโก้
+                      </button>
+
+                      {logoInput && (
+                        <button
+                          onClick={() => {
+                            setLogoInput('');
+                            if (onUpdateLogo) {
+                              onUpdateLogo('');
+                              showToast('รีเซ็ตโลโก้กลับเป็นค่าเริ่มต้น FST FTU สำเร็จ!', 'info');
+                            }
+                          }}
+                          className="px-3 py-2 border border-slate-200 hover:bg-slate-100 text-slate-600 font-sans text-xs rounded-lg cursor-pointer transition-colors"
+                        >
+                          คืนค่าเริ่มต้น
+                        </button>
+                      )}
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <AnimatePresence>
           {showGoogleSheetSettings && (
