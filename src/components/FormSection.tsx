@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { 
   User, 
@@ -27,63 +27,133 @@ import { YEARS, ReservationRequest } from '../types';
 import { submitRequest, getStatusByStudentId, getCachedRequestsByStudentId } from '../services/api';
 import { useTranslation } from '../contexts/LanguageContext';
 
-interface TypewriterTextProps {
+interface ScrambleTextProps {
   text: string;
-  speed?: number;
+  duration?: number;
 }
 
-const TypewriterText: React.FC<TypewriterTextProps> = ({ text, speed = 80 }) => {
-  const [displayedText, setDisplayedText] = useState('');
+const ScrambleText: React.FC<ScrambleTextProps> = ({ text, duration = 2800 }) => {
+  const [isReducedMotion, setIsReducedMotion] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    }
+    return false;
+  });
+  const [trigger, setTrigger] = useState(0);
+  const [elapsed, setElapsed] = useState(duration);
 
   useEffect(() => {
-    let isMounted = true;
-    let intervalId: NodeJS.Timeout;
-    let timeoutId: NodeJS.Timeout;
-
-    const startTyping = () => {
-      if (!isMounted) return;
-      setDisplayedText('');
-      let i = 0;
-      
-      intervalId = setInterval(() => {
-        if (!isMounted) return;
-        
-        if (i < text.length) {
-          setDisplayedText(text.slice(0, i + 1));
-          i++;
-        } else {
-          clearInterval(intervalId);
-          // รอ 3.5 วินาที แล้วเริ่มต้นพิมพ์ใหม่วนลูป
-          timeoutId = setTimeout(() => {
-            if (isMounted) {
-              startTyping();
-            }
-          }, 3500);
-        }
-      }, speed);
+    if (typeof window === 'undefined') return;
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const handleChange = (e: MediaQueryListEvent) => {
+      setIsReducedMotion(e.matches);
     };
-
-    startTyping();
-
+    mediaQuery.addEventListener('change', handleChange);
     return () => {
-      isMounted = false;
-      clearInterval(intervalId);
-      clearTimeout(timeoutId);
+      mediaQuery.removeEventListener('change', handleChange);
     };
-  }, [text, speed]);
+  }, []);
+
+  // วนลูปการแอนิเมชันถอดรหัส (Scramble Effect) ทุกๆ 5.3 วินาที (เริ่มถอดรหัส 3 วินาที + คงสถานะข้อความจริงไว้ 2.3 วินาที)
+  useEffect(() => {
+    if (isReducedMotion) return;
+    const intervalId = setInterval(() => {
+      setTrigger((prev) => prev + 1);
+    }, duration + 2300);
+    return () => clearInterval(intervalId);
+  }, [isReducedMotion, duration]);
+
+  useEffect(() => {
+    if (isReducedMotion) {
+      setElapsed(duration);
+      return;
+    }
+
+    let animationFrameId: number;
+    const startTime = performance.now();
+
+    const tick = (now: number) => {
+      const time = now - startTime;
+      setElapsed(Math.min(time, duration));
+
+      if (time < duration) {
+        animationFrameId = requestAnimationFrame(tick);
+      }
+    };
+
+    animationFrameId = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, [trigger, duration, isReducedMotion]);
+
+  // แยกกลุ่มพยัญชนะและสระ/วรรณยุกต์ซ้อนของภาษาไทยเพื่อให้โครงสร้างตัวอักษรไม่พังขณะถอดรหัส
+  const segments = useMemo(() => {
+    const result: string[] = [];
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      const code = char.charCodeAt(0);
+      
+      // สระหรือสัญลักษณ์ซ้อนบน-ล่าง และวรรณยุกต์ภาษาไทย (ไม่รวม 'า' 0x0e32 หรือ 'ำ' 0x0e33 ที่มีความกว้างปกติ)
+      const isCombining = (code === 0x0e31) || 
+                          (code >= 0x0e34 && code <= 0x0e3a) || 
+                          (code >= 0x0e47 && code <= 0x0e4e);
+      
+      if (isCombining && result.length > 0) {
+        result[result.length - 1] += char;
+      } else {
+        result.push(char);
+      }
+    }
+    return result;
+  }, [text]);
+
+  const charset = "!<>-_\\/[]{}—=+*^?#@%";
 
   return (
-    <span className="inline-block relative">
-      {displayedText}
-      <motion.span
-        animate={{ opacity: [1, 0.15, 1] }}
-        transition={{
-          duration: 1.2,
-          repeat: Infinity,
-          ease: "easeInOut"
-        }}
-        className="inline-block w-[2px] h-[1.1em] bg-mangosteen ml-1.5 align-middle"
-      />
+    <span 
+      aria-label={text} 
+      className="inline-flex items-center justify-center select-none font-sans font-bold text-slate-700 leading-normal"
+    >
+      {segments.map((segment, idx) => {
+        if (segment === ' ') {
+          return (
+            <span key={idx} className="w-[0.25em] inline-block">
+              &nbsp;
+            </span>
+          );
+        }
+
+        const startSettle = (idx / segments.length) * (duration * 0.75);
+        const settleDeadline = startSettle + 150;
+        const isSettled = isReducedMotion || elapsed >= settleDeadline;
+
+        let displayChar = segment;
+        if (!isSettled) {
+          const randomIndex = Math.floor(Math.random() * charset.length);
+          displayChar = charset[randomIndex];
+        }
+
+        return (
+          <span key={idx} className="relative inline-block overflow-hidden align-middle">
+            {/* Invisible baseline preserving exact typography & width of the final character to prevent layout jitter */}
+            <span className="invisible select-none pointer-events-none" aria-hidden="true">
+              {segment}
+            </span>
+            {/* Perfectly aligned absolute character overlays */}
+            <span 
+              className={`absolute inset-0 flex items-center justify-center whitespace-nowrap transition-colors duration-150 ${
+                isSettled 
+                  ? 'text-slate-700 font-sans font-bold' 
+                  : 'text-slate-500 font-mono font-medium'
+              }`} 
+              aria-hidden="true"
+            >
+              {displayChar}
+            </span>
+          </span>
+        );
+      })}
     </span>
   );
 };
@@ -484,7 +554,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       className="w-full max-w-2xl mx-auto"
       id="reservation-form-container"
     >
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200">
+      <div className="bg-white/85 backdrop-blur-2xl rounded-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.15),_0_15px_30px_-15px_rgba(0,0,0,0.1)] overflow-hidden border border-white/90 transition-all duration-300">
         {/* Banner header inside the card - Clean Minimalism Accent Line */}
         {step !== 1 && (
           <div className="p-6 md:p-8 border-b border-slate-100 bg-slate-50/50">
@@ -508,7 +578,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
               <div className="text-center">
                 <h2 className="text-lg sm:text-xl font-extrabold tracking-tight text-mangosteen font-sans mb-1">{t('formTitle')}</h2>
                 <h3 className="text-sm sm:text-base font-bold text-slate-700 font-sans min-h-[1.5rem] flex items-center justify-center">
-                  <TypewriterText text={isTh ? 'กรอกรหัสนักศึกษาเพื่อเริ่มต้น' : 'Enter Student ID to Start'} speed={75} />
+                  <ScrambleText text={isTh ? 'กรอกรหัสนักศึกษาเพื่อเริ่มต้น' : 'Enter Student ID to Start'} duration={2800} />
                 </h3>
                 <p className="text-slate-500 text-xs sm:text-sm mt-0.5">{isTh ? 'ระบบจะตรวจสอบข้อมูลส่วนตัวของคุณจากฐานข้อมูล' : 'We will check your profile in our database'}</p>
               </div>

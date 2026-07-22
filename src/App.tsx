@@ -650,7 +650,18 @@ export default function App() {
   const hasSheetUrlConflict = isGoogleSheetUrlInstead();
 
   return (
-    <div className="min-h-screen bg-slate-50/70 text-slate-800 flex flex-col justify-between font-sans antialiased">
+    <div className="min-h-screen bg-slate-50/30 text-slate-800 flex flex-col justify-between font-sans antialiased relative overflow-hidden">
+      {/* Luxury macOS-style ambient blurry out-of-focus background */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none select-none z-0" aria-hidden="true">
+        {/* Soft Apricot/Peach blob - upper right */}
+        <div className="absolute -top-[15%] -right-[10%] w-[55vw] h-[55vw] min-w-[380px] min-h-[380px] rounded-full bg-gradient-to-br from-amber-200/40 via-rose-300/35 to-pink-200/25 blur-[120px] opacity-75"></div>
+        {/* Soft Lavender/Sky Blue blob - upper left */}
+        <div className="absolute top-[5%] -left-[10%] w-[48vw] h-[48vw] min-w-[320px] min-h-[320px] rounded-full bg-gradient-to-tr from-sky-200/35 via-indigo-200/30 to-purple-200/20 blur-[130px] opacity-70"></div>
+        {/* Soft Mint/Teal blob - mid right */}
+        <div className="absolute top-[40%] -right-[15%] w-[42vw] h-[42vw] min-w-[300px] min-h-[300px] rounded-full bg-gradient-to-l from-emerald-100/25 via-teal-100/30 to-sky-200/35 blur-[120px] opacity-60"></div>
+        {/* Soft Plum/Rose blob - bottom left */}
+        <div className="absolute -bottom-[15%] left-[5%] w-[58vw] h-[58vw] min-w-[420px] min-h-[420px] rounded-full bg-gradient-to-tr from-purple-200/40 via-rose-200/35 to-amber-100/20 blur-[140px] opacity-75"></div>
+      </div>
       {/* Dynamic Demo Warning Banner */}
       {hasSheetUrlConflict ? (
         <div className="bg-rose-600 text-white font-sans text-xs px-4 py-2 text-center flex items-center justify-center gap-2 font-medium shadow-md transition-all duration-300 z-40 animate-bounce">
@@ -1046,7 +1057,7 @@ export default function App() {
       </header>
 
       {/* Main Container Stage */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-8 sm:px-6 lg:px-8 flex flex-col justify-start">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-8 sm:px-6 lg:px-8 flex flex-col justify-start relative z-10">
         
         <AnimatePresence mode="wait">
           
@@ -1057,7 +1068,7 @@ export default function App() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="w-full max-w-md mx-auto bg-white rounded-3xl p-8 sm:p-10 border border-slate-100 shadow-xl space-y-6 text-center"
+              className="w-full max-w-md mx-auto bg-white/85 backdrop-blur-2xl rounded-2xl p-8 sm:p-10 border border-white/90 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.15),_0_15px_30px_-15px_rgba(0,0,0,0.1)] space-y-6 text-center"
               id="form-submission-success-page"
             >
               <div className="w-20 h-20 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto shadow-xs border border-emerald-100 mb-2">

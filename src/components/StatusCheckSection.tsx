@@ -219,7 +219,7 @@ const getStatusBadge = (status: RequestStatus) => {
       id="status-check-container"
     >
       {/* Search Header card */}
-      <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 md:p-8 border border-slate-200 flex flex-col gap-3.5 sm:gap-5">
+      <div className="bg-white/85 backdrop-blur-2xl rounded-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.15),_0_15px_30px_-15px_rgba(0,0,0,0.1)] p-4 sm:p-6 md:p-8 border border-white/90 flex flex-col gap-3.5 sm:gap-5 transition-all duration-300">
         <div className="text-center md:text-left">
           <div className="flex items-center space-x-2.5 mb-2">
             <div className="w-1.5 h-6 bg-mangosteen rounded-full"></div>

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Lock, 
@@ -171,6 +171,100 @@ export default function AdminSection({
   const [loadingRequests, setLoadingRequests] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'ทั้งหมด' | RequestStatus>('รอดำเนินการ');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Combobox Autocomplete States
+  const [comboboxOpen, setComboboxOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const comboboxRef = useRef<HTMLDivElement>(null);
+
+  // Close combobox when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (comboboxRef.current && !comboboxRef.current.contains(event.target as Node)) {
+        setComboboxOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Compute suggestions from requests list
+  const suggestions = useMemo(() => {
+    const list: Array<{ type: 'student' | 'course' | 'request'; value: string; label: string; secondary: string; searchTexts: string[] }> = [];
+    const seenStudents = new Set<string>();
+    const seenCourses = new Set<string>();
+    const seenRequests = new Set<string>();
+
+    requests.forEach(req => {
+      // Student
+      if (req.studentId && !seenStudents.has(req.studentId)) {
+        seenStudents.add(req.studentId);
+        list.push({
+          type: 'student',
+          value: req.studentId,
+          label: req.fullName,
+          secondary: req.studentId,
+          searchTexts: [req.studentId, req.fullName.toLowerCase()]
+        });
+      }
+
+      // Request
+      if (req.id && !seenRequests.has(req.id)) {
+        seenRequests.add(req.id);
+        list.push({
+          type: 'request',
+          value: req.id,
+          label: req.id,
+          secondary: 'รหัสคำร้อง',
+          searchTexts: [req.id.toLowerCase()]
+        });
+      }
+
+      // Course
+      if (req.courseCode && !seenCourses.has(req.courseCode)) {
+        seenCourses.add(req.courseCode);
+        list.push({
+          type: 'course',
+          value: req.courseCode,
+          label: `${req.courseCode} - ${req.courseName}`,
+          secondary: 'รายวิชา',
+          searchTexts: [req.courseCode.toLowerCase(), req.courseName.toLowerCase()]
+        });
+      }
+
+      // Nested courses
+      if (req.courses) {
+        req.courses.forEach(c => {
+          if (c.courseCode && !seenCourses.has(c.courseCode)) {
+            seenCourses.add(c.courseCode);
+            list.push({
+              type: 'course',
+              value: c.courseCode,
+              label: `${c.courseCode} - ${c.courseName}`,
+              secondary: 'รายวิชา',
+              searchTexts: [c.courseCode.toLowerCase(), c.courseName.toLowerCase()]
+            });
+          }
+        });
+      }
+    });
+
+    return list;
+  }, [requests]);
+
+  const filteredSuggestions = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) {
+      return suggestions.slice(0, 6);
+    }
+    return suggestions.filter(item => 
+      item.searchTexts.some(st => st.includes(query)) ||
+      item.label.toLowerCase().includes(query) ||
+      item.secondary.toLowerCase().includes(query)
+    ).slice(0, 8);
+  }, [suggestions, searchQuery]);
 
   // Year filter state (Buddhist Era)
   const currentBEYear = new Date().getFullYear() + 543;
@@ -1297,7 +1391,7 @@ function doPost(e) {
         {/* Filters and search panel */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 border-t border-slate-100 pt-4" id="admin-filters-bar">
           {/* Searching */}
-          <div className="relative">
+          <div className="relative" ref={comboboxRef}>
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
               <Search className="w-4 h-4" />
             </div>
@@ -1305,10 +1399,102 @@ function doPost(e) {
               type="text"
               placeholder="รหัสอ้างอิง, รหัสนักศึกษา, ชื่อ หรือวิชา..."
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-xs font-sans rounded-lg border border-slate-200 focus:outline-hidden focus:border-mangosteen focus:ring-1 focus:ring-mangosteen"
+              onChange={e => {
+                setSearchQuery(e.target.value);
+                setComboboxOpen(true);
+                setHighlightedIndex(0);
+              }}
+              onFocus={() => {
+                setComboboxOpen(true);
+                setHighlightedIndex(0);
+              }}
+              onKeyDown={e => {
+                if (!comboboxOpen) {
+                  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                    setComboboxOpen(true);
+                    setHighlightedIndex(0);
+                  }
+                  return;
+                }
+
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  setHighlightedIndex(prev => (prev + 1) % filteredSuggestions.length);
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  setHighlightedIndex(prev => (prev - 1 + filteredSuggestions.length) % filteredSuggestions.length);
+                } else if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (filteredSuggestions[highlightedIndex]) {
+                    setSearchQuery(filteredSuggestions[highlightedIndex].value);
+                    setComboboxOpen(false);
+                  }
+                } else if (e.key === 'Escape') {
+                  setComboboxOpen(false);
+                }
+              }}
+              className="w-full pl-9 pr-8 py-2 text-xs font-sans rounded-lg border border-slate-200 focus:outline-hidden focus:border-mangosteen focus:ring-1 focus:ring-mangosteen"
               id="admin-search-query"
+              autoComplete="off"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setComboboxOpen(false);
+                }}
+                className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* Suggestions Dropdown */}
+            {comboboxOpen && (
+              <>
+                {filteredSuggestions.length > 0 ? (
+                  <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white/95 backdrop-blur-md rounded-lg border border-slate-200/80 shadow-lg z-50 py-1 text-xs">
+                    {filteredSuggestions.map((item, idx) => {
+                      const isHighlighted = idx === highlightedIndex;
+                      let IconComponent = Search;
+                      if (item.type === 'student') IconComponent = User;
+                      else if (item.type === 'course') IconComponent = GraduationCap;
+                      else if (item.type === 'request') IconComponent = Database;
+
+                      return (
+                        <button
+                          key={`${item.type}-${item.value}`}
+                          type="button"
+                          onClick={() => {
+                            setSearchQuery(item.value);
+                            setComboboxOpen(false);
+                          }}
+                          onMouseEnter={() => setHighlightedIndex(idx)}
+                          className={`w-full text-left px-3 py-2 flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                            isHighlighted ? 'bg-mangosteen/10 text-mangosteen font-semibold' : 'text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 overflow-hidden">
+                            <IconComponent className={`w-3.5 h-3.5 shrink-0 ${isHighlighted ? 'text-mangosteen' : 'text-slate-400'}`} />
+                            <span className="truncate text-left">{item.label}</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 shrink-0 font-sans px-1.5 py-0.5 rounded-full bg-slate-100">
+                            {item.secondary}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  searchQuery.trim() !== '' && (
+                    <div className="absolute left-0 right-0 mt-1 bg-white/95 backdrop-blur-md rounded-lg border border-slate-200/80 shadow-lg z-50 p-3 text-center text-xs text-slate-400">
+                      ไม่พบข้อมูลที่ตรงกัน
+                    </div>
+                  )
+                )}
+              </>
+            )}
           </div>
 
           {/* Year Selector */}
