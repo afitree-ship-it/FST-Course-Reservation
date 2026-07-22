@@ -1223,7 +1223,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
               <span className="text-sm text-slate-700 font-bold leading-relaxed group-hover:text-slate-900 transition-colors select-none">
                 {isTh
                   ? `ข้าพเจ้ายินยอมให้${faculty || 'ทางมหาวิทยาลัย'} เก็บรวบรวม ใช้ และเปิดเผยข้อมูลส่วนบุคคลที่ระบุในแบบฟอร์มนี้ เพื่อใช้ประโยชน์ในการบริหารจัดการโควตาและจัดสำรองที่นั่งในสิทธิ์นักศึกษาตามวัตถุประสงค์โดยชอบด้วยกฎหมาย`
-                  : `I consent and authorize ${faculty || 'the University'} to aggregate, store, and process my academic and personal data specified in this reservation form for student quota queue assignments.`}
+                  : `I consent and authorize the Faculty of Science and Technology to aggregate, store, and process my academic and personal data specified in this reservation form for student quota queue assignments.`}
                 <span className="text-rose-500 font-bold ml-1">*</span>
               </span>
             </label>
