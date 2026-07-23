@@ -133,34 +133,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // ลบ link rel="icon" หรือ rel="shortcut icon" ที่มีอยู่ทั้งหมดเพื่อล้างของเก่าออกทั้งหมด
-    const existingFavicons = document.querySelectorAll("link[rel*='icon']");
-    existingFavicons.forEach(el => el.parentNode?.removeChild(el));
-
     const activeFavicon = customFavicon || customLogo;
     
-    // สร้างอันใหม่สำหรับ 'shortcut icon'
-    const shortcutLink = document.createElement('link');
-    shortcutLink.id = 'web-favicon-shortcut';
-    shortcutLink.rel = 'shortcut icon';
-
-    // สร้างอันใหม่สำหรับ 'icon' เพื่อรองรับทุกเบราว์เซอร์
-    const iconLink = document.createElement('link');
-    iconLink.id = 'web-favicon-icon';
-    iconLink.rel = 'icon';
+    // กำหนด URL ของ Favicon
+    let faviconUrl = '';
+    let typeAttr = 'image/png';
 
     if (activeFavicon) {
-      // เพิ่ม timestamp cache-buster สำหรับ url ที่ไม่ใช่ base64 (data:) เพื่อบังคับเบราว์เซอร์ล้างแคชทันที
-      let cacheBustHref = activeFavicon;
+      faviconUrl = activeFavicon;
       if (!activeFavicon.startsWith('data:')) {
         const separator = activeFavicon.includes('?') ? '&' : '?';
-        cacheBustHref = `${activeFavicon}${separator}t=${Date.now()}`;
+        faviconUrl = `${activeFavicon}${separator}t=${Date.now()}`;
       }
       
-      shortcutLink.href = cacheBustHref;
-      iconLink.href = cacheBustHref;
-
-      let typeAttr = 'image/png';
       if (activeFavicon.startsWith('data:image/svg+xml') || activeFavicon.endsWith('.svg')) {
         typeAttr = 'image/svg+xml';
       } else if (activeFavicon.startsWith('data:image/x-icon') || activeFavicon.endsWith('.ico')) {
@@ -170,19 +155,39 @@ export default function App() {
       } else if (activeFavicon.startsWith('data:image/jpeg') || activeFavicon.endsWith('.jpg') || activeFavicon.endsWith('.jpeg')) {
         typeAttr = 'image/jpeg';
       }
-      
-      shortcutLink.setAttribute('type', typeAttr);
-      iconLink.setAttribute('type', typeAttr);
     } else {
-      const defaultFavicon = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%236b1d4f'/%3E%3Cstop offset='100%25' stop-color='%23450e30'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100' height='100' rx='24' fill='url(%23grad)'/%3E%3Cpath d='M25,40 L50,28 L75,40 L50,52 Z' fill='%2310b981' opacity='0.9'/%3E%3Cpath d='M35,45 L35,58 C35,64 65,64 65,58 L65,45' fill='none' stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round'/%3E%3Cpath d='M70,41 L70,62 L73,62 L73,41 Z' fill='%23ffffff'/%3E%3Ccircle cx='71.5' cy='63' r='2' fill='%23ffffff'/%3E%3Ctext x='50' y='82' dominant-baseline='middle' text-anchor='middle' fill='%23ffffff' font-family='system-ui, -apple-system, sans-serif' font-weight='900' font-size='18' letter-spacing='0.5'%3EFST FTU%3C/text%3E%3C/svg%3E";
-      shortcutLink.href = defaultFavicon;
-      shortcutLink.setAttribute('type', 'image/svg+xml');
-      iconLink.href = defaultFavicon;
-      iconLink.setAttribute('type', 'image/svg+xml');
+      faviconUrl = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%236b1d4f'/%3E%3Cstop offset='100%25' stop-color='%23450e30'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100' height='100' rx='24' fill='url(%23grad)'/%3E%3Cpath d='M25,40 L50,28 L75,40 L50,52 Z' fill='%2310b981' opacity='0.9'/%3E%3Cpath d='M35,45 L35,58 C35,64 65,64 65,58 L65,45' fill='none' stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round'/%3E%3Cpath d='M70,41 L70,62 L73,62 L73,41 Z' fill='%23ffffff'/%3E%3Ccircle cx='71.5' cy='63' r='2' fill='%23ffffff'/%3E%3Ctext x='50' y='82' dominant-baseline='middle' text-anchor='middle' fill='%23ffffff' font-family='system-ui, -apple-system, sans-serif' font-weight='900' font-size='18' letter-spacing='0.5'%3EFST FTU%3C/text%3E%3C/svg%3E";
+      typeAttr = 'image/svg+xml';
     }
 
-    document.head.appendChild(shortcutLink);
-    document.head.appendChild(iconLink);
+    // อัพเดต link elements อย่างระมัดระวัง เพื่อป้องกันเบราว์เซอร์ไม่แสดงผล
+    const existingIcons = Array.from(document.querySelectorAll("link[rel*='icon']"));
+    const keptIcons = new Set();
+    existingIcons.forEach((el) => {
+      const rel = el.getAttribute('rel');
+      if (keptIcons.has(rel) || (rel !== 'icon' && rel !== 'shortcut icon')) {
+        el.parentNode?.removeChild(el);
+      } else {
+        keptIcons.add(rel);
+        el.setAttribute('type', typeAttr);
+        el.setAttribute('href', faviconUrl);
+      }
+    });
+
+    if (!keptIcons.has('icon')) {
+      const iconLink = document.createElement('link');
+      iconLink.rel = 'icon';
+      iconLink.type = typeAttr;
+      iconLink.href = faviconUrl;
+      document.head.appendChild(iconLink);
+    }
+    if (!keptIcons.has('shortcut icon')) {
+      const shortcutLink = document.createElement('link');
+      shortcutLink.rel = 'shortcut icon';
+      shortcutLink.type = typeAttr;
+      shortcutLink.href = faviconUrl;
+      document.head.appendChild(shortcutLink);
+    }
   }, [customFavicon, customLogo]);
 
   useEffect(() => {

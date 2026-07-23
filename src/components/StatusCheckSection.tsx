@@ -396,7 +396,7 @@ const getStatusBadge = (status: RequestStatus) => {
                               initial={{ opacity: 0, y: 10 }}
                               animate={{ opacity: 1, y: 0 }}
                               transition={{ delay: idx * 0.05 }}
-                              className="bg-white rounded-2xl shadow-xs border border-slate-200 hover:border-mangosteen/30 hover:shadow-md transition-all p-5 space-y-4 relative overflow-hidden"
+                              className="bg-white/85 backdrop-blur-xl rounded-2xl shadow-[0_20px_45px_-10px_rgba(0,0,0,0.12),_0_10px_20px_-10px_rgba(0,0,0,0.08)] border border-slate-200 hover:border-mangosteen/30 hover:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.18)] transition-all p-5 space-y-4 relative overflow-hidden"
                               id={`request-status-card-${request.id}`}
                             >
                               {/* Left status colored accent strip */}
@@ -523,7 +523,7 @@ const getStatusBadge = (status: RequestStatus) => {
                   </div>
                 ) : (
                   /* No results fallback design */
-                  <div className="bg-white rounded-2xl p-8 border border-slate-100 text-center space-y-4" id="no-status-results">
+                  <div className="bg-white/85 backdrop-blur-2xl rounded-2xl p-8 border border-white/90 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.15),_0_15px_30px_-15px_rgba(0,0,0,0.1)] text-center space-y-4" id="no-status-results">
                     <div className="w-16 h-16 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center mx-auto shadow-xs">
                       <Search className="w-6 h-6" />
                     </div>

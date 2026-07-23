@@ -1,0 +1,76 @@
+const fs = require('fs');
+let text = fs.readFileSync('src/App.tsx', 'utf8');
+
+const startStr = `  useEffect(() => {\n    // ลบ link rel="icon" หรือ rel="shortcut icon" ที่มีอยู่ทั้งหมดเพื่อล้างของเก่าออกทั้งหมด`;
+const endStr = `    document.head.appendChild(iconLink);\n  }, [customFavicon, customLogo]);`;
+
+const startIndex = text.indexOf(startStr);
+const endIndex = text.indexOf(endStr);
+
+if (startIndex !== -1 && endIndex !== -1) {
+  const oldBlock = text.substring(startIndex, endIndex + endStr.length);
+  const newBlock = `  useEffect(() => {
+    const activeFavicon = customFavicon || customLogo;
+    
+    // กำหนด URL ของ Favicon
+    let faviconUrl = '';
+    let typeAttr = 'image/png';
+
+    if (activeFavicon) {
+      faviconUrl = activeFavicon;
+      if (!activeFavicon.startsWith('data:')) {
+        const separator = activeFavicon.includes('?') ? '&' : '?';
+        faviconUrl = \`\${activeFavicon}\${separator}t=\${Date.now()}\`;
+      }
+      
+      if (activeFavicon.startsWith('data:image/svg+xml') || activeFavicon.endsWith('.svg')) {
+        typeAttr = 'image/svg+xml';
+      } else if (activeFavicon.startsWith('data:image/x-icon') || activeFavicon.endsWith('.ico')) {
+        typeAttr = 'image/x-icon';
+      } else if (activeFavicon.startsWith('data:image/png') || activeFavicon.endsWith('.png')) {
+        typeAttr = 'image/png';
+      } else if (activeFavicon.startsWith('data:image/jpeg') || activeFavicon.endsWith('.jpg') || activeFavicon.endsWith('.jpeg')) {
+        typeAttr = 'image/jpeg';
+      }
+    } else {
+      faviconUrl = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%236b1d4f'/%3E%3Cstop offset='100%25' stop-color='%23450e30'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100' height='100' rx='24' fill='url(%23grad)'/%3E%3Cpath d='M25,40 L50,28 L75,40 L50,52 Z' fill='%2310b981' opacity='0.9'/%3E%3Cpath d='M35,45 L35,58 C35,64 65,64 65,58 L65,45' fill='none' stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round'/%3E%3Cpath d='M70,41 L70,62 L73,62 L73,41 Z' fill='%23ffffff'/%3E%3Ccircle cx='71.5' cy='63' r='2' fill='%23ffffff'/%3E%3Ctext x='50' y='82' dominant-baseline='middle' text-anchor='middle' fill='%23ffffff' font-family='system-ui, -apple-system, sans-serif' font-weight='900' font-size='18' letter-spacing='0.5'%3EFST FTU%3C/text%3E%3C/svg%3E";
+      typeAttr = 'image/svg+xml';
+    }
+
+    // อัพเดต link elements อย่างระมัดระวัง เพื่อป้องกันเบราว์เซอร์ไม่แสดงผล
+    const existingIcons = Array.from(document.querySelectorAll("link[rel*='icon']"));
+    const keptIcons = new Set();
+    existingIcons.forEach((el) => {
+      const rel = el.getAttribute('rel');
+      if (keptIcons.has(rel) || (rel !== 'icon' && rel !== 'shortcut icon')) {
+        el.parentNode?.removeChild(el);
+      } else {
+        keptIcons.add(rel);
+        el.setAttribute('type', typeAttr);
+        el.setAttribute('href', faviconUrl);
+      }
+    });
+
+    if (!keptIcons.has('icon')) {
+      const iconLink = document.createElement('link');
+      iconLink.rel = 'icon';
+      iconLink.type = typeAttr;
+      iconLink.href = faviconUrl;
+      document.head.appendChild(iconLink);
+    }
+    if (!keptIcons.has('shortcut icon')) {
+      const shortcutLink = document.createElement('link');
+      shortcutLink.rel = 'shortcut icon';
+      shortcutLink.type = typeAttr;
+      shortcutLink.href = faviconUrl;
+      document.head.appendChild(shortcutLink);
+    }
+  }, [customFavicon, customLogo]);`;
+  text = text.substring(0, startIndex) + newBlock + text.substring(endIndex + endStr.length);
+  fs.writeFileSync('src/App.tsx', text);
+  console.log("Success");
+} else {
+  console.log("Failed to find block");
+  console.log("Start: ", startIndex);
+  console.log("End: ", endIndex);
+}

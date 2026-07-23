@@ -36,6 +36,7 @@ import {
   X
 } from 'lucide-react';
 import { ReservationRequest, RequestStatus } from '../types';
+import { compressImage } from '../imageUtils';
 import { adminLogin, addAdminPassword, getSavedAdminPasswords, removeAdminPassword, getAllRequests, updateStatus, updateCourseStatus, saveApiUrl, getApiUrl, isApiConfigured, getLoggedInAdminName, adminLogout, hashString, syncAdminPasswordsWithGoogleSheets } from '../services/api';
 
 interface AdminSectionProps {
@@ -1170,7 +1171,7 @@ function doPost(e) {
           className="w-full max-w-md mx-auto py-12"
           id="admin-first-setup-screen"
         >
-          <div className="bg-white rounded-3xl shadow-lg shadow-slate-200/50 overflow-hidden border border-slate-100 p-8 text-center space-y-6 animate-fade-in">
+          <div className="bg-white/85 backdrop-blur-2xl rounded-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.15),_0_15px_30px_-15px_rgba(0,0,0,0.1)] overflow-hidden border border-white/90 p-8 text-center space-y-6 animate-fade-in">
             <div className="mx-auto w-12 h-12 bg-mangosteen/10 text-mangosteen rounded-2xl flex items-center justify-center">
               <Key className="w-5 h-5" />
             </div>
@@ -1272,7 +1273,7 @@ function doPost(e) {
         className="w-full max-w-md mx-auto py-12"
         id="admin-login-screen"
       >
-        <div className="bg-white rounded-3xl shadow-lg shadow-slate-200/50 overflow-hidden border border-slate-100 p-8 text-center space-y-6 animate-fade-in">
+        <div className="bg-white/85 backdrop-blur-2xl rounded-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.15),_0_15px_30px_-15px_rgba(0,0,0,0.1)] overflow-hidden border border-white/90 p-8 text-center space-y-6 animate-fade-in">
           <div className="mx-auto w-12 h-12 bg-mangosteen/10 text-mangosteen rounded-2xl flex items-center justify-center">
             <Lock className="w-5 h-5" />
           </div>
@@ -1342,7 +1343,7 @@ function doPost(e) {
       id="admin-dashboard-view"
     >
       {/* Top dashboard banner & toggle controls */}
-      <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-xs space-y-4">
+      <div className="bg-white/85 backdrop-blur-2xl rounded-2xl p-6 border border-white/90 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.15),_0_15px_30px_-15px_rgba(0,0,0,0.1)] space-y-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -1581,7 +1582,7 @@ function doPost(e) {
       )}
 
       {/* Results Header with Prominent Reload Button */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3 font-sans mt-4 mb-4" id="admin-results-header">
+      <div className="bg-white/85 backdrop-blur-2xl rounded-2xl p-4 border border-white/90 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.15),_0_15px_30px_-15px_rgba(0,0,0,0.1)] flex flex-col sm:flex-row items-center justify-between gap-3 font-sans mt-4 mb-4" id="admin-results-header">
         <div className="flex items-center gap-2">
           <div className="w-1.5 h-5 bg-mangosteen rounded-full"></div>
           <span className="text-xs font-extrabold text-slate-700">
@@ -1605,13 +1606,13 @@ function doPost(e) {
 
       {loadingRequests ? (
         /* Loading skeleton spinner */
-        <div className="bg-white rounded-2xl p-12 border border-slate-100 flex flex-col items-center justify-center gap-3">
+        <div className="bg-white/85 backdrop-blur-2xl rounded-2xl p-12 border border-white/90 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.15),_0_15px_30px_-15px_rgba(0,0,0,0.1)] flex flex-col items-center justify-center gap-3">
           <RefreshCw className="w-8 h-8 animate-spin text-mangosteen" />
           <p className="text-slate-400 text-xs font-sans animate-pulse">กำลังโหลดข้อมูลคำร้องในระบบ...</p>
         </div>
       ) : processedRequests.length === 0 ? (
         /* Empty feedback */
-        <div className="bg-white rounded-2xl p-12 border border-slate-100 text-center space-y-3" id="admin-empty-results">
+        <div className="bg-white/85 backdrop-blur-2xl rounded-2xl p-12 border border-white/90 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.15),_0_15px_30px_-15px_rgba(0,0,0,0.1)] text-center space-y-3" id="admin-empty-results">
           <div className="w-12 h-12 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center mx-auto">
             <Filter className="w-5 h-5" />
           </div>
@@ -1624,7 +1625,7 @@ function doPost(e) {
         /* Main Results Showcase: Desktop Table & Mobile Cards */
         <div id="admin-results-display">
           {/* DESKTOP TABLE VIEW */}
-          <div className="hidden lg:block bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
+          <div className="hidden lg:block bg-white/85 backdrop-blur-2xl rounded-2xl border border-white/90 overflow-hidden shadow-[0_25px_60px_-15px_rgba(0,0,0,0.15),_0_15px_30px_-15px_rgba(0,0,0,0.1)]">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse" id="admin-requests-table">
                 <thead>
@@ -2111,7 +2112,7 @@ function doPost(e) {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl max-w-sm w-full shadow-2xl overflow-hidden border border-slate-100"
+              className="bg-white/95 backdrop-blur-3xl rounded-2xl max-w-sm w-full shadow-[0_25px_60px_-15px_rgba(0,0,0,0.2),_0_15px_30px_-15px_rgba(0,0,0,0.15)] overflow-hidden border border-white"
               id="rejection-reason-modal"
             >
               <div className="bg-rose-50 px-5 py-4 border-b border-rose-100/65 flex items-center gap-2">
@@ -2207,7 +2208,7 @@ function doPost(e) {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-100"
+              className="bg-white/95 backdrop-blur-3xl rounded-2xl w-full max-w-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.2),_0_15px_30px_-15px_rgba(0,0,0,0.15)] overflow-hidden flex flex-col max-h-[90vh] border border-white"
             >
               {/* Header */}
               <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center shrink-0">
@@ -2452,14 +2453,13 @@ function doPost(e) {
                                       showToast('ขนาดไฟล์รูปภาพโลโก้ใหญ่เกินไป จำกัดไม่เกิน 2MB', 'warning');
                                       return;
                                     }
-                                    const reader = new FileReader();
-                                    reader.onload = () => {
-                                      if (typeof reader.result === 'string') {
-                                        setLogoInput(reader.result);
-                                        showToast('โหลดรูปภาพเตรียมบันทึกเรียบร้อย', 'success');
-                                      }
-                                    };
-                                    reader.readAsDataURL(file);
+                                    compressImage(file, 256, 256, 0.8).then(base64 => {
+                                      setLogoInput(base64);
+                                      showToast('โหลดและย่อขนาดรูปภาพสำเร็จ เตรียมบันทึก', 'success');
+                                    }).catch(err => {
+                                      showToast('เกิดข้อผิดพลาดในการประมวลผลรูปภาพ', 'error');
+                                      console.error(err);
+                                    });
                                   }
                                 }}
                                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
@@ -2533,14 +2533,13 @@ function doPost(e) {
                                       showToast('ขนาดไฟล์รูปภาพ Favicon ใหญ่เกินไป จำกัดไม่เกิน 1MB', 'warning');
                                       return;
                                     }
-                                    const reader = new FileReader();
-                                    reader.onload = () => {
-                                      if (typeof reader.result === 'string') {
-                                        setFaviconInput(reader.result);
-                                        showToast('โหลดรูป Favicon เตรียมบันทึกเรียบร้อย', 'success');
-                                      }
-                                    };
-                                    reader.readAsDataURL(file);
+                                    compressImage(file, 128, 128, 0.8).then(base64 => {
+                                      setFaviconInput(base64);
+                                      showToast('โหลดและย่อขนาด Favicon สำเร็จ เตรียมบันทึก', 'success');
+                                    }).catch(err => {
+                                      showToast('เกิดข้อผิดพลาดในการประมวลผลรูปภาพ', 'error');
+                                      console.error(err);
+                                    });
                                   }
                                 }}
                                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
@@ -2745,7 +2744,7 @@ function doPost(e) {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-2xl max-w-sm w-full shadow-2xl p-6 border border-slate-100 space-y-4"
+              className="bg-white/95 backdrop-blur-3xl rounded-2xl max-w-sm w-full shadow-[0_25px_60px_-15px_rgba(0,0,0,0.2),_0_15px_30px_-15px_rgba(0,0,0,0.15)] p-6 border border-white space-y-4"
             >
               <div className="space-y-2 text-center">
                 <div className="w-12 h-12 bg-amber-50 rounded-full flex items-center justify-center mx-auto text-amber-500">
