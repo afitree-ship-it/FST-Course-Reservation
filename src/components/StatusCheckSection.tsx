@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { ReservationRequest, RequestStatus } from '../types';
 import { getStatusByStudentId, getCachedRequestsByStudentId } from '../services/api';
+import ScrambleText from './ScrambleText';
 
 interface StatusCheckSectionProps {
   initialStudentId?: string;
@@ -227,8 +228,8 @@ const getStatusBadge = (status: RequestStatus) => {
               {t('statusTitle')}
             </h2>
           </div>
-          <p className="text-slate-500 text-xs font-sans">
-            {t('statusDesc')}
+          <p className="text-slate-500 text-xs font-sans min-h-[1.25rem] flex items-center">
+            <ScrambleText text={t('statusDesc')} duration={2500} />
           </p>
         </div>
 

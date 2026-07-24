@@ -34,6 +34,7 @@ import FormSection from './components/FormSection';
 import StatusCheckSection from './components/StatusCheckSection';
 import AdminSection from './components/AdminSection';
 import ToastContainer, { ToastMessage, ToastType } from './components/Toast';
+import ScrambleText from './components/ScrambleText';
 import { isApiConfigured, isGoogleSheetUrlInstead, getAllRequests, submitRequest, getRemoteSettings, saveRemoteSetting } from './services/api';
 import { ReservationRequest } from './types';
 import { useTranslation } from './contexts/LanguageContext';
@@ -790,8 +791,8 @@ export default function App() {
                   FST
                 </span>
               </h1>
-              <p className="text-[10px] font-semibold text-slate-500 font-sans tracking-wide uppercase">
-                {t('fstSubtitle')}
+              <p className="text-[10px] font-semibold text-slate-500 font-sans tracking-wide uppercase flex items-center">
+                <ScrambleText text={t('fstSubtitle')} duration={2400} />
               </p>
             </div>
           </div>
