@@ -35,7 +35,7 @@ import StatusCheckSection from './components/StatusCheckSection';
 import AdminSection from './components/AdminSection';
 import ToastContainer, { ToastMessage, ToastType } from './components/Toast';
 import { isApiConfigured, isGoogleSheetUrlInstead, getAllRequests, submitRequest, getRemoteSettings, saveRemoteSetting } from './services/api';
-import { ReservationRequest } from './types';
+import { ReservationRequest, RequestStatus } from './types';
 import { useTranslation } from './contexts/LanguageContext';
 
 export default function App() {
@@ -231,9 +231,17 @@ export default function App() {
   
   // Store recent status overrides to prevent background polls from overriding fresh local changes
   const recentStatusOverridesRef = useRef<Record<string, { 
-    status: any; 
+    status: RequestStatus; 
+    rejectionReason?: string;
+    processedBy?: string;
+    processedAt?: string;
     timestamp: number;
-    courses: Record<string, { status: any; timestamp: number }>
+    courses: Record<string, { 
+      status: RequestStatus; 
+      rejectionReason?: string;
+      processedBy?: string; 
+      processedAt?: string;
+    }>
   }>>({});
 
   const allRequests = allRequestsState;
@@ -245,40 +253,47 @@ export default function App() {
       const now = Date.now();
       next.forEach(nextReq => {
         const prevReq = prev.find(p => p.id === nextReq.id);
+        
+        let hasDiff = !prevReq;
         if (prevReq) {
-          let hasDiff = false;
-          const courseOverrides: Record<string, { status: any; timestamp: number }> = {};
-          
-          if (prevReq.status !== nextReq.status) {
+          if (
+            prevReq.status !== nextReq.status || 
+            prevReq.rejectionReason !== nextReq.rejectionReason ||
+            prevReq.processedBy !== nextReq.processedBy
+          ) {
             hasDiff = true;
           }
-          
-          if (nextReq.courses && prevReq.courses) {
+          if (nextReq.courses) {
             nextReq.courses.forEach(nc => {
-              const pc = prevReq.courses.find(c => c.courseCode === nc.courseCode);
-              if (pc && pc.status !== nc.status) {
+              const pc = prevReq.courses?.find(c => c.courseCode === nc.courseCode);
+              if (!pc || pc.status !== nc.status || pc.rejectionReason !== nc.rejectionReason || pc.processedBy !== nc.processedBy) {
                 hasDiff = true;
-                courseOverrides[nc.courseCode] = { status: nc.status, timestamp: now };
               }
             });
           }
-          
-          if (hasDiff) {
-            const existing = recentStatusOverridesRef.current[nextReq.id] || { 
-              status: nextReq.status, 
-              timestamp: now, 
-              courses: {} 
-            };
-            
-            recentStatusOverridesRef.current[nextReq.id] = {
-              status: prevReq.status !== nextReq.status ? nextReq.status : existing.status,
-              timestamp: prevReq.status !== nextReq.status ? now : existing.timestamp,
-              courses: {
-                ...existing.courses,
-                ...courseOverrides
-              }
-            };
+        }
+        
+        if (hasDiff) {
+          const courseMap: Record<string, { status: RequestStatus; rejectionReason?: string; processedBy?: string; processedAt?: string }> = {};
+          if (nextReq.courses) {
+            nextReq.courses.forEach(c => {
+              courseMap[c.courseCode] = {
+                status: c.status,
+                rejectionReason: c.rejectionReason,
+                processedBy: c.processedBy,
+                processedAt: c.processedAt
+              };
+            });
           }
+
+          recentStatusOverridesRef.current[nextReq.id] = {
+            status: nextReq.status,
+            rejectionReason: nextReq.rejectionReason,
+            processedBy: nextReq.processedBy,
+            processedAt: nextReq.processedAt,
+            timestamp: now,
+            courses: courseMap
+          };
         }
       });
       
@@ -398,54 +413,76 @@ export default function App() {
       if (response.success && response.data) {
         let fetchedRequests = response.data;
 
-        // Merge with fresh local status overrides (less than 15 seconds old)
+        // Merge with fresh local status overrides (45 seconds to account for Google Sheets write/read latency)
         const now = Date.now();
-        const freshThreshold = 15000; // 15 seconds
+        const freshThreshold = 45000; // 45 seconds
         
         // Clean up expired overrides first
         Object.keys(recentStatusOverridesRef.current).forEach(reqId => {
           const override = recentStatusOverridesRef.current[reqId];
-          const isRequestOverrideFresh = (now - override.timestamp) < freshThreshold;
-          
-          const freshCourses: Record<string, { status: any; timestamp: number }> = {};
-          let hasFreshCourses = false;
-          Object.keys(override.courses).forEach(cc => {
-            if ((now - override.courses[cc].timestamp) < freshThreshold) {
-              freshCourses[cc] = override.courses[cc];
-              hasFreshCourses = true;
-            }
-          });
-          
-          if (!isRequestOverrideFresh && !hasFreshCourses) {
+          if ((now - override.timestamp) >= freshThreshold) {
             delete recentStatusOverridesRef.current[reqId];
-          } else {
-            recentStatusOverridesRef.current[reqId].courses = freshCourses;
           }
         });
         
         // Apply fresh overrides to the fetched requests
         fetchedRequests = fetchedRequests.map(req => {
           const override = recentStatusOverridesRef.current[req.id];
-          if (!override) return req;
-          
-          let updatedReq = { ...req };
-          const isRequestOverrideFresh = (now - override.timestamp) < freshThreshold;
-          
-          if (isRequestOverrideFresh) {
-            updatedReq.status = override.status;
+          const prevReq = allRequestsState.find(p => p.id === req.id);
+
+          if (!override) {
+            // Preserve processedBy/processedAt if server hasn't saved them yet
+            let updatedReq = { ...req };
+            if (!updatedReq.processedBy && prevReq?.processedBy && prevReq.status === updatedReq.status) {
+              updatedReq.processedBy = prevReq.processedBy;
+              updatedReq.processedAt = prevReq.processedAt;
+            }
+            if (updatedReq.courses && prevReq?.courses) {
+              updatedReq.courses = updatedReq.courses.map(c => {
+                const prevCourse = prevReq.courses?.find(pc => pc.courseCode === c.courseCode);
+                if (!c.processedBy && prevCourse?.processedBy && prevCourse.status === c.status) {
+                  return { ...c, processedBy: prevCourse.processedBy, processedAt: prevCourse.processedAt };
+                }
+                return c;
+              });
+            }
+            return updatedReq;
           }
-          
-          if (updatedReq.courses) {
-            updatedReq.courses = updatedReq.courses.map(c => {
-              const courseOverride = override.courses[c.courseCode];
-              if (courseOverride && (now - courseOverride.timestamp) < freshThreshold) {
-                return { ...c, status: courseOverride.status };
+
+          let serverMatches = req.status === override.status &&
+            (req.processedBy || '') === (override.processedBy || '') &&
+            (req.rejectionReason || '') === (override.rejectionReason || '');
+
+          const updatedCourses = req.courses ? req.courses.map(c => {
+            const courseOverride = override.courses[c.courseCode];
+            if (courseOverride) {
+              if (c.status !== courseOverride.status) {
+                serverMatches = false;
               }
-              return c;
-            });
+              return {
+                ...c,
+                status: courseOverride.status,
+                rejectionReason: courseOverride.rejectionReason !== undefined ? courseOverride.rejectionReason : c.rejectionReason,
+                processedBy: courseOverride.processedBy || c.processedBy,
+                processedAt: courseOverride.processedAt || c.processedAt
+              };
+            }
+            return c;
+          }) : req.courses;
+
+          if (serverMatches) {
+            delete recentStatusOverridesRef.current[req.id];
+            return req;
           }
-          
-          return updatedReq;
+
+          return {
+            ...req,
+            status: override.status,
+            rejectionReason: override.rejectionReason !== undefined ? override.rejectionReason : req.rejectionReason,
+            processedBy: override.processedBy || req.processedBy,
+            processedAt: override.processedAt || req.processedAt,
+            courses: updatedCourses
+          };
         });
 
         setAllRequestsState(fetchedRequests);

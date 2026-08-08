@@ -1,4 +1,4 @@
-import { ReservationRequest, RequestStatus } from '../types';
+import { ReservationRequest, RequestStatus, AuditLog } from '../types';
 
 const API_URL_KEY = 'gs_api_url';
 const LOCAL_OVERRIDES_KEY = 'mock_local_overrides';
@@ -251,6 +251,15 @@ export async function submitReservation(data: Partial<ReservationRequest>): Prom
   // Update cache
   cachedRequests = requests;
   lastFetchTime = Date.now();
+
+  // Auto notification dispatch if configured
+  getRemoteSettings().then(settings => {
+    if (settings.notify_on_new_request === 'true' && settings.notify_line_token) {
+      const courseList = (newReq.courses || []).map(c => `• ${c.courseCode} ${c.courseName} (กลุ่ม ${c.section})`).join('\n');
+      const msg = `\n📩 [มีคำร้องสำรองที่นั่งเข้าใหม่!]\n------------------------\n👤 นักศึกษา: ${newReq.fullName}\n🆔 รหัสนักศึกษา: ${newReq.studentId}\n🏫 สาขาวิชา: ${newReq.department}\n🔖 รหัสติดตาม: ${newReq.id}\n\n📚 รายวิชาที่ขอสำรอง:\n${courseList}\n------------------------\nกรุณาเข้าตรวจในระบบแอดมิน`;
+      dispatchNotification(settings.notify_line_token, msg);
+    }
+  }).catch(() => {});
   
   return { success: true, data: newReq };
 }
@@ -312,6 +321,8 @@ export async function updateStatus(
   rejectionReason?: string,
   adminName?: string
 ): Promise<{ success: boolean; data?: ReservationRequest; error?: string }> {
+  const userWhoProcessed = adminName || getLoggedInAdminName() || 'แอดมินระบบ';
+
   if (isApiConfigured()) {
     try {
       const response = await fetch(getApiUrl(), {
@@ -322,7 +333,7 @@ export async function updateStatus(
           requestId,
           status,
           rejectionReason,
-          processedBy: adminName
+          processedBy: userWhoProcessed
         })
       });
       const result = await response.json();
@@ -330,7 +341,23 @@ export async function updateStatus(
         // Clear cache so the next fetch is guaranteed fresh
         cachedRequests = null;
         lastFetchTime = 0;
-        return { success: true, data: result.data };
+
+        recordAuditLog(
+          status === 'อนุมัติแล้ว' ? 'อนุมัติคำร้อง' : status === 'ไม่อนุมัติ' ? 'ไม่อนุมัติคำร้อง' : 'รีเซ็ตสถานะคำร้อง',
+          `พิจารณาคำร้อง ${requestId} เป็น "${status}" ${rejectionReason ? `[เหตุผล: ${rejectionReason}]` : ''}`,
+          requestId,
+          userWhoProcessed
+        );
+
+        const returnedData = result.data || {
+          id: requestId,
+          status,
+          rejectionReason,
+          processedBy: result.processedBy || userWhoProcessed,
+          processedAt: result.processedAt || (status === 'อนุมัติแล้ว' || status === 'ไม่อนุมัติ' ? new Date().toISOString() : undefined)
+        };
+
+        return { success: true, data: returnedData as any };
       }
       return { success: false, error: result.error || 'เกิดข้อผิดพลาดในการอัปเดตสถานะ' };
     } catch (err) {
@@ -341,7 +368,6 @@ export async function updateStatus(
   const requests = getLocalRequests();
   const index = requests.findIndex(r => r.id === requestId);
   if (index >= 0) {
-    const userWhoProcessed = adminName || getLoggedInAdminName() || 'แอดมินระบบ';
     requests[index].status = status;
     requests[index].processedBy = userWhoProcessed;
     if (status === 'ไม่อนุมัติ' && rejectionReason) {
@@ -373,6 +399,22 @@ export async function updateStatus(
     // Update local cache
     cachedRequests = requests;
     lastFetchTime = Date.now();
+
+    // Record Audit Log
+    recordAuditLog(
+      status === 'อนุมัติแล้ว' ? 'อนุมัติคำร้อง' : status === 'ไม่อนุมัติ' ? 'ไม่อนุมัติคำร้อง' : 'รีเซ็ตสถานะคำร้อง',
+      `พิจารณาคำร้อง ${requestId} (รหัสนักศึกษา: ${requests[index].studentId}) เป็น "${status}" ${rejectionReason ? `[เหตุผล: ${rejectionReason}]` : ''}`,
+      requestId,
+      userWhoProcessed
+    );
+
+    // Trigger status change notification if enabled
+    getRemoteSettings().then(settings => {
+      if (settings.notify_on_status_change === 'true' && settings.notify_line_token) {
+        const msg = `\n📢 [อัปเดตสถานะคำร้อง]\n------------------------\n🔖 รหัสคำร้อง: ${requestId}\n👤 นักศึกษา: ${requests[index].fullName} (${requests[index].studentId})\n📌 สถานะใหม่: ${status}${rejectionReason ? `\n⚠️ เหตุผล: ${rejectionReason}` : ''}\n👤 ผู้ดำเนินการ: ${userWhoProcessed}\n------------------------`;
+        dispatchNotification(settings.notify_line_token, msg);
+      }
+    }).catch(() => {});
     
     return { success: true, data: requests[index] };
   }
@@ -387,6 +429,8 @@ export async function updateCourseStatus(
   rejectionReason?: string,
   adminName?: string
 ): Promise<{ success: boolean; data?: ReservationRequest; error?: string }> {
+  const userWhoProcessed = adminName || getLoggedInAdminName() || 'แอดมินระบบ';
+
   if (isApiConfigured()) {
     try {
       const response = await fetch(getApiUrl(), {
@@ -398,7 +442,7 @@ export async function updateCourseStatus(
           courseCode,
           status,
           rejectionReason,
-          processedBy: adminName
+          processedBy: userWhoProcessed
         })
       });
       const result = await response.json();
@@ -406,7 +450,23 @@ export async function updateCourseStatus(
         // Clear cache so the next fetch is guaranteed fresh
         cachedRequests = null;
         lastFetchTime = 0;
-        return { success: true, data: result.data };
+
+        recordAuditLog(
+          status === 'อนุมัติแล้ว' ? 'อนุมัติรายวิชา' : status === 'ไม่อนุมัติ' ? 'ไม่อนุมัติรายวิชา' : 'รีเซ็ตสถานะรายวิชา',
+          `อัปเดตสถานะวิชา ${courseCode} ในคำร้อง ${requestId} เป็น "${status}" ${rejectionReason ? `[เหตุผล: ${rejectionReason}]` : ''}`,
+          requestId,
+          userWhoProcessed
+        );
+
+        const returnedData = result.data || {
+          id: requestId,
+          status,
+          rejectionReason,
+          processedBy: result.processedBy || userWhoProcessed,
+          processedAt: result.processedAt || (status === 'อนุมัติแล้ว' || status === 'ไม่อนุมัติ' ? new Date().toISOString() : undefined)
+        };
+
+        return { success: true, data: returnedData as any };
       }
       return { success: false, error: result.error || 'เกิดข้อผิดพลาดในการอัปเดตสถานะรายวิชา' };
     } catch (err) {
@@ -417,7 +477,6 @@ export async function updateCourseStatus(
   const requests = getLocalRequests();
   const index = requests.findIndex(r => r.id === requestId);
   if (index >= 0) {
-    const userWhoProcessed = adminName || getLoggedInAdminName() || 'แอดมินระบบ';
     if (requests[index].courses) {
        requests[index].courses = requests[index].courses.map(c => {
          if (c.courseCode === courseCode) {
@@ -450,6 +509,23 @@ export async function updateCourseStatus(
     }
     
     localStorage.setItem('local_requests', JSON.stringify(requests));
+
+    // Record Audit Log
+    recordAuditLog(
+      status === 'อนุมัติแล้ว' ? 'อนุมัติวิชาเรียน' : status === 'ไม่อนุมัติ' ? 'ไม่อนุมัติวิชาเรียน' : 'รีเซ็ตสถานะวิชาเรียน',
+      `อัปเดตสถานะวิชา ${courseCode} ในคำร้อง ${requestId} เป็น "${status}" ${rejectionReason ? `[เหตุผล: ${rejectionReason}]` : ''}`,
+      requestId,
+      userWhoProcessed
+    );
+
+    // Trigger status change notification if enabled
+    getRemoteSettings().then(settings => {
+      if (settings.notify_on_status_change === 'true' && settings.notify_line_token) {
+        const msg = `\n📢 [อัปเดตสถานะรายวิชา]\n------------------------\n🔖 รหัสคำร้อง: ${requestId}\n📚 วิชา: ${courseCode}\n👤 นักศึกษา: ${requests[index].fullName} (${requests[index].studentId})\n📌 สถานะใหม่: ${status}${rejectionReason ? `\n⚠️ เหตุผล: ${rejectionReason}` : ''}\n👤 ผู้ดำเนินการ: ${userWhoProcessed}\n------------------------`;
+        dispatchNotification(settings.notify_line_token, msg);
+      }
+    }).catch(() => {});
+
     return { success: true, data: requests[index] };
   }
   
@@ -511,7 +587,7 @@ export async function getRemoteSettings(): Promise<Record<string, string>> {
   try {
     const localRes = await fetch('/api/settings');
     const localData = await localRes.json();
-    if (localData.success && localData.data && (localData.data.custom_logo || localData.data.custom_favicon)) {
+    if (localData.success && localData.data && Object.keys(localData.data).length > 0) {
       return localData.data;
     }
   } catch (err) {
@@ -573,6 +649,120 @@ export async function saveRemoteSetting(key: string, value: string): Promise<voi
     });
   } catch (err) {
     console.error(`Failed to save remote setting to Google Sheets ${key}:`, err);
+  }
+}
+
+export async function dispatchNotification(
+  tokenOrWebhook: string,
+  message: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!tokenOrWebhook || !message) {
+    return { success: false, error: 'ไม่พบ Endpoint หรือข้อความการแจ้งเตือน' };
+  }
+
+  try {
+    const res = await fetch('/api/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tokenOrWebhook, message })
+    });
+    const data = await res.json();
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'ส่งข้อความไม่สำเร็จ' };
+  }
+}
+
+export async function getAuditLogs(): Promise<AuditLog[]> {
+  if (isApiConfigured()) {
+    try {
+      const response = await fetch(`${getApiUrl()}?action=getAuditLogs`);
+      const result = await response.json();
+      if (result.success && Array.isArray(result.data)) {
+        return result.data;
+      }
+    } catch (err) {
+      console.error('Failed to fetch audit logs from Google Sheets:', err);
+    }
+  }
+
+  try {
+    const res = await fetch('/api/audit-logs');
+    const data = await res.json();
+    if (data.success && Array.isArray(data.data)) {
+      return data.data;
+    }
+  } catch (err) {
+    console.error('Failed to fetch audit logs from Express server:', err);
+  }
+
+  // Fallback to local storage if server unreachable
+  try {
+    const local = localStorage.getItem('local_audit_logs');
+    return local ? JSON.parse(local) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+export async function recordAuditLog(
+  action: string, 
+  details: string, 
+  targetId?: string, 
+  adminNameOverride?: string
+): Promise<void> {
+  const adminName = adminNameOverride || getLoggedInAdminName() || 'เจ้าหน้าที่';
+  
+  // 1. Post to Google Sheets if configured
+  if (isApiConfigured()) {
+    try {
+      await fetch(getApiUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'recordAuditLog',
+          adminName,
+          logAction: action,
+          targetId: targetId || '',
+          details
+        })
+      });
+    } catch (err) {
+      console.error('Failed to post audit log to Google Sheets:', err);
+    }
+  }
+
+  // 2. Post to local Express server
+  try {
+    await fetch('/api/audit-logs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        adminName,
+        action,
+        targetId,
+        details
+      })
+    });
+  } catch (err) {
+    console.error('Failed to post audit log to Express server:', err);
+  }
+
+  // 3. Backup in localStorage
+  try {
+    const existing = await getAuditLogs();
+    const newEntry: AuditLog = {
+      id: `LOG-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: new Date().toISOString(),
+      adminName,
+      action,
+      targetId,
+      details
+    };
+    const updated = [newEntry, ...existing].slice(0, 300);
+    localStorage.setItem('local_audit_logs', JSON.stringify(updated));
+  } catch (e) {
+    // Ignore storage errors
   }
 }
 

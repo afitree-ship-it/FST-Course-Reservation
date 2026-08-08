@@ -24,8 +24,9 @@ import {
   Trash2
 } from 'lucide-react';
 import { YEARS, ReservationRequest } from '../types';
-import { submitRequest, getStatusByStudentId, getCachedRequestsByStudentId } from '../services/api';
+import { submitRequest, getStatusByStudentId, getCachedRequestsByStudentId, getRemoteSettings } from '../services/api';
 import { useTranslation } from '../contexts/LanguageContext';
+import { Calendar, Bell, Lock, ShieldAlert } from 'lucide-react';
 import ScrambleText from './ScrambleText';
 
 const FACULTIES_DATA = {
@@ -104,6 +105,24 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
   const [phone, setPhone] = useState('');
   const [consent, setConsent] = useState(true);
 
+  // Student notification choice states
+  const [notifyChannel, setNotifyChannel] = useState<'line' | 'email' | 'none'>('line');
+  const [notifyContact, setNotifyContact] = useState('');
+
+  // System schedule & opening states
+  const [systemOpenStatus, setSystemOpenStatus] = useState<{
+    isOpen: boolean;
+    mode: 'always_open' | 'scheduled' | 'closed';
+    startDate?: string;
+    endDate?: string;
+    message?: string;
+    loading: boolean;
+  }>({
+    isOpen: true,
+    mode: 'always_open',
+    loading: true
+  });
+
   // Flow states
   const [step, setStep] = useState<1 | 2>(1);
   const [checkingStudentId, setCheckingStudentId] = useState(false);
@@ -113,6 +132,39 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+
+  // Fetch opening schedule on mount
+  useEffect(() => {
+    getRemoteSettings().then(settings => {
+      const mode = (settings.system_opening_mode as any) || 'always_open';
+      const start = settings.system_open_start || '';
+      const end = settings.system_open_end || '';
+      const message = settings.system_closed_message || '';
+
+      const now = new Date();
+      let isOpen = true;
+
+      if (mode === 'closed') {
+        isOpen = false;
+      } else if (mode === 'scheduled') {
+        const startTime = start ? new Date(start).getTime() : 0;
+        const endTime = end ? new Date(end).getTime() : Infinity;
+        const currentTime = now.getTime();
+        isOpen = currentTime >= startTime && currentTime <= endTime;
+      }
+
+      setSystemOpenStatus({
+        isOpen,
+        mode,
+        startDate: start,
+        endDate: end,
+        message,
+        loading: false
+      });
+    }).catch(() => {
+      setSystemOpenStatus(prev => ({ ...prev, loading: false }));
+    });
+  }, []);
 
   // Form validations
   const isStudentIdValid = (id: string) => /^\d{9}$/.test(id.trim());
@@ -353,6 +405,12 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!systemOpenStatus.isOpen) {
+      showToast(isTh ? 'ขณะนี้ระบบปิดรับคำร้องสำรองที่นั่ง' : 'System is currently closed for seat reservation requests.', 'error');
+      return;
+    }
+
     const submitTouched: Record<string, boolean> = {
       fullName: true,
       studentId: true,
@@ -397,7 +455,9 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       facebookProofLink: proofType === 'link' ? facebookProofLink : undefined,
       facebookProofFile: proofType === 'file' && facebookProofFile ? facebookProofFile : undefined,
       phone: phone.trim(),
-      consent
+      consent,
+      notifyChannel,
+      notifyContact: notifyContact.trim()
     };
 
     try {
@@ -443,6 +503,30 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
         )}
 
         <form onSubmit={step === 1 ? handleCheckStudentId : handleSubmit} className={`${step === 1 ? 'p-5 sm:p-8 space-y-4 sm:space-y-6' : 'p-6 md:p-8 space-y-8'}`} id="scitech-reserve-form">
+          {!systemOpenStatus.isOpen && (
+            <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 sm:p-5 text-rose-800 shadow-xs">
+              <div className="flex items-start space-x-3">
+                <div className="p-2 bg-rose-100 rounded-xl text-rose-600 shrink-0 mt-0.5">
+                  <Lock className="w-5 h-5" />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="font-bold text-sm sm:text-base text-rose-900 font-sans">
+                    {isTh ? 'ขณะนี้ระบบปิดรับคำร้องสำรองที่นั่งวิชาเรียน' : 'System Closed for Seat Reservation'}
+                  </h4>
+                  <p className="text-xs sm:text-sm text-rose-700 leading-relaxed font-sans">
+                    {systemOpenStatus.message || (isTh ? 'อยู่นอกกำหนดเวลาการรับคำร้อง หรือเจ้าหน้าที่ปิดการรับคำร้องชั่วคราว' : 'Currently outside the scheduled reservation period or temporarily closed by administrator.')}
+                  </p>
+                  {systemOpenStatus.mode === 'scheduled' && systemOpenStatus.startDate && (
+                    <div className="mt-2 text-xs font-semibold bg-rose-100/90 inline-flex items-center space-x-1.5 px-3 py-1 rounded-lg text-rose-800 font-sans">
+                      <Calendar className="w-3.5 h-3.5" />
+                      <span>{isTh ? 'กำหนดการรับคำร้อง:' : 'Schedule:'} {new Date(systemOpenStatus.startDate).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })} - {systemOpenStatus.endDate ? new Date(systemOpenStatus.endDate).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }) : 'เปิดต่อเนื่อง'}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {step === 1 ? (
             <div className="space-y-4 sm:space-y-6">
               <div className="text-center">
@@ -457,21 +541,28 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                 <label className="block text-xs sm:text-sm font-semibold text-slate-600 mb-1 sm:mb-1.5 font-sans text-center">
                   {t('studentIdLabel')} <span className="text-rose-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  maxLength={9}
-                  value={studentId}
-                  onChange={e => setStudentId(e.target.value.replace(/\D/g, ''))}
-                  onBlur={() => handleBlur('studentId')}
-                  placeholder="xxxxxxxxx"
-                  className={`w-full px-4 py-2.5 sm:py-3 rounded-xl border-2 text-center text-md sm:text-lg font-bold font-sans tracking-widest transition-all focus:outline-hidden focus:ring-4 ${
-                    touched.studentId && validationErrors.studentId
-                      ? 'border-rose-300 focus:ring-rose-200 focus:border-rose-400 bg-rose-50/20 text-rose-700'
-                      : 'border-slate-200 focus:border-mangosteen focus:ring-mangosteen/20 text-slate-700'
-                  }`}
-                  id="input-studentId-step1"
-                  autoFocus
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="\d*"
+                    maxLength={9}
+                    value={studentId}
+                    onChange={e => setStudentId(e.target.value.replace(/\D/g, ''))}
+                    onBlur={() => handleBlur('studentId')}
+                    placeholder="xxxxxxxxx (9 หลัก)"
+                    className={`w-full px-4 py-2.5 sm:py-3 rounded-xl border-2 text-center text-md sm:text-lg font-bold font-sans tracking-widest transition-all focus:outline-hidden focus:ring-4 ${
+                      touched.studentId && validationErrors.studentId
+                        ? 'border-rose-300 focus:ring-rose-200 focus:border-rose-400 bg-rose-50/20 text-rose-700'
+                        : 'border-slate-200 focus:border-mangosteen focus:ring-mangosteen/20 text-slate-700'
+                    }`}
+                    id="input-studentId-step1"
+                    autoFocus
+                  />
+                  <div className="text-right text-[11px] font-semibold text-slate-400 mt-1">
+                    {studentId.length}/9 หลัก
+                  </div>
+                </div>
                 {touched.studentId && validationErrors.studentId && (
                   <p className="mt-1.5 text-xs text-rose-500 font-sans font-medium text-center">{validationErrors.studentId}</p>
                 )}
@@ -480,7 +571,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
               <div className="pt-2 sm:pt-4 flex justify-center">
                 <button
                   type="submit"
-                  disabled={checkingStudentId || !studentId.trim()}
+                  disabled={checkingStudentId || !studentId.trim() || studentId.trim().length !== 9}
                   className="w-full max-w-xs py-2.5 sm:py-3 px-6 bg-mangosteen hover:bg-mangosteen-light text-white font-bold font-sans rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer text-sm sm:text-base"
                 >
                   {checkingStudentId ? (
@@ -1074,7 +1165,76 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
             )}
           </div>
 
-          {/* Section 4: ข้อกำหนดความยินยอม */}
+          {/* Section 4: การรับการแจ้งเตือนผล */}
+          <div className="space-y-3 pt-2 border-t border-slate-100 font-sans">
+            <div className="flex items-center space-x-2 text-slate-800">
+              <Bell className="w-4 h-4 text-mangosteen" />
+              <h4 className="font-bold text-xs uppercase text-slate-500 tracking-wider font-sans">
+                {isTh ? 'ช่องทางการรับการแจ้งเตือนผลการพิจารณา' : 'Notification Preference'}
+              </h4>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <button
+                type="button"
+                onClick={() => setNotifyChannel('line')}
+                className={`p-3 rounded-xl border text-left transition-all flex items-center space-x-2.5 cursor-pointer ${
+                  notifyChannel === 'line'
+                    ? 'border-emerald-500 bg-emerald-50/60 text-emerald-900 font-semibold shadow-xs'
+                    : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                }`}
+              >
+                <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 ${notifyChannel === 'line' ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300'}`}>
+                  {notifyChannel === 'line' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                </div>
+                <span className="text-xs">LINE Notify / App</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setNotifyChannel('email')}
+                className={`p-3 rounded-xl border text-left transition-all flex items-center space-x-2.5 cursor-pointer ${
+                  notifyChannel === 'email'
+                    ? 'border-sky-500 bg-sky-50/60 text-sky-900 font-semibold shadow-xs'
+                    : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                }`}
+              >
+                <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 ${notifyChannel === 'email' ? 'border-sky-600 bg-sky-600' : 'border-slate-300'}`}>
+                  {notifyChannel === 'email' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                </div>
+                <span className="text-xs">Email Notification</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setNotifyChannel('none')}
+                className={`p-3 rounded-xl border text-left transition-all flex items-center space-x-2.5 cursor-pointer ${
+                  notifyChannel === 'none'
+                    ? 'border-slate-400 bg-slate-100 text-slate-900 font-semibold'
+                    : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                }`}
+              >
+                <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 ${notifyChannel === 'none' ? 'border-slate-600 bg-slate-600' : 'border-slate-300'}`}>
+                  {notifyChannel === 'none' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                </div>
+                <span className="text-xs">{isTh ? 'ตรวจสอบผ่านเว็บอย่างเดียว' : 'Check on website only'}</span>
+              </button>
+            </div>
+
+            {notifyChannel !== 'none' && (
+              <div className="mt-2">
+                <input
+                  type={notifyChannel === 'email' ? 'email' : 'text'}
+                  value={notifyContact}
+                  onChange={e => setNotifyContact(e.target.value)}
+                  placeholder={notifyChannel === 'email' ? 'กรอกอีเมลสำหรับรับแจ้งเตือนผล (เช่น student@ftu.ac.th)' : 'กรอก LINE ID หรือ เบอร์โทรสำหรับแจ้งเตือน'}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-sans focus:outline-hidden focus:border-mangosteen focus:ring-2 focus:ring-mangosteen/10"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Section 5: ข้อกำหนดความยินยอม */}
           <div className="space-y-4 pt-2 border-t border-slate-100 font-sans">
             <h4 className="font-bold text-xs uppercase text-slate-400 tracking-wider font-sans">
               {t('sectionConsent')}

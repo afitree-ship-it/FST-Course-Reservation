@@ -239,19 +239,23 @@ const getStatusBadge = (status: RequestStatus) => {
             </div>
             <input
               type="text"
+              inputMode="numeric"
               pattern="\d*"
               maxLength={9}
               placeholder={t("statusInputPlaceholder")}
               value={studentId}
               onChange={(e) => setStudentId(e.target.value.replace(/\D/g, ''))}
-              className="w-full pl-10 pr-4 py-3 rounded-xl border-2 border-slate-200 bg-slate-50 hover:bg-white text-sm font-sans tracking-wide transition-all focus:outline-hidden focus:border-mangosteen focus:ring-4 focus:ring-mangosteen/20"
+              className="w-full pl-10 pr-14 py-3 rounded-xl border-2 border-slate-200 bg-slate-50 hover:bg-white text-sm font-sans tracking-wide transition-all focus:outline-hidden focus:border-mangosteen focus:ring-4 focus:ring-mangosteen/20"
               id="search-student-id"
             />
+            <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-xs font-semibold text-slate-400">
+              {studentId.length}/9
+            </div>
           </div>
           <button
             type="submit"
-            disabled={loading}
-            className="px-6 py-3 bg-mangosteen hover:bg-mangosteen-hover active:scale-[0.98] text-white rounded-xl text-sm font-bold tracking-wide font-sans shadow-md flex items-center justify-center gap-2 shrink-0 transition-all cursor-pointer"
+            disabled={loading || !studentId.trim() || studentId.trim().length !== 9}
+            className="px-6 py-3 bg-mangosteen hover:bg-mangosteen-hover active:scale-[0.98] text-white rounded-xl text-sm font-bold tracking-wide font-sans shadow-md flex items-center justify-center gap-2 shrink-0 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             id="btn-trigger-search"
           >
             {loading ? (

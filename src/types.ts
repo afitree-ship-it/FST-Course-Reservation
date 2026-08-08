@@ -42,6 +42,19 @@ export interface ReservationRequest {
   createdAt: string; // ISO or formatted date
   processedAt?: string; // ISO date string when final status was set
   processedBy?: string;
+  notifyChannel?: 'line' | 'email' | 'none';
+  notifyContact?: string;
+}
+
+export type SystemOpeningMode = 'always_open' | 'scheduled' | 'closed';
+
+export interface AuditLog {
+  id: string;
+  timestamp: string;
+  adminName: string;
+  action: string;
+  targetId?: string;
+  details: string;
 }
 
 export const DEPARTMENTS = [

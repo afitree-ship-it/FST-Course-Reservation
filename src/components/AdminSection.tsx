@@ -35,9 +35,10 @@ import {
   Link2,
   X
 } from 'lucide-react';
-import { ReservationRequest, RequestStatus } from '../types';
+import { ReservationRequest, RequestStatus, AuditLog } from '../types';
 import { compressImage } from '../imageUtils';
-import { adminLogin, addAdminPassword, getSavedAdminPasswords, removeAdminPassword, getAllRequests, updateStatus, updateCourseStatus, saveApiUrl, getApiUrl, isApiConfigured, getLoggedInAdminName, adminLogout, hashString, syncAdminPasswordsWithGoogleSheets } from '../services/api';
+import { adminLogin, addAdminPassword, getSavedAdminPasswords, removeAdminPassword, getAllRequests, updateStatus, updateCourseStatus, saveApiUrl, getApiUrl, isApiConfigured, getLoggedInAdminName, adminLogout, hashString, syncAdminPasswordsWithGoogleSheets, getRemoteSettings, saveRemoteSetting, getAuditLogs } from '../services/api';
+import { BarChart2, PieChart, Calendar, Shield, Bell, FileText, Download } from 'lucide-react';
 
 interface AdminSectionProps {
   isInitiallyLoggedIn: boolean;
@@ -79,6 +80,24 @@ export default function AdminSection({
   const [showPassword, setShowPassword] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loggedInName, setLoggedInName] = useState(getLoggedInAdminName());
+
+  // Navigation tab for Admin View
+  const [activeAdminTab, setActiveAdminTab] = useState<'requests' | 'analytics' | 'schedule_settings' | 'audit_logs'>('requests');
+
+  // Audit log states
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [loadingAuditLogs, setLoadingAuditLogs] = useState(false);
+  const [auditLogSearch, setAuditLogSearch] = useState('');
+
+  // Schedule & Notification settings states
+  const [systemOpeningMode, setSystemOpeningMode] = useState<'always_open' | 'scheduled' | 'closed'>('always_open');
+  const [systemOpenStart, setSystemOpenStart] = useState('');
+  const [systemOpenEnd, setSystemOpenEnd] = useState('');
+  const [systemClosedMessage, setSystemClosedMessage] = useState('อยู่นอกกำหนดเวลาการรับคำร้องสำรองที่นั่งวิชาเรียน');
+  const [notifyLineToken, setNotifyLineToken] = useState('');
+  const [notifyOnNewRequest, setNotifyOnNewRequest] = useState(true);
+  const [notifyOnStatusChange, setNotifyOnStatusChange] = useState(true);
+  const [isSavingScheduleSettings, setIsSavingScheduleSettings] = useState(false);
 
   // Unified System Settings states
   const [showSystemSettings, setShowSystemSettings] = useState(false);
@@ -136,6 +155,79 @@ export default function AdminSection({
     setLoggedInName(getLoggedInAdminName());
   }, [isInitiallyLoggedIn]);
 
+  // Fetch remote settings on mount & schedule tab open
+  const loadScheduleAndNotifySettings = async () => {
+    try {
+      const settings = await getRemoteSettings();
+      if (settings) {
+        setSystemOpeningMode((settings.system_opening_mode as any) || 'always_open');
+        setSystemOpenStart(settings.system_open_start || '');
+        setSystemOpenEnd(settings.system_open_end || '');
+        setSystemClosedMessage(settings.system_closed_message || 'อยู่นอกกำหนดเวลาการรับคำร้องสำรองที่นั่งวิชาเรียน');
+        setNotifyLineToken(settings.notify_line_token || '');
+        setNotifyOnNewRequest(settings.notify_on_new_request === 'true');
+        setNotifyOnStatusChange(settings.notify_on_status_change !== 'false');
+      }
+    } catch (err) {
+      console.error('Failed to load remote schedule settings:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadScheduleAndNotifySettings();
+  }, []);
+
+  useEffect(() => {
+    if (activeAdminTab === 'schedule_settings') {
+      loadScheduleAndNotifySettings();
+    } else if (activeAdminTab === 'audit_logs') {
+      fetchAuditLogs();
+    }
+  }, [activeAdminTab]);
+
+  const fetchAuditLogs = async () => {
+    setLoadingAuditLogs(true);
+    try {
+      const logs = await getAuditLogs();
+      setAuditLogs(logs);
+    } catch (err) {
+      showToast('ไม่สามารถโหลดประวัติการอนุมัติได้', 'error');
+    } finally {
+      setLoadingAuditLogs(false);
+    }
+  };
+
+  const filteredAuditLogs = useMemo(() => {
+    if (!auditLogSearch.trim()) return auditLogs;
+    const q = auditLogSearch.toLowerCase().trim();
+    return auditLogs.filter(log => 
+      (log.adminName && String(log.adminName).toLowerCase().includes(q)) ||
+      (log.action && String(log.action).toLowerCase().includes(q)) ||
+      (log.targetId && String(log.targetId).toLowerCase().includes(q)) ||
+      (log.details && String(log.details).toLowerCase().includes(q))
+    );
+  }, [auditLogs, auditLogSearch]);
+
+  const handleSaveScheduleSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingScheduleSettings(true);
+    try {
+      await saveRemoteSetting('system_opening_mode', systemOpeningMode);
+      await saveRemoteSetting('system_open_start', systemOpenStart);
+      await saveRemoteSetting('system_open_end', systemOpenEnd);
+      await saveRemoteSetting('system_closed_message', systemClosedMessage);
+      await saveRemoteSetting('notify_line_token', notifyLineToken);
+      await saveRemoteSetting('notify_on_new_request', String(notifyOnNewRequest));
+      await saveRemoteSetting('notify_on_status_change', String(notifyOnStatusChange));
+
+      showToast('บันทึกการตั้งค่ากำหนดการและระบบแจ้งเตือนเรียบร้อยแล้ว!', 'success');
+    } catch (err) {
+      showToast('เกิดข้อผิดพลาดในการบันทึกข้อมูลตั้งค่า', 'error');
+    } finally {
+      setIsSavingScheduleSettings(false);
+    }
+  };
+
   useEffect(() => {
     if (showSystemSettings) {
       getSavedAdminPasswords().then(setSavedPasswords);
@@ -162,6 +254,106 @@ export default function AdminSection({
       showToast('ไม่สามารถคัดลอกรหัสวิชาได้', 'error');
     }
   };
+
+  // Analytics Filter State (Buddhist Era or 'all')
+  const [analyticsYear, setAnalyticsYear] = useState<number | 'all'>('all');
+
+  // Analytics Computation for Executives & Admins
+  const analyticsData = useMemo(() => {
+    const filteredRequests = requests.filter(req => {
+      if (analyticsYear === 'all') return true;
+      let reqYear: number | null = null;
+      try {
+        if (req.createdAt) {
+          const d = new Date(req.createdAt);
+          if (!isNaN(d.getTime())) {
+            reqYear = d.getFullYear() + 543;
+          }
+        }
+      } catch (e) {}
+      if (!reqYear && req.id) {
+        const match = req.id.match(/(25\d{2}|20\d{2})/);
+        if (match) {
+          const y = parseInt(match[1], 10);
+          reqYear = y < 2400 ? y + 543 : y;
+        }
+      }
+      return reqYear === analyticsYear;
+    });
+
+    const totalRequests = filteredRequests.length;
+    let totalApproved = 0;
+    let totalRejected = 0;
+    let totalPending = 0;
+
+    const courseStatsMap: Record<string, { code: string; name: string; total: number; approved: number; rejected: number; pending: number }> = {};
+    const deptStatsMap: Record<string, { dept: string; total: number; approved: number; rejected: number; pending: number }> = {};
+    const facultyStatsMap: Record<string, { faculty: string; total: number; approved: number; rejected: number; pending: number }> = {};
+
+    filteredRequests.forEach(req => {
+      const isApprovedReq = req.status === 'อนุมัติแล้ว';
+      const isRejectedReq = req.status === 'ไม่อนุมัติ';
+
+      if (isApprovedReq) totalApproved++;
+      else if (isRejectedReq) totalRejected++;
+      else totalPending++;
+
+      // Dept stats
+      const dept = req.department || 'ไม่ระบุสาขา';
+      if (!deptStatsMap[dept]) {
+        deptStatsMap[dept] = { dept, total: 0, approved: 0, rejected: 0, pending: 0 };
+      }
+      deptStatsMap[dept].total++;
+      if (isApprovedReq) deptStatsMap[dept].approved++;
+      else if (isRejectedReq) deptStatsMap[dept].rejected++;
+      else deptStatsMap[dept].pending++;
+
+      // Faculty stats
+      const faculty = req.faculty || 'ไม่ระบุคณะ';
+      if (!facultyStatsMap[faculty]) {
+        facultyStatsMap[faculty] = { faculty, total: 0, approved: 0, rejected: 0, pending: 0 };
+      }
+      facultyStatsMap[faculty].total++;
+      if (isApprovedReq) facultyStatsMap[faculty].approved++;
+      else if (isRejectedReq) facultyStatsMap[faculty].rejected++;
+      else facultyStatsMap[faculty].pending++;
+
+      // Course stats
+      const courseList = req.courses && req.courses.length > 0 ? req.courses : [
+        { courseCode: req.courseCode, courseName: req.courseName, section: req.section, status: req.status }
+      ];
+
+      courseList.forEach(c => {
+        const code = (c.courseCode || 'UNKNOWN').toUpperCase().trim();
+        const name = c.courseName || code;
+        if (!courseStatsMap[code]) {
+          courseStatsMap[code] = { code, name, total: 0, approved: 0, rejected: 0, pending: 0 };
+        }
+        courseStatsMap[code].total++;
+        if (c.status === 'อนุมัติแล้ว' || (req.status === 'อนุมัติแล้ว' && !c.status)) {
+          courseStatsMap[code].approved++;
+        } else if (c.status === 'ไม่อนุมัติ' || (req.status === 'ไม่อนุมัติ' && !c.status)) {
+          courseStatsMap[code].rejected++;
+        } else {
+          courseStatsMap[code].pending++;
+        }
+      });
+    });
+
+    const topCourses = Object.values(courseStatsMap).sort((a, b) => b.total - a.total);
+    const topDepts = Object.values(deptStatsMap).sort((a, b) => b.total - a.total);
+    const topFaculties = Object.values(facultyStatsMap).sort((a, b) => b.total - a.total);
+
+    return {
+      totalRequests,
+      totalApproved,
+      totalRejected,
+      totalPending,
+      topCourses,
+      topDepts,
+      topFaculties
+    };
+  }, [requests, analyticsYear]);
 
 
   const [gasUrlInput, setGasUrlInput] = useState(getApiUrl());
@@ -205,9 +397,9 @@ export default function AdminSection({
         list.push({
           type: 'student',
           value: req.studentId,
-          label: req.fullName,
+          label: req.fullName || '',
           secondary: req.studentId,
-          searchTexts: [req.studentId, req.fullName.toLowerCase()]
+          searchTexts: [String(req.studentId || ''), String(req.fullName || '').toLowerCase()]
         });
       }
 
@@ -219,7 +411,7 @@ export default function AdminSection({
           value: req.id,
           label: req.id,
           secondary: 'รหัสคำร้อง',
-          searchTexts: [req.id.toLowerCase()]
+          searchTexts: [String(req.id || '').toLowerCase()]
         });
       }
 
@@ -229,9 +421,9 @@ export default function AdminSection({
         list.push({
           type: 'course',
           value: req.courseCode,
-          label: `${req.courseCode} - ${req.courseName}`,
+          label: `${req.courseCode || ''} - ${req.courseName || ''}`,
           secondary: 'รายวิชา',
-          searchTexts: [req.courseCode.toLowerCase(), req.courseName.toLowerCase()]
+          searchTexts: [String(req.courseCode || '').toLowerCase(), String(req.courseName || '').toLowerCase()]
         });
       }
 
@@ -243,9 +435,9 @@ export default function AdminSection({
             list.push({
               type: 'course',
               value: c.courseCode,
-              label: `${c.courseCode} - ${c.courseName}`,
+              label: `${c.courseCode || ''} - ${c.courseName || ''}`,
               secondary: 'รายวิชา',
-              searchTexts: [c.courseCode.toLowerCase(), c.courseName.toLowerCase()]
+              searchTexts: [String(c.courseCode || '').toLowerCase(), String(c.courseName || '').toLowerCase()]
             });
           }
         });
@@ -261,9 +453,9 @@ export default function AdminSection({
       return suggestions.slice(0, 6);
     }
     return suggestions.filter(item => 
-      item.searchTexts.some(st => st.includes(query)) ||
-      item.label.toLowerCase().includes(query) ||
-      item.secondary.toLowerCase().includes(query)
+      item.searchTexts.some(st => (st || '').includes(query)) ||
+      String(item.label || '').toLowerCase().includes(query) ||
+      String(item.secondary || '').toLowerCase().includes(query)
     ).slice(0, 8);
   }, [suggestions, searchQuery]);
 
@@ -419,6 +611,7 @@ var SPREADSHEET_ID = "1em96LFx0V2eiEyd5F9XbLFGebvHfGrFYXCGZhK22o50";
 var SHEET_NAME = "Requests";
 var ADMINS_SHEET_NAME = "Admins";
 var SETTINGS_SHEET_NAME = "Settings";
+var AUDIT_LOGS_SHEET_NAME = "AuditLogs";
 
 function getSheet() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -444,10 +637,12 @@ function getSheet() {
       "สถานะการตรวจสอบ",
       "เหตุผลปฏิเสธสิทธิ์",
       "จำนวนวิชาที่ยื่น",
-      "JSON บันทึกเต็ม"
+      "JSON บันทึกเต็ม",
+      "ผู้ดำเนินการ/แอดมิน",
+      "วันที่ดำเนินการ"
     ]);
     // ปรับรูปแบบหัวตาราง
-    sheet.getRange(1, 1, 1, 17).setFontWeight("bold").setBackground("#5F0F40").setFontColor("#FFFFFF");
+    sheet.getRange(1, 1, 1, 20).setFontWeight("bold").setBackground("#5F0F40").setFontColor("#FFFFFF");
   }
   return sheet;
 }
@@ -471,6 +666,24 @@ function getSettingsSheet() {
     sheet = ss.insertSheet(SETTINGS_SHEET_NAME);
     sheet.appendRow(["Key", "Value"]);
     sheet.getRange(1, 1, 1, 2).setFontWeight("bold").setBackground("#10B981").setFontColor("#FFFFFF");
+  }
+  return sheet;
+}
+
+function getAuditLogsSheet() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(AUDIT_LOGS_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(AUDIT_LOGS_SHEET_NAME);
+    sheet.appendRow([
+      "รหัสบันทึก (ID)",
+      "วัน-เวลา (Timestamp)",
+      "แอดมินผู้ดำเนินการ (Admin)",
+      "การกระทำ (Action)",
+      "รหัสอ้างอิง (Target ID)",
+      "รายละเอียด (Details)"
+    ]);
+    sheet.getRange(1, 1, 1, 6).setFontWeight("bold").setBackground("#1E3A8A").setFontColor("#FFFFFF");
   }
   return sheet;
 }
@@ -513,6 +726,8 @@ function doGet(e) {
               facebookProofFile: row[12] === "file" ? { name: "screenshot_profile_fb.png", type: "image/png", dataUrl: row[13] } : null,
               status: row[14] || "รอดำเนินการ",
               rejectionReason: row[15] || "",
+              processedBy: (row[18] !== undefined && row[18] !== null) ? String(row[18]) : "",
+              processedAt: (row[19] !== undefined && row[19] !== null) ? String(row[19]) : "",
               courses: []
             };
           }
@@ -523,7 +738,9 @@ function doGet(e) {
             section: row[9],
             instructor: row[10],
             status: row[14] || "รอดำเนินการ",
-            rejectionReason: row[15] || ""
+            rejectionReason: row[15] || "",
+            processedBy: (row[18] !== undefined && row[18] !== null) ? String(row[18]) : "",
+            processedAt: (row[19] !== undefined && row[19] !== null) ? String(row[19]) : ""
           });
         }
       }
@@ -561,6 +778,8 @@ function doGet(e) {
             facebookProofFile: row[12] === "file" ? { name: "screenshot_profile_fb.png", type: "image/png", dataUrl: row[13] } : null,
             status: row[14] || "รอดำเนินการ",
             rejectionReason: row[15] || "",
+            processedBy: (row[18] !== undefined && row[18] !== null) ? String(row[18]) : "",
+            processedAt: (row[19] !== undefined && row[19] !== null) ? String(row[19]) : "",
             courses: []
           };
         }
@@ -571,7 +790,9 @@ function doGet(e) {
           section: row[9],
           instructor: row[10],
           status: row[14] || "รอดำเนินการ",
-          rejectionReason: row[15] || ""
+          rejectionReason: row[15] || "",
+          processedBy: (row[18] !== undefined && row[18] !== null) ? String(row[18]) : "",
+          processedAt: (row[19] !== undefined && row[19] !== null) ? String(row[19]) : ""
         });
       }
       
@@ -601,6 +822,21 @@ function doGet(e) {
         settings[String(rows[i][0])] = String(rows[i][1]);
       }
       out = { success: true, data: settings };
+    } else if (action === "getAuditLogs") {
+      var auditSheet = getAuditLogsSheet();
+      var auditRows = auditSheet.getDataRange().getValues();
+      var logs = [];
+      for (var i = auditRows.length - 1; i >= 1; i--) {
+        logs.push({
+          id: String(auditRows[i][0]),
+          timestamp: String(auditRows[i][1]),
+          adminName: String(auditRows[i][2]),
+          action: String(auditRows[i][3]),
+          targetId: String(auditRows[i][4]),
+          details: String(auditRows[i][5])
+        });
+      }
+      out = { success: true, data: logs };
     }
   } catch (err) {
     out = { success: false, error: err.toString() };
@@ -741,10 +977,23 @@ function doPost(e) {
       }
       out = { success: true };
 
+    } else if (action === "recordAuditLog") {
+      var auditSheet = getAuditLogsSheet();
+      var logId = "LOG-" + new Date().getTime() + "-" + Math.floor(Math.random() * 1000);
+      var timestamp = new Date().toISOString();
+      var adminName = postData.adminName || "เจ้าหน้าที่";
+      var logAction = postData.logAction || postData.action || "ดำเนินการ";
+      var targetId = postData.targetId || "";
+      var details = postData.details || "";
+      
+      auditSheet.appendRow([logId, timestamp, adminName, logAction, targetId, details]);
+      out = { success: true };
+
     } else if (action === "updateStatus") {
       var requestId = postData.requestId;
       var status = postData.status;
       var rejectionReason = postData.rejectionReason || "";
+      var processedBy = postData.processedBy || "แอดมินระบบ";
       
       var rows = sheet.getDataRange().getValues();
       var updatedCount = 0;
@@ -756,12 +1005,22 @@ function doPost(e) {
         if (rowId === searchId || rowId.replace("REQ-", "") === searchId.replace("REQ-", "")) {
           sheet.getRange(i + 1, 15).setValue(status);
           sheet.getRange(i + 1, 16).setValue(rejectionReason);
+          sheet.getRange(i + 1, 19).setValue(processedBy);
+          sheet.getRange(i + 1, 20).setValue((status === "อนุมัติแล้ว" || status === "ไม่อนุมัติ") ? new Date().toISOString() : "");
           updatedCount++;
         }
       }
       
       if (updatedCount > 0) {
-        out = { success: true };
+        // Record log to AuditLogs sheet
+        var auditSheet = getAuditLogsSheet();
+        var logId = "LOG-" + new Date().getTime();
+        var timestamp = new Date().toISOString();
+        var logAction = status === "อนุมัติแล้ว" ? "อนุมัติคำร้อง" : status === "ไม่อนุมัติ" ? "ไม่อนุมัติคำร้อง" : "ปรับเปลี่ยนสถานะคำร้อง";
+        var details = "แอดมิน " + processedBy + " กด " + status + " คำร้อง " + requestId + (rejectionReason ? " [เหตุผล: " + rejectionReason + "]" : "");
+        auditSheet.appendRow([logId, timestamp, processedBy, logAction, requestId, details]);
+
+        out = { success: true, processedBy: processedBy, processedAt: timestamp };
       } else {
         out = { success: false, error: "ไม่พบรหัสคำร้องนี้ในระบบชีต" };
       }
@@ -770,6 +1029,7 @@ function doPost(e) {
       var courseCode = postData.courseCode;
       var status = postData.status;
       var rejectionReason = postData.rejectionReason || "";
+      var processedBy = postData.processedBy || "แอดมินระบบ";
       
       var rows = sheet.getDataRange().getValues();
       var updatedCount = 0;
@@ -783,12 +1043,22 @@ function doPost(e) {
         if ((rowId === searchId || rowId.replace("REQ-", "") === searchId.replace("REQ-", "")) && rowCourseCode === searchCourseCode) {
           sheet.getRange(i + 1, 15).setValue(status);
           sheet.getRange(i + 1, 16).setValue(rejectionReason);
+          sheet.getRange(i + 1, 19).setValue(processedBy);
+          sheet.getRange(i + 1, 20).setValue((status === "อนุมัติแล้ว" || status === "ไม่อนุมัติ") ? new Date().toISOString() : "");
           updatedCount++;
         }
       }
       
       if (updatedCount > 0) {
-        out = { success: true };
+        // Record log to AuditLogs sheet
+        var auditSheet = getAuditLogsSheet();
+        var logId = "LOG-" + new Date().getTime();
+        var timestamp = new Date().toISOString();
+        var logAction = status === "อนุมัติแล้ว" ? "อนุมัติรายวิชา" : status === "ไม่อนุมัติ" ? "ไม่อนุมัติรายวิชา" : "ปรับเปลี่ยนสถานะรายวิชา";
+        var details = "แอดมิน " + processedBy + " กด " + status + " วิชา " + courseCode + " ในคำร้อง " + requestId + (rejectionReason ? " [เหตุผล: " + rejectionReason + "]" : "");
+        auditSheet.appendRow([logId, timestamp, processedBy, logAction, requestId, details]);
+
+        out = { success: true, processedBy: processedBy, processedAt: timestamp };
       } else {
         out = { success: false, error: "ไม่พบรายวิชานี้ในคำร้อง" };
       }
@@ -868,9 +1138,13 @@ function doPost(e) {
     try {
       const result = await updateStatus(id, 'อนุมัติแล้ว', undefined, adminUser);
       if (result.success) {
-        if (result.data) {
-          setRequests(prev => prev.map(req => req.id === id ? result.data! : req));
-        }
+        setRequests(prev => prev.map(req => req.id === id ? { 
+          ...req, 
+          status: 'อนุมัติแล้ว',
+          processedBy: adminUser,
+          processedAt: new Date().toISOString(),
+          courses: req.courses.map(c => ({ ...c, status: 'อนุมัติแล้ว', processedBy: adminUser, processedAt: new Date().toISOString() }))
+        } : req));
       } else {
         setRequests(previousRequests);
         showToast(result.error || 'ไม่สามารถทำรายการได้', 'error');
@@ -916,9 +1190,14 @@ function doPost(e) {
     try {
       const result = await updateStatus(id, 'รอดำเนินการ');
       if (result.success) {
-        if (result.data) {
-          setRequests(prev => prev.map(req => req.id === id ? result.data! : req));
-        }
+        setRequests(prev => prev.map(req => req.id === id ? {
+          ...req,
+          status: 'รอดำเนินการ',
+          rejectionReason: undefined,
+          processedBy: undefined,
+          processedAt: undefined,
+          courses: req.courses.map(c => ({ ...c, status: 'รอดำเนินการ', rejectionReason: undefined, processedBy: undefined, processedAt: undefined }))
+        } : req));
       } else {
         setRequests(previousRequests);
         showToast(result.error || 'ไม่สามารถแก้ไขสถานะได้', 'error');
@@ -971,11 +1250,7 @@ function doPost(e) {
 
     try {
       const result = await updateCourseStatus(requestId, courseCode, 'อนุมัติแล้ว', undefined, adminUser);
-      if (result.success) {
-        if (result.data) {
-          setRequests(prev => prev.map(req => req.id === requestId ? result.data! : req));
-        }
-      } else {
+      if (!result.success) {
         setRequests(previousRequests);
         showToast(result.error || 'ไม่สามารถทำรายการได้', 'error');
       }
@@ -991,7 +1266,7 @@ function doPost(e) {
     const previousRequests = [...requests];
     setRequests(prev => prev.map(req => {
       if (req.id === requestId) {
-        const updatedCourses = req.courses.map(c => c.courseCode === courseCode ? { ...c, status: 'รอดำเนินการ' as RequestStatus, rejectionReason: undefined, processedAt: undefined } : c);
+        const updatedCourses = req.courses.map(c => c.courseCode === courseCode ? { ...c, status: 'รอดำเนินการ' as RequestStatus, rejectionReason: undefined, processedBy: undefined, processedAt: undefined } : c);
         return { ...req, courses: updatedCourses, status: 'รอดำเนินการ' };
       }
       return req;
@@ -999,11 +1274,7 @@ function doPost(e) {
 
     try {
       const result = await updateCourseStatus(requestId, courseCode, 'รอดำเนินการ');
-      if (result.success) {
-        if (result.data) {
-          setRequests(prev => prev.map(req => req.id === requestId ? result.data! : req));
-        }
-      } else {
+      if (!result.success) {
         setRequests(previousRequests);
         showToast(result.error || 'ไม่สามารถแก้ไขสถานะได้', 'error');
       }
@@ -1081,17 +1352,13 @@ function doPost(e) {
     try {
       if (isCourseLevel) {
         const result = await updateCourseStatus(targetRequestId, targetCourseCode!, 'ไม่อนุมัติ', targetReason, adminUser);
-        if (result.success && result.data) {
-          setRequests(prev => prev.map(req => req.id === targetRequestId ? result.data! : req));
-        } else if (!result.success) {
+        if (!result.success) {
           setRequests(previousRequests);
           showToast(result.error || 'ไม่สามารถทำรายการได้', 'error');
         }
       } else {
         const result = await updateStatus(targetRequestId, 'ไม่อนุมัติ', targetReason, adminUser);
-        if (result.success && result.data) {
-          setRequests(prev => prev.map(req => req.id === targetRequestId ? result.data! : req));
-        } else if (!result.success) {
+        if (!result.success) {
           setRequests(previousRequests);
           showToast(result.error || 'ไม่สามารถทำรายการได้', 'error');
         }
@@ -1114,14 +1381,14 @@ function doPost(e) {
       const query = searchQuery.toLowerCase().trim();
       filtered = filtered.filter(
         req => 
-          (req.id && req.id.toLowerCase().includes(query)) ||
-          req.studentId.includes(query) ||
-          req.fullName.toLowerCase().includes(query) ||
-          req.courseCode.toLowerCase().includes(query) ||
-          req.courseName.toLowerCase().includes(query) ||
+          (req.id && String(req.id).toLowerCase().includes(query)) ||
+          String(req.studentId || '').toLowerCase().includes(query) ||
+          String(req.fullName || '').toLowerCase().includes(query) ||
+          String(req.courseCode || '').toLowerCase().includes(query) ||
+          String(req.courseName || '').toLowerCase().includes(query) ||
           (req.courses && req.courses.some(c => 
-            c.courseCode.toLowerCase().includes(query) ||
-            c.courseName.toLowerCase().includes(query)
+            String(c.courseCode || '').toLowerCase().includes(query) ||
+            String(c.courseName || '').toLowerCase().includes(query)
           ))
       );
     }
@@ -1387,10 +1654,69 @@ function doPost(e) {
           </div>
         </div>
 
+        {/* Main Admin Navigation Tabs */}
+        <div className="flex items-center space-x-1 sm:space-x-2 border-t border-slate-100 pt-4 overflow-x-auto font-sans" id="admin-main-tabs">
+          <button
+            type="button"
+            onClick={() => setActiveAdminTab('requests')}
+            className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center space-x-2 shrink-0 cursor-pointer ${
+              activeAdminTab === 'requests'
+                ? 'bg-mangosteen text-white shadow-md shadow-mangosteen/20'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <FileText className="w-4 h-4" />
+            <span>รายการคำร้อง ({requests.length})</span>
+          </button>
 
+          <button
+            type="button"
+            onClick={() => setActiveAdminTab('analytics')}
+            className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center space-x-2 shrink-0 cursor-pointer ${
+              activeAdminTab === 'analytics'
+                ? 'bg-mangosteen text-white shadow-md shadow-mangosteen/20'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <BarChart2 className="w-4 h-4" />
+            <span>รายงานและสถิติภาพรวม</span>
+          </button>
 
-        {/* Filters and search panel */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 border-t border-slate-100 pt-4" id="admin-filters-bar">
+          <button
+            type="button"
+            onClick={() => setActiveAdminTab('schedule_settings')}
+            className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center space-x-2 shrink-0 cursor-pointer ${
+              activeAdminTab === 'schedule_settings'
+                ? 'bg-mangosteen text-white shadow-md shadow-mangosteen/20'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <Calendar className="w-4 h-4" />
+            <span>เปิด-ปิดระบบ & แจ้งเตือน</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveAdminTab('audit_logs')}
+            className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center space-x-2 shrink-0 cursor-pointer ${
+              activeAdminTab === 'audit_logs'
+                ? 'bg-mangosteen text-white shadow-md shadow-mangosteen/20'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+            id="tab-btn-audit-logs"
+          >
+            <Clock className="w-4 h-4" />
+            <span>ประวัติการอนุมัติ (Audit Log)</span>
+          </button>
+        </div>
+      </div>
+
+      {/* --- TAB 1: REQUESTS LISTING & MANAGEMENT --- */}
+      {activeAdminTab === 'requests' && (
+        <div className="space-y-6">
+          {/* Filters and search panel */}
+          <div className="bg-white/85 backdrop-blur-2xl rounded-2xl p-6 border border-white/90 shadow-md">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4" id="admin-filters-bar">
           {/* Searching */}
           <div className="relative" ref={comboboxRef}>
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
@@ -1835,12 +2161,7 @@ function doPost(e) {
                                   </div>
                                 )}
                               </div>
-                              {req.rejectionReason && (
-                                <div className="bg-rose-50 text-rose-700 border border-rose-100 rounded-lg p-2 text-[10px] text-left leading-relaxed break-words font-sans">
-                                  <strong className="block mb-0.5">📝 เหตุผลที่ไม่อนุมัติ:</strong>
-                                  <span>{req.rejectionReason}</span>
-                                </div>
-                              )}
+                              {/* Removed rejection reason box here as requested */}
                               <button
                                 onClick={() => handleResetToPending(req.id)}
                                 className="w-full py-2.5 text-xs font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-xs active:scale-[0.98]"
@@ -2103,6 +2424,449 @@ function doPost(e) {
           </div>
         </div>
       )}
+    </div>
+  )}
+
+  {/* --- TAB 2: ANALYTICS DASHBOARD --- */}
+  {activeAdminTab === 'analytics' && (
+    <div className="space-y-6 font-sans">
+      {/* Analytics Year Filter Header */}
+      <div className="bg-white/85 backdrop-blur-xl p-4 sm:p-5 rounded-2xl border border-white/90 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-base sm:text-lg font-extrabold text-slate-800 flex items-center gap-2">
+            <BarChart2 className="w-5 h-5 text-mangosteen" />
+            รายงานสถิติการยื่นคำร้องสำรองที่นั่ง
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {analyticsYear === 'all' 
+              ? 'สรุปสถิติภาพรวมคำร้องทั้งหมดทุกปีการศึกษา' 
+              : `สรุปสถิติข้อมูลคำร้องประจำปี พ.ศ. ${analyticsYear}`}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 self-start sm:self-auto bg-slate-100/90 p-1.5 rounded-xl border border-slate-200">
+          <Calendar className="w-4 h-4 text-slate-500 ml-1.5" />
+          <span className="text-xs font-bold text-slate-600 whitespace-nowrap">ดูสถิติตามปี พ.ศ.:</span>
+          <select
+            id="analytics-year-selector"
+            value={analyticsYear}
+            onChange={(e) => setAnalyticsYear(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+            className="bg-white text-xs font-bold text-slate-800 rounded-lg px-3 py-1.5 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-mangosteen/30 cursor-pointer shadow-xs"
+          >
+            <option value="all">ทุกปีการศึกษา (ข้อมูลทั้งหมด)</option>
+            {availableYears.map(year => (
+              <option key={year} value={year}>
+                ปี พ.ศ. {year} {year === currentBEYear ? '(ปีปัจจุบัน)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Executive Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white/85 backdrop-blur-xl p-5 rounded-2xl border border-white/90 shadow-md">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase">คำร้องทั้งหมด</span>
+            <div className="p-2 bg-mangosteen/10 text-mangosteen rounded-xl"><FileText className="w-5 h-5" /></div>
+          </div>
+          <p className="text-3xl font-extrabold text-slate-800 mt-2">{analyticsData.totalRequests}</p>
+          <p className="text-xs text-slate-500 mt-1">คำร้องรวมในระบบ</p>
+        </div>
+
+        <div className="bg-white/85 backdrop-blur-xl p-5 rounded-2xl border border-white/90 shadow-md">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-emerald-600 uppercase">อนุมัติแล้ว</span>
+            <div className="p-2 bg-emerald-100 text-emerald-600 rounded-xl"><CheckCircle className="w-5 h-5" /></div>
+          </div>
+          <p className="text-3xl font-extrabold text-emerald-700 mt-2">{analyticsData.totalApproved}</p>
+          <p className="text-xs text-slate-500 mt-1">
+            {analyticsData.totalRequests > 0 ? `${Math.round((analyticsData.totalApproved / analyticsData.totalRequests) * 100)}% ของคำร้องทั้งหมด` : '0%'}
+          </p>
+        </div>
+
+        <div className="bg-white/85 backdrop-blur-xl p-5 rounded-2xl border border-white/90 shadow-md">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-rose-600 uppercase">ไม่อนุมัติ</span>
+            <div className="p-2 bg-rose-100 text-rose-600 rounded-xl"><XCircle className="w-5 h-5" /></div>
+          </div>
+          <p className="text-3xl font-extrabold text-rose-700 mt-2">{analyticsData.totalRejected}</p>
+          <p className="text-xs text-slate-500 mt-1">
+            {analyticsData.totalRequests > 0 ? `${Math.round((analyticsData.totalRejected / analyticsData.totalRequests) * 100)}% ของคำร้องทั้งหมด` : '0%'}
+          </p>
+        </div>
+
+        <div className="bg-white/85 backdrop-blur-xl p-5 rounded-2xl border border-white/90 shadow-md">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-amber-600 uppercase">รอดำเนินการ</span>
+            <div className="p-2 bg-amber-100 text-amber-600 rounded-xl"><Clock className="w-5 h-5" /></div>
+          </div>
+          <p className="text-3xl font-extrabold text-amber-700 mt-2">{analyticsData.totalPending}</p>
+          <p className="text-xs text-slate-500 mt-1">รอเจ้าหน้าที่ตรวจสอบ</p>
+        </div>
+      </div>
+
+      {/* Course Demand Breakdown - Crucial for Executives deciding to open extra sections */}
+      <div className="bg-white/85 backdrop-blur-xl rounded-2xl p-6 border border-white/90 shadow-md space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+              <BarChart2 className="w-5 h-5 text-mangosteen" />
+              สรุปจำนวนคำร้องแยกตามวิชา (สำหรับผู้บริหารวิเคราะห์ในการเปิดเซคชันเพิ่ม)
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">เรียงลำดับตามจำนวนนักศึกษาที่ยื่นขอสำรองที่นั่งมากที่สุด</p>
+          </div>
+        </div>
+
+        <div className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
+          {analyticsData.topCourses.length === 0 ? (
+            <p className="text-center py-8 text-xs text-slate-400">ยังไม่มีข้อมูลวิชาในระบบ</p>
+          ) : (
+            analyticsData.topCourses.map(item => {
+              const maxTotal = analyticsData.topCourses[0]?.total || 1;
+              const percent = Math.round((item.total / maxTotal) * 100);
+              return (
+                <div key={item.code} className="py-3.5 space-y-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <span className="font-mono font-bold text-xs bg-mangosteen/10 text-mangosteen px-2 py-0.5 rounded-md mr-2">
+                        {item.code}
+                      </span>
+                      <span className="text-xs font-bold text-slate-800">{item.name}</span>
+                    </div>
+                    <div className="flex items-center space-x-3 text-xs font-semibold">
+                      <span className="text-slate-600">รวม <strong>{item.total}</strong> คน</span>
+                      <span className="text-emerald-600">อนุมัติ {item.approved}</span>
+                      <span className="text-rose-600">ปฏิเสธ {item.rejected}</span>
+                      <span className="text-amber-600">รอ {item.pending}</span>
+                    </div>
+                  </div>
+
+                  {/* Progress bar visual */}
+                  <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden flex">
+                    <div className="bg-emerald-500 h-full" style={{ width: `${(item.approved / (item.total || 1)) * percent}%` }} title={`อนุมัติ: ${item.approved}`} />
+                    <div className="bg-rose-500 h-full" style={{ width: `${(item.rejected / (item.total || 1)) * percent}%` }} title={`ไม่อนุมัติ: ${item.rejected}`} />
+                    <div className="bg-amber-400 h-full" style={{ width: `${(item.pending / (item.total || 1)) * percent}%` }} title={`รอดำเนินการ: ${item.pending}`} />
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* Department & Faculty Breakdown Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Department Breakdown */}
+        <div className="bg-white/85 backdrop-blur-xl rounded-2xl p-6 border border-white/90 shadow-md space-y-4">
+          <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
+            <PieChart className="w-4 h-4 text-mangosteen" />
+            สรุปยอดตามสาขาวิชา
+          </h3>
+          <div className="space-y-3">
+            {analyticsData.topDepts.map(item => (
+              <div key={item.dept} className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-slate-50">
+                <span className="font-medium text-slate-700 truncate max-w-[200px]" title={item.dept}>{item.dept}</span>
+                <div className="flex items-center space-x-2">
+                  <span className="font-bold text-mangosteen px-2 py-0.5 bg-mangosteen/10 rounded-md">{item.total} คำร้อง</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Faculty Breakdown */}
+        <div className="bg-white/85 backdrop-blur-xl rounded-2xl p-6 border border-white/90 shadow-md space-y-4">
+          <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
+            <GraduationCap className="w-4 h-4 text-mangosteen" />
+            สรุปยอดตามคณะ
+          </h3>
+          <div className="space-y-3">
+            {analyticsData.topFaculties.map(item => (
+              <div key={item.faculty} className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-slate-50">
+                <span className="font-medium text-slate-700 truncate max-w-[200px]" title={item.faculty}>{item.faculty}</span>
+                <div className="flex items-center space-x-2">
+                  <span className="font-bold text-mangosteen px-2 py-0.5 bg-mangosteen/10 rounded-md">{item.total} คำร้อง</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )}
+
+  {/* --- TAB 3: SCHEDULE & NOTIFICATION SETTINGS --- */}
+  {activeAdminTab === 'schedule_settings' && (
+    <form onSubmit={handleSaveScheduleSettings} className="bg-white/85 backdrop-blur-xl rounded-2xl p-6 border border-white/90 shadow-md space-y-6 font-sans">
+      <div>
+        <div className="flex items-center space-x-2 mb-1">
+          <div className="w-1.5 h-5 bg-mangosteen rounded-full"></div>
+          <h3 className="text-base font-extrabold text-slate-800">ตั้งค่าเปิด-ปิดระบบรับคำร้องสำรองที่นั่ง</h3>
+        </div>
+        <p className="text-xs text-slate-500">กำหนดโหมดการเปิดรับคำร้อง และตั้งเวลาเริ่มต้น/สิ้นสุดการรับคำร้องแบบอัตโนมัติ</p>
+      </div>
+
+      {/* Mode selection */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <button
+          type="button"
+          onClick={() => setSystemOpeningMode('always_open')}
+          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+            systemOpeningMode === 'always_open'
+              ? 'border-mangosteen bg-mangosteen/5 ring-2 ring-mangosteen/20 text-mangosteen'
+              : 'border-slate-200 hover:border-slate-300 text-slate-600'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-extrabold text-sm">เปิดตลอดเวลา</span>
+            <CheckCircle className={`w-4 h-4 ${systemOpeningMode === 'always_open' ? 'text-mangosteen' : 'text-slate-300'}`} />
+          </div>
+          <p className="text-xs text-slate-500">นักศึกษาสามารถยื่นคำร้องได้ตลอดเวลาไม่มีกำหนดปิด</p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setSystemOpeningMode('scheduled')}
+          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+            systemOpeningMode === 'scheduled'
+              ? 'border-mangosteen bg-mangosteen/5 ring-2 ring-mangosteen/20 text-mangosteen'
+              : 'border-slate-200 hover:border-slate-300 text-slate-600'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-extrabold text-sm">เปิดตามช่วงเวลาที่กำหนด</span>
+            <Calendar className={`w-4 h-4 ${systemOpeningMode === 'scheduled' ? 'text-mangosteen' : 'text-slate-300'}`} />
+          </div>
+          <p className="text-xs text-slate-500">ระบบจะเปิดให้ยื่นคำร้องเฉพาะช่วงวันที่และเวลาที่กำหนดไว้</p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setSystemOpeningMode('closed')}
+          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+            systemOpeningMode === 'closed'
+              ? 'border-rose-500 bg-rose-50 ring-2 ring-rose-200 text-rose-700'
+              : 'border-slate-200 hover:border-slate-300 text-slate-600'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-extrabold text-sm">ปิดรับคำร้องชั่วคราว</span>
+            <Lock className={`w-4 h-4 ${systemOpeningMode === 'closed' ? 'text-rose-600' : 'text-slate-300'}`} />
+          </div>
+          <p className="text-xs text-slate-500">ปิดระบบทันที ไม่ให้นักศึกษายื่นคำร้องใหม่</p>
+        </button>
+      </div>
+
+      {/* Scheduled Inputs */}
+      {systemOpeningMode === 'scheduled' && (
+        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">วัน-เวลา เริ่มต้นรับคำร้อง</label>
+            <input
+              type="datetime-local"
+              value={systemOpenStart}
+              onChange={e => setSystemOpenStart(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:outline-hidden focus:border-mangosteen bg-white"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">วัน-เวลา สิ้นสุดรับคำร้อง</label>
+            <input
+              type="datetime-local"
+              value={systemOpenEnd}
+              onChange={e => setSystemOpenEnd(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:outline-hidden focus:border-mangosteen bg-white"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* System Closed Message */}
+      <div>
+        <label className="block text-xs font-bold text-slate-700 mb-1">ข้อความแจ้งเตือนเมื่อระบบปิดรับคำร้อง</label>
+        <input
+          type="text"
+          value={systemClosedMessage}
+          onChange={e => setSystemClosedMessage(e.target.value)}
+          placeholder="อยู่นอกกำหนดเวลาการรับคำร้องสำรองที่นั่งวิชาเรียน"
+          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-hidden focus:border-mangosteen"
+        />
+      </div>
+
+      {/* LINE Notification Section */}
+      <div className="border-t border-slate-200 pt-6 space-y-4">
+        <div>
+          <div className="flex items-center space-x-2 mb-1">
+            <Bell className="w-4 h-4 text-emerald-600" />
+            <h3 className="text-base font-extrabold text-slate-800">ระบบการแจ้งเตือนอัตโนมัติ (LINE Notify / Webhook)</h3>
+          </div>
+          <p className="text-xs text-slate-500">ส่งข้อความแจ้งเตือนเข้ากลุ่ม LINE เจ้าหน้าที่ หรือนักศึกษาทันทีที่มีรายการอัปเดต</p>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">LINE Notify Access Token / Webhook URL (สำหรับแอดมิน)</label>
+            <input
+              type="text"
+              value={notifyLineToken}
+              onChange={e => setNotifyLineToken(e.target.value)}
+              placeholder="ใส่ LINE Notify Token หรือ Webhook URL"
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono focus:outline-hidden focus:border-emerald-600"
+            />
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-4 pt-2">
+            <label className="flex items-center space-x-2 cursor-pointer text-xs font-medium text-slate-700">
+              <input
+                type="checkbox"
+                checked={notifyOnNewRequest}
+                onChange={e => setNotifyOnNewRequest(e.target.checked)}
+                className="rounded-sm text-emerald-600 focus:ring-emerald-500 h-4 w-4"
+              />
+              <span>แจ้งเตือนแอดมินทันทีเมื่อมีคำร้องใหม่</span>
+            </label>
+
+            <label className="flex items-center space-x-2 cursor-pointer text-xs font-medium text-slate-700">
+              <input
+                type="checkbox"
+                checked={notifyOnStatusChange}
+                onChange={e => setNotifyOnStatusChange(e.target.checked)}
+                className="rounded-sm text-emerald-600 focus:ring-emerald-500 h-4 w-4"
+              />
+              <span>แจ้งเตือนเมื่ออนุมัติ/ไม่อนุมัติคำร้อง</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div className="pt-2 flex justify-end">
+        <button
+          type="submit"
+          disabled={isSavingScheduleSettings}
+          className="px-6 py-2.5 bg-mangosteen hover:bg-mangosteen-hover text-white rounded-xl text-xs font-bold shadow-md flex items-center space-x-2 cursor-pointer"
+        >
+          {isSavingScheduleSettings ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+          <span>บันทึกการตั้งค่ากำหนดการ</span>
+        </button>
+      </div>
+    </form>
+  )}
+
+  {/* --- TAB 4: AUDIT LOGS --- */}
+  {activeAdminTab === 'audit_logs' && (
+    <div className="bg-white/85 backdrop-blur-2xl rounded-2xl p-6 border border-white/90 shadow-md space-y-6 font-sans">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+        <div>
+          <div className="flex items-center space-x-2 mb-1">
+            <div className="w-1.5 h-5 bg-mangosteen rounded-full"></div>
+            <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+              <Clock className="w-5 h-5 text-mangosteen" />
+              ประวัติการกดอนุมัติ/ไม่อนุมัติ (Audit Log)
+            </h3>
+          </div>
+          <p className="text-xs text-slate-500">
+            ระบบบันทึกประวัติย้อนหลังสำหรับแอดมินที่กดอนุมัติ/ไม่อนุมัติ บันทึกชื่อเจ้าหน้าที่ เวลาทำรายการ และรายละเอียดลงใน Google Sheets
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1 sm:w-64">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={auditLogSearch}
+              onChange={e => setAuditLogSearch(e.target.value)}
+              placeholder="ค้นหาชื่อแอดมิน, รหัสคำร้อง..."
+              className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-hidden focus:border-mangosteen"
+            />
+          </div>
+          <button
+            onClick={fetchAuditLogs}
+            disabled={loadingAuditLogs}
+            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shrink-0"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loadingAuditLogs ? 'animate-spin text-mangosteen' : ''}`} />
+            <span>รีเฟรช</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Table / List */}
+      {loadingAuditLogs ? (
+        <div className="py-16 text-center text-slate-400 font-sans text-sm flex flex-col items-center justify-center gap-3">
+          <RefreshCw className="w-8 h-8 animate-spin text-mangosteen" />
+          <span>กำลังโหลดประวัติการอนุมัติจากระบบและ Google Sheets...</span>
+        </div>
+      ) : filteredAuditLogs.length === 0 ? (
+        <div className="py-16 text-center text-slate-400 font-sans text-sm bg-slate-50/50 rounded-2xl border border-dashed border-slate-200 p-8 space-y-2">
+          <Clock className="w-10 h-10 text-slate-300 mx-auto" />
+          <p className="font-bold text-slate-600 text-base">ยังไม่พบประวัติการทำรายการ</p>
+          <p className="text-xs text-slate-400 max-w-md mx-auto">
+            ประวัติการกดอนุมัติ/ไม่อนุมัติจะถูกบันทึกอัตโนมัติลงในระบบ และเพิ่มแถวใหม่ในแผ่นงาน <code className="text-mangosteen font-semibold bg-mangosteen/10 px-1.5 py-0.5 rounded">AuditLogs</code> ใน Google Sheets เมื่อแอดมินทำรายการ
+          </p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-slate-100 shadow-2xs">
+          <table className="w-full text-left text-xs font-sans">
+            <thead className="bg-slate-50/90 text-slate-600 font-bold border-b border-slate-100">
+              <tr>
+                <th className="p-3.5 w-44">วัน-เวลา (Timestamp)</th>
+                <th className="p-3.5 w-44">แอดมินผู้ทำรายการ</th>
+                <th className="p-3.5 w-36">การกระทำ</th>
+                <th className="p-3.5 w-32">รหัสอ้างอิง</th>
+                <th className="p-3.5">รายละเอียดข้อมูล</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {filteredAuditLogs.map(log => {
+                const isApprove = log.action.includes('อนุมัติ') && !log.action.includes('ไม่อนุมัติ');
+                const isReject = log.action.includes('ไม่อนุมัติ');
+                return (
+                  <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="p-3.5 text-slate-500 font-mono text-[11px] whitespace-nowrap">
+                      {log.timestamp ? new Date(log.timestamp).toLocaleString('th-TH', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit'
+                      }) : '-'}
+                    </td>
+                    <td className="p-3.5 font-semibold text-slate-800">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg">
+                        <User className="w-3.5 h-3.5 text-mangosteen" />
+                        {log.adminName || 'เจ้าหน้าที่'}
+                      </span>
+                    </td>
+                    <td className="p-3.5">
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold text-[11px] ${
+                        isApprove ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                        isReject ? 'bg-rose-100 text-rose-800 border border-rose-200' :
+                        'bg-slate-100 text-slate-700 border border-slate-200'
+                      }`}>
+                        {isApprove && <Check className="w-3 h-3 text-emerald-600" />}
+                        {isReject && <X className="w-3 h-3 text-rose-600" />}
+                        {log.action}
+                      </span>
+                    </td>
+                    <td className="p-3.5 font-mono text-slate-700 font-bold">
+                      {log.targetId || '-'}
+                    </td>
+                    <td className="p-3.5 text-slate-700 leading-relaxed">
+                      {log.details}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )}
 
       {/* --- REJECTION MODAL POPUP --- */}
       <AnimatePresence>
