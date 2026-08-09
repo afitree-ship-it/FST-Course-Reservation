@@ -10,8 +10,8 @@ let activeFetchPromise: Promise<{ success: boolean; data?: ReservationRequest[];
 
 export function getApiUrl(): string {
   const saved = localStorage.getItem(API_URL_KEY);
-  const oldDefault = 'https://script.google.com/macros/s/AKfycbygnnK7sTVm64hY70dyYYf-17Jh_sBAQQJeK4WDdnfz4sZMTftEUPJdcgCEiHxiETKRfw/exec';
-  const newDefault = 'https://script.google.com/macros/s/AKfycbwGOeykUafIDYOWs6Bwk3cInxhnTESNyGpGVvKUEJhA5XbyrIgc2vmNNR_hBc-5S-d8aA/exec';
+  const oldDefault = 'https://script.google.com/macros/s/AKfycbz6pENWzPN_yTp-9JZNE6wyNZDKuCFf4rX2u0113siwz5bYx_B8eM8qV6OzWMzkUG8dRA/exec';
+  const newDefault = 'https://script.google.com/macros/s/AKfycbz6pENWzPN_yTp-9JZNE6wyNZDKuCFf4rX2u0113siwz5bYx_B8eM8qV6OzWMzkUG8dRA/exec';
   
   if (saved === oldDefault) {
     localStorage.setItem(API_URL_KEY, newDefault);
