@@ -442,7 +442,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     }
 
     setIsSubmitting(true);
-    const submitPayload = {
+ const submitPayload = {
       fullName,
       studentId: studentId.trim(),
       department,
@@ -464,7 +464,8 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       phone: phone.trim(),
       consent,
       notifyChannel: 'Email',
-      notifyContact: notifyContact.trim()
+      notifyContact: notifyContact.trim(),
+      language: language // 👈 ส่งค่าภาษาปัจจุบัน (เช่น 'th' หรือ 'en') ไปให้ Backend
     };
 
     try {
