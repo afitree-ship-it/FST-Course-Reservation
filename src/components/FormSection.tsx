@@ -106,7 +106,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
   const [phone, setPhone] = useState('');
   const [consent, setConsent] = useState(true);
 
-  // Student notification choice states (บังคับใช้ Email เป็นค่าหลัก)
+  // Student notification choice states
   const [notifyChannel] = useState<'email'>('email');
   const [notifyContact, setNotifyContact] = useState('');
 
@@ -243,6 +243,12 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     if (!department) errors.department = t('errDepartment');
     if (!year) errors.year = t('errYear');
 
+    if (!notifyContact.trim()) {
+      errors.notifyContact = isTh ? 'กรุณากรอกอีเมลสำหรับรับแจ้งเตือน' : 'Please enter your email address.';
+    } else if (!isEmailValid(notifyContact)) {
+      errors.notifyContact = isTh ? 'รูปแบบอีเมลไม่ถูกต้อง' : 'Invalid email format.';
+    }
+
     courses.forEach((course, index) => {
       if (!course.courseCode.trim()) errors[`courseCode_${index}`] = t('errCourseCode');
       if (!course.courseName.trim()) errors[`courseName_${index}`] = t('errCourseName');
@@ -262,12 +268,6 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
 
     if (phone.trim() && !isPhoneValid(phone)) {
       errors.phone = t('errPhone');
-    }
-
-    if (!notifyContact.trim()) {
-      errors.notifyContact = isTh ? 'กรุณากรอกอีเมลสำหรับรับแจ้งเตือน' : 'Please enter your email address.';
-    } else if (!isEmailValid(notifyContact)) {
-      errors.notifyContact = isTh ? 'รูปแบบอีเมลไม่ถูกต้อง' : 'Invalid email format.';
     }
 
     if (!consent) {
@@ -422,10 +422,10 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       studentId: true,
       department: true,
       year: true,
+      notifyContact: true,
       facebookProofLink: true,
       facebookProofFile: true,
       phone: true,
-      notifyContact: true,
       consent: true,
     };
     courses.forEach((_, idx) => {
@@ -629,7 +629,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                     <div>
                       <strong>{isTh ? 'พบประวัติข้อมูลของคุณ' : 'Profile found!'}</strong>
                       <p className="opacity-90 text-xs mt-0.5">
-                        {isTh ? 'เราได้กรอกข้อมูลส่วนตัวให้คุณแล้ว คุณสามารถแก้ไขได้หรือข้ามไปเลือกรายวิชาได้เลย' : 'We have pre-filled your personal info. You can edit it or skip directly to selecting courses.'}
+                        {isTh ? 'เราได้กรอกข้อมูลส่วนตัวและอีเมลให้คุณแล้ว คุณสามารถแก้ไขได้หรือข้ามไปเลือกรายวิชาได้เลย' : 'We have pre-filled your personal info & email. You can edit it or skip directly to selecting courses.'}
                       </p>
                     </div>
                   </div>
@@ -683,6 +683,38 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                     />
                     {touched.studentId && validationErrors.studentId && (
                       <p className="mt-1 text-xs text-rose-500 font-sans font-medium">{validationErrors.studentId}</p>
+                    )}
+                  </div>
+
+                  {/* อีเมลสำหรับรับแจ้งเตือน (ย้ายมาไว้ที่นี่) */}
+                  <div className="col-span-1 md:col-span-2">
+                    <label className="block text-sm font-semibold text-slate-700 mb-1.5 font-sans">
+                      {isTh ? 'อีเมลสำหรับรับแจ้งเตือนผล' : 'Notification Email Address'} <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                        <Mail className="w-4 h-4 text-mangosteen" />
+                      </div>
+                      <input
+                        type="email"
+                        value={notifyContact}
+                        onChange={e => setNotifyContact(e.target.value)}
+                        onBlur={() => handleBlur('notifyContact')}
+                        placeholder={isTh ? 'เช่น student@ftu.ac.th (เพื่อรับผลการอนุมัติทางอีเมล)' : 'e.g. student@ftu.ac.th'}
+                        className={`w-full pl-10 pr-4 py-3 rounded-xl border-2 text-sm sm:text-base font-medium font-sans transition-all focus:outline-hidden focus:ring-4 bg-slate-50 hover:bg-white ${
+                          touched.notifyContact && validationErrors.notifyContact
+                            ? 'border-rose-300 focus:ring-rose-200 focus:border-rose-400 bg-rose-50/20 text-rose-700'
+                            : 'border-slate-200 focus:border-mangosteen focus:ring-mangosteen/20 text-slate-700'
+                        }`}
+                        id="input-email"
+                      />
+                    </div>
+                    {touched.notifyContact && validationErrors.notifyContact ? (
+                      <p className="mt-1 text-xs text-rose-500 font-sans font-medium">{validationErrors.notifyContact}</p>
+                    ) : (
+                      <p className="mt-1 text-[11px] text-slate-400 font-sans">
+                        {isTh ? '* ระบบจะบันทึกอีเมลนี้คู่กับรหัสนักศึกษา เพื่อให้ระบบส่งผลการพิจารณาไปให้อัตโนมัติ' : '* We will save this email with your ID for automatic notifications.'}
+                      </p>
                     )}
                   </div>
 
@@ -1170,49 +1202,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                 )}
               </div>
 
-              {/* Section 4: การรับการแจ้งเตือนผล (ตัดเหลือเฉพาะ Email) */}
-              <div className="space-y-3 pt-2 border-t border-slate-100 font-sans">
-                <div className="flex items-center space-x-2 text-slate-800">
-                  <Bell className="w-4 h-4 text-mangosteen" />
-                  <h4 className="font-bold text-xs uppercase text-slate-500 tracking-wider font-sans">
-                    {isTh ? 'ช่องทางการรับการแจ้งเตือนผลการพิจารณา' : 'Notification Preference'}
-                  </h4>
-                </div>
-
-                <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl text-xs sm:text-sm text-sky-800 flex items-center gap-2">
-                  <Mail className="w-4 h-4 text-sky-600 shrink-0" />
-                  <span>
-                    {isTh 
-                      ? 'ระบบจะส่งผลการพิจารณาไปยัง ' 
-                      : 'The system will send the result to your '}
-                    <strong>{isTh ? 'อีเมล' : 'email address'}</strong> 
-                    {isTh ? ' ที่ท่านระบุไว้ด้านล่างโดยอัตโนมัติ' : ' automatically.'}
-                  </span>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5 font-sans">
-                    {isTh ? 'ระบุอีเมลสำหรับรับแจ้งเตือนผล' : 'Notification Email Address'} <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="email"
-                    value={notifyContact}
-                    onChange={e => setNotifyContact(e.target.value)}
-                    onBlur={() => handleBlur('notifyContact')}
-                    placeholder={isTh ? 'เช่น student@ftu.ac.th' : 'e.g. student@ftu.ac.th'}
-                    className={`w-full px-4 py-3 rounded-xl border-2 text-sm font-sans transition-all focus:outline-hidden focus:ring-4 ${
-                      touched.notifyContact && validationErrors.notifyContact
-                        ? 'border-rose-300 focus:ring-rose-200 focus:border-rose-400 bg-rose-50/20 text-rose-700'
-                        : 'border-slate-200 focus:border-mangosteen focus:ring-mangosteen/20 text-slate-700'
-                    }`}
-                  />
-                  {touched.notifyContact && validationErrors.notifyContact && (
-                    <p className="mt-1 text-xs text-rose-500 font-sans font-medium">{validationErrors.notifyContact}</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Section 5: ข้อกำหนดความยินยอม */}
+              {/* Section 4: ข้อกำหนดความยินยอม */}
               <div className="space-y-4 pt-2 border-t border-slate-100 font-sans">
                 <h4 className="font-bold text-xs uppercase text-slate-400 tracking-wider font-sans">
                   {t('sectionConsent')}
