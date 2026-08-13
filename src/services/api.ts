@@ -270,7 +270,8 @@ export async function getAllRequests(forceRefresh = false): Promise<{ success: b
   if (isApiConfigured()) {
     activeFetchPromise = (async () => {
       try {
-        const response = await fetch(`${getApiUrl()}?action=getAllRequests`, {
+        // เพิ่ม cache buster &t=... ป้องกันเบราว์เซอร์หรือเครือข่ายจำค่าเก่า
+        const response = await fetch(`${getApiUrl()}?action=getAllRequests&t=${Date.now()}`, {
           method: 'GET'
         });
         const result = await response.json();
@@ -279,9 +280,16 @@ export async function getAllRequests(forceRefresh = false): Promise<{ success: b
           lastFetchTime = Date.now();
           return { success: true, data: result.data };
         }
+        // ถ้าดึงข้อมูลใหม่ล้มเหลว แต่เรามีของเก่า ให้ส่งของเก่าไปให้ก่อน พร้อม error เงียบๆ
+        if (cachedRequests && cachedRequests.length > 0) {
+           return { success: true, data: cachedRequests };
+        }
         return { success: false, error: result.error || 'เกิดข้อผิดพลาดในการดึงข้อมูล' };
       } catch (err) {
-        return { success: false, error: 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้' };
+        if (cachedRequests && cachedRequests.length > 0) {
+           return { success: true, data: cachedRequests };
+        }
+        return { success: false, error: 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้ กรุณาลองใหม่อีกครั้ง' };
       } finally {
         activeFetchPromise = null;
       }
@@ -537,15 +545,11 @@ export async function getStatusByStudentId(studentId: string, forceRefresh = fal
     return { success: true, data: filtered };
   }
 
-  const result = await getAllRequests(forceRefresh);
-  if (result.success && result.data) {
-    const filtered = result.data.filter(r => String(r.studentId).trim() === String(studentId).trim());
-    return { success: true, data: filtered };
-  }
-
   if (isApiConfigured()) {
     try {
-      const response = await fetch(`${getApiUrl()}?action=getStatusByStudentId&studentId=${encodeURIComponent(studentId)}`, {
+      // เรียกข้อมูลเฉพาะรหัสนี้จาก GAS ตรงๆ โดยไม่โหลดข้อมูลทั้งหมด ทำให้ดึงได้ไวมาก 
+      // และเพิ่ม cache buster เพื่อให้ได้ข้อมูลใหม่เสมอ
+      const response = await fetch(`${getApiUrl()}?action=getStatusByStudentId&studentId=${encodeURIComponent(studentId)}&t=${Date.now()}`, {
         method: 'GET'
       });
       const result = await response.json();

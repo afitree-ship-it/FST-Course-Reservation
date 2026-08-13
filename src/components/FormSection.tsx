@@ -110,6 +110,14 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
   const [notifyChannel] = useState<'email'>('email');
   const [notifyContact, setNotifyContact] = useState('');
 
+  // โหลดอีเมลเดิมที่เคยกรอกไว้เพื่อความสะดวก
+  useEffect(() => {
+    const savedEmail = localStorage.getItem('notify_contact_email');
+    if (savedEmail) {
+      setNotifyContact(savedEmail);
+    }
+  }, []);
+
   // System schedule & opening states
   const [systemOpenStatus, setSystemOpenStatus] = useState<{
     isOpen: boolean;
@@ -505,6 +513,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     try {
       const response = await submitRequest(submitPayload);
       if (response.success && response.data) {
+        localStorage.setItem('notify_contact_email', notifyContact.trim());
         showToast(isTh ? 'ส่งคำร้องขอดำเนินการเรียบร้อยแล้ว!' : 'Seat reservation requested successfully!', 'success');
         onSuccess(studentId.trim(), response.data);
       } else {
