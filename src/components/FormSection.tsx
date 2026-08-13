@@ -4,8 +4,8 @@
  */
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { motion } from 'motion/react';
-import { 
+import { motion, AnimatePresence } from 'motion/react';
+import { CloudUpload, 
   User, 
   BookOpen, 
   Smartphone, 
@@ -109,6 +109,18 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
   // Student notification choice states
   const [notifyChannel] = useState<'email'>('email');
   const [notifyContact, setNotifyContact] = useState('');
+  // Prefetch data when student ID reaches 9 digits to make it feel instant
+  useEffect(() => {
+    if (studentId.trim().length === 9 && isStudentIdValid(studentId)) {
+      getStatusByStudentId(studentId.trim());
+    }
+  }, [studentId]);
+  // Prefetch data when student ID reaches 9 digits to make it feel instant
+  useEffect(() => {
+    if (studentId.trim().length === 9 && isStudentIdValid(studentId)) {
+      getStatusByStudentId(studentId.trim());
+    }
+  }, [studentId]);
 
   // โหลดอีเมลเดิมที่เคยกรอกไว้เพื่อความสะดวก
   useEffect(() => {
@@ -292,7 +304,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     setTouched(prev => ({ ...prev, [field]: true }));
   };
 
-  const processFile = (file: File) => {
+    const processFile = (file: File) => {
     if (!file.type.startsWith('image/')) {
       showToast(isTh ? 'กรุณาอัปโหลดเฉพาะไฟล์รูปภาพ (PNG, JPG, JPEG, etc.)' : 'Please upload image files only (PNG, JPG, JPEG).', 'warning');
       return;
@@ -309,36 +321,56 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
         const canvas = document.createElement('canvas');
         let width = img.width;
         let height = img.height;
-        const maxDim = 1200; // Compress to max 1200px
-        
-        if (width > height) {
-          if (width > maxDim) {
-            height *= maxDim / width;
-            width = maxDim;
+        let maxDim = 800; // เริ่มบีบที่ 800px
+
+        const compress = () => {
+          let currentWidth = width;
+          let currentHeight = height;
+          if (currentWidth > currentHeight) {
+            if (currentWidth > maxDim) {
+              currentHeight *= maxDim / currentWidth;
+              currentWidth = maxDim;
+            }
+          } else {
+            if (currentHeight > maxDim) {
+              currentWidth *= maxDim / currentHeight;
+              currentHeight = maxDim;
+            }
           }
-        } else {
-          if (height > maxDim) {
-            width *= maxDim / height;
-            height = maxDim;
+
+          canvas.width = currentWidth;
+          canvas.height = currentHeight;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, currentWidth, currentHeight);
+            let quality = 0.7;
+            let compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+
+            // บีบอัดจนกว่าขนาด String Base64 จะน้อยกว่า 45,000 ตัวอักษร (ข้อจำกัด Google Sheets 50,000)
+            while (compressedDataUrl.length > 45000 && quality > 0.1) {
+              quality -= 0.15;
+              compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+            }
+            
+            // ถ้ายอมลดคุณภาพสุดๆ แล้วยังใหญ่ไป ให้ลดขนาดแกน (Dimension) ลงอีกครึ่งนึง
+            if (compressedDataUrl.length > 45000 && maxDim > 200) {
+              maxDim -= 200;
+              compress();
+              return;
+            }
+
+            setFacebookProofFile({
+              name: file.name,
+              type: 'image/jpeg',
+              dataUrl: compressedDataUrl
+            });
+            showToast(isTh ? 'อัปโหลดและประมวลผลไฟล์รูปภาพเรียบร้อย' : 'Screenshot uploaded and processed successfully.', 'success');
+          } else {
+            showToast(isTh ? 'เกิดข้อผิดพลาดในการประมวลผลรูปภาพ' : 'Error processing image.', 'error');
           }
-        }
+        };
         
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7); // 70% quality JPEG
-          
-          setFacebookProofFile({
-            name: file.name,
-            type: 'image/jpeg',
-            dataUrl: compressedDataUrl
-          });
-          showToast(isTh ? 'อัปโหลดและประมวลผลไฟล์รูปภาพเรียบร้อย' : 'Screenshot uploaded and processed successfully.', 'success');
-        } else {
-          showToast(isTh ? 'เกิดข้อผิดพลาดในการประมวลผลรูปภาพ' : 'Error processing image.', 'error');
-        }
+        compress();
       };
       img.onerror = () => {
         showToast(isTh ? 'เกิดข้อผิดพลาดในการโหลดรูปภาพ' : 'Error loading image.', 'error');
@@ -535,6 +567,46 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       className="w-full max-w-2xl mx-auto"
       id="reservation-form-container"
     >
+      
+      {/* 🚀 Submission Progress Overlay */}
+      <AnimatePresence>
+        {isSubmitting && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="bg-white rounded-2xl shadow-2xl p-6 sm:p-8 w-full max-w-md text-center flex flex-col items-center"
+            >
+              <div className="w-20 h-20 bg-mangosteen/10 rounded-full flex items-center justify-center mb-6 relative">
+                <div className="absolute inset-0 border-4 border-mangosteen/30 rounded-full border-t-mangosteen animate-spin"></div>
+                <CloudUpload className="w-8 h-8 text-mangosteen relative z-10 animate-pulse" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-800 font-sans mb-2">
+                {isTh ? 'กำลังอัปโหลดคำร้องของคุณ' : 'Submitting Your Request'}
+              </h3>
+              <p className="text-slate-500 font-sans text-sm mb-6">
+                {isTh ? 'กรุณารอสักครู่ ระบบกำลังส่งข้อมูลไปยังฐานข้อมูล (เสร็จสิ้นใน 1 วินาที)...' : 'Please wait, transmitting data to server (approx. 1 second)...'}
+              </p>
+              
+              <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden relative">
+                <motion.div
+                  initial={{ width: '0%' }}
+                  animate={{ width: '90%' }}
+                  transition={{ duration: 1.5, ease: 'easeOut' }}
+                  className="absolute top-0 left-0 h-full bg-mangosteen rounded-full"
+                ></motion.div>
+              </div>
+              <p className="text-[10px] text-slate-400 font-mono mt-3 font-medium uppercase tracking-widest animate-pulse">CONNECTING TO GOOGLE SHEETS...</p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="bg-white/85 backdrop-blur-2xl rounded-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.15),_0_15px_30px_-15px_rgba(0,0,0,0.1)] overflow-hidden border border-white/90 transition-all duration-300">
         {step !== 1 && (
           <div className="p-6 md:p-8 border-b border-slate-100 bg-slate-50/50">

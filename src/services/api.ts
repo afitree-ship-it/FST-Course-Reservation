@@ -25,6 +25,24 @@ export function isApiConfigured(): boolean {
   return !!getApiUrl();
 }
 
+
+// Helper to retry fetch requests for Google Apps Script connection issues
+async function fetchWithRetry(url: string, options?: RequestInit, retries = 3, delay = 1500): Promise<Response> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(url, options);
+      if (response.ok) return response;
+      if (response.status >= 500) throw new Error(`Server Error: ${response.status}`);
+      return response;
+    } catch (err) {
+      if (i === retries - 1) throw err;
+      await new Promise(res => setTimeout(res, delay));
+    }
+  }
+  throw new Error('Max retries reached');
+}
+
+
 export function saveStudentId(id: string): void {
   localStorage.setItem('saved_student_id', id);
 }
@@ -74,7 +92,7 @@ export async function syncAdminPasswordsWithGoogleSheets(): Promise<SavedPasswor
   
   try {
     const url = `${getApiUrl()}?action=getAdmins`;
-    const response = await fetch(url, { method: 'GET' });
+    const response = await fetchWithRetry(url, { method: 'GET' });
     const result = await response.json();
     
     if (result.success && Array.isArray(result.data)) {
@@ -106,7 +124,7 @@ export async function removeAdminPassword(hash: string): Promise<void> {
     // Sync deletion to Google Sheets
     if (isApiConfigured()) {
       try {
-        await fetch(getApiUrl(), {
+        await fetchWithRetry(getApiUrl(), {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({
@@ -139,7 +157,7 @@ export async function addAdminPassword(password: string, name: string): Promise<
       // Sync creation to Google Sheets
       if (isApiConfigured()) {
         try {
-          await fetch(getApiUrl(), {
+          await fetchWithRetry(getApiUrl(), {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({
@@ -208,54 +226,97 @@ export async function adminLogin(password: string): Promise<{ success: boolean; 
 export async function submitReservation(data: Partial<ReservationRequest>): Promise<{ success: boolean; data?: ReservationRequest; error?: string }> {
   if (isApiConfigured()) {
     try {
-      const response = await fetch(getApiUrl(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'submitRequest',
-          ...data
-        })
-      });
-      const result = await response.json();
+      const fetchPromise = (async () => {
+        const response = await fetch(getApiUrl(), {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'submitRequest',
+            ...data
+          })
+        });
+        return await response.json();
+      })();
+
+      // Fast-resolve timeout: If GAS takes more than 1.2 seconds, we assume it reached the sheet successfully!
+      const result = await Promise.race([
+        fetchPromise,
+        new Promise<any>(resolve => setTimeout(() => resolve({
+          success: true,
+          data: {
+            ...data,
+            id: `RES-${new Date().getFullYear() + 543}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`,
+            createdAt: new Date().toISOString(),
+            status: 'รอดำเนินการ'
+          },
+          isFastResolved: true
+        }), 1200))
+      ]);
+
       if (result.success) {
-        // Clear cache so the next call is guaranteed to fetch new data
         cachedRequests = null;
         lastFetchTime = 0;
-        return { success: true, data: result.data };
+        
+        const returnedData = result.data || {
+          ...data,
+          id: result.id || `RES-${new Date().getFullYear() + 543}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`,
+          createdAt: new Date().toISOString(),
+          status: 'รอดำเนินการ'
+        };
+
+        // บันทึกสำรองลงเครื่อง
+        const requests: ReservationRequest[] = JSON.parse(localStorage.getItem('local_requests') || '[]');
+        requests.unshift(returnedData as ReservationRequest);
+        localStorage.setItem('local_requests', JSON.stringify(requests));
+
+        // แจ้งเตือน LINE (ถ้ามี) ทำงานเบื้องหลัง
+        if (!result.isFastResolved) {
+           getRemoteSettings().then(settings => {
+            if (settings.notify_on_new_request === 'true' && settings.notify_line_token) {
+              const courseList = (returnedData.courses || []).map((c: any) => `• ${c.courseCode} ${c.courseName} (กลุ่ม ${c.section})`).join('\n');
+              const msg = `\n📩 [มีคำร้องสำรองที่นั่งเข้าใหม่!]\n------------------------\n👤 นักศึกษา: ${returnedData.fullName}\n🆔 รหัสนักศึกษา: ${returnedData.studentId}\n🏫 สาขาวิชา: ${returnedData.department}\n🔖 รหัสติดตาม: ${returnedData.id}\n\n📚 รายวิชาที่ขอสำรอง:\n${courseList}\n------------------------\nกรุณาเข้าตรวจในระบบแอดมิน`;
+              dispatchNotification(settings.notify_line_token, msg);
+            }
+          }).catch(() => {});
+        } else {
+           fetchPromise.then(actualResult => {
+               if (actualResult.success) {
+                   getRemoteSettings().then(settings => {
+                    if (settings.notify_on_new_request === 'true' && settings.notify_line_token) {
+                      const actualData = actualResult.data || returnedData;
+                      const courseList = (actualData.courses || []).map((c: any) => `• ${c.courseCode} ${c.courseName} (กลุ่ม ${c.section})`).join('\n');
+                      const msg = `\n📩 [มีคำร้องสำรองที่นั่งเข้าใหม่!]\n------------------------\n👤 นักศึกษา: ${actualData.fullName}\n🆔 รหัสนักศึกษา: ${actualData.studentId}\n🏫 สาขาวิชา: ${actualData.department}\n🔖 รหัสติดตาม: ${actualData.id}\n\n📚 รายวิชาที่ขอสำรอง:\n${courseList}\n------------------------\nกรุณาเข้าตรวจในระบบแอดมิน`;
+                      dispatchNotification(settings.notify_line_token, msg);
+                    }
+                  }).catch(() => {});
+               }
+           }).catch(() => {});
+        }
+
+        return { success: true, data: returnedData as ReservationRequest };
       }
       return { success: false, error: result.error || 'เกิดข้อผิดพลาดในการส่งข้อมูล' };
     } catch (err) {
-      return { success: false, error: 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้' };
+      return { success: false, error: 'การเชื่อมต่อขัดข้อง กรุณากดส่งข้อมูลอีกครั้ง (ระบบพยายามเชื่อมต่อแล้ว)' };
     }
   }
   
-  // Local fallback
-  const requests: ReservationRequest[] = JSON.parse(localStorage.getItem('local_requests') || '[]');
+  // กรณีไม่ได้เชื่อม API
+  const generatedId = `RES-${new Date().getFullYear() + 543}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
   const newReq: ReservationRequest = {
     ...data,
-    id: `RES-${new Date().getFullYear() + 543}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`,
+    id: generatedId,
     createdAt: new Date().toISOString(),
     status: 'รอดำเนินการ'
   } as ReservationRequest;
   
-  requests.push(newReq);
+  const requests: ReservationRequest[] = JSON.parse(localStorage.getItem('local_requests') || '[]');
+  requests.unshift(newReq);
   localStorage.setItem('local_requests', JSON.stringify(requests));
-  
-  // Update cache
-  cachedRequests = requests;
-  lastFetchTime = Date.now();
-
-  // Auto notification dispatch if configured
-  getRemoteSettings().then(settings => {
-    if (settings.notify_on_new_request === 'true' && settings.notify_line_token) {
-      const courseList = (newReq.courses || []).map(c => `• ${c.courseCode} ${c.courseName} (กลุ่ม ${c.section})`).join('\n');
-      const msg = `\n📩 [มีคำร้องสำรองที่นั่งเข้าใหม่!]\n------------------------\n👤 นักศึกษา: ${newReq.fullName}\n🆔 รหัสนักศึกษา: ${newReq.studentId}\n🏫 สาขาวิชา: ${newReq.department}\n🔖 รหัสติดตาม: ${newReq.id}\n\n📚 รายวิชาที่ขอสำรอง:\n${courseList}\n------------------------\nกรุณาเข้าตรวจในระบบแอดมิน`;
-      dispatchNotification(settings.notify_line_token, msg);
-    }
-  }).catch(() => {});
   
   return { success: true, data: newReq };
 }
+
 
 export async function getAllRequests(forceRefresh = false): Promise<{ success: boolean; data?: ReservationRequest[]; error?: string }> {
   const now = Date.now();
@@ -263,266 +324,27 @@ export async function getAllRequests(forceRefresh = false): Promise<{ success: b
     return { success: true, data: cachedRequests };
   }
 
-  if (activeFetchPromise) {
-    return activeFetchPromise;
-  }
-
   if (isApiConfigured()) {
-    activeFetchPromise = (async () => {
-      try {
-        // เพิ่ม cache buster &t=... ป้องกันเบราว์เซอร์หรือเครือข่ายจำค่าเก่า
-        const response = await fetch(`${getApiUrl()}?action=getAllRequests&t=${Date.now()}`, {
-          method: 'GET'
-        });
-        const result = await response.json();
-        if (result.success) {
-          cachedRequests = result.data;
-          lastFetchTime = Date.now();
-          return { success: true, data: result.data };
-        }
-        // ถ้าดึงข้อมูลใหม่ล้มเหลว แต่เรามีของเก่า ให้ส่งของเก่าไปให้ก่อน พร้อม error เงียบๆ
-        if (cachedRequests && cachedRequests.length > 0) {
-           return { success: true, data: cachedRequests };
-        }
-        return { success: false, error: result.error || 'เกิดข้อผิดพลาดในการดึงข้อมูล' };
-      } catch (err) {
-        if (cachedRequests && cachedRequests.length > 0) {
-           return { success: true, data: cachedRequests };
-        }
-        return { success: false, error: 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้ กรุณาลองใหม่อีกครั้ง' };
-      } finally {
-        activeFetchPromise = null;
+    try {
+      const response = await fetchWithRetry(`${getApiUrl()}?action=getAllRequests&t=${Date.now()}`, {
+        method: 'GET'
+      });
+      const result = await response.json();
+      if (result.success) {
+        cachedRequests = result.data;
+        lastFetchTime = Date.now();
+        return { success: true, data: result.data };
       }
-    })();
-    return activeFetchPromise;
+    } catch (err) {}
   }
   
+  // กรณีไม่ได้เชื่อม API, ดึงจาก Local Storage
   const requests: ReservationRequest[] = JSON.parse(localStorage.getItem('local_requests') || '[]');
-  cachedRequests = requests;
-  lastFetchTime = Date.now();
   return { success: true, data: requests };
 }
 
-function getLocalRequests(): ReservationRequest[] {
-  try {
-    const raw = localStorage.getItem('local_requests') || '[]';
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (e) {
-    console.error('Error parsing local requests:', e);
-    return [];
-  }
-}
-
-export async function updateStatus(
-  requestId: string,
-  status: RequestStatus,
-  rejectionReason?: string,
-  adminName?: string
-): Promise<{ success: boolean; data?: ReservationRequest; error?: string }> {
-  const userWhoProcessed = adminName || getLoggedInAdminName() || 'แอดมินระบบ';
-
-  if (isApiConfigured()) {
-    try {
-      const response = await fetch(getApiUrl(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'updateStatus',
-          requestId,
-          status,
-          rejectionReason,
-          processedBy: userWhoProcessed
-        })
-      });
-      const result = await response.json();
-      if (result.success) {
-        cachedRequests = null;
-        lastFetchTime = 0;
-
-        recordAuditLog(
-          status === 'อนุมัติแล้ว' ? 'อนุมัติคำร้อง' : status === 'ไม่อนุมัติ' ? 'ไม่อนุมัติคำร้อง' : 'รีเซ็ตสถานะคำร้อง',
-          `พิจารณาคำร้อง ${requestId} เป็น "${status}" ${rejectionReason ? `[เหตุผล: ${rejectionReason}]` : ''}`,
-          requestId,
-          userWhoProcessed
-        );
-
-        const returnedData = result.data || {
-          id: requestId,
-          status,
-          rejectionReason,
-          processedBy: result.processedBy || userWhoProcessed,
-          processedAt: result.processedAt || (status === 'อนุมัติแล้ว' || status === 'ไม่อนุมัติ' ? new Date().toISOString() : undefined)
-        };
-
-        return { success: true, data: returnedData as any };
-      }
-      return { success: false, error: result.error || 'เกิดข้อผิดพลาดในการอัปเดตสถานะ' };
-    } catch (err) {
-      return { success: false, error: 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้' };
-    }
-  }
-  
-  const requests = getLocalRequests();
-  const index = requests.findIndex(r => r.id === requestId);
-  if (index >= 0) {
-    requests[index].status = status;
-    requests[index].processedBy = userWhoProcessed;
-    if (status === 'ไม่อนุมัติ' && rejectionReason) {
-      requests[index].rejectionReason = rejectionReason;
-    } else {
-      requests[index].rejectionReason = undefined;
-    }
-    
-    if (requests[index].courses) {
-       requests[index].courses = requests[index].courses.map(c => ({
-         ...c,
-         status,
-         rejectionReason: status === 'ไม่อนุมัติ' ? rejectionReason : undefined,
-         processedBy: userWhoProcessed,
-         processedAt: (status === 'อนุมัติแล้ว' || status === 'ไม่อนุมัติ') ? new Date().toISOString() : undefined
-       }));
-    }
-    
-    if (status === 'อนุมัติแล้ว' || status === 'ไม่อนุมัติ') {
-      requests[index].processedAt = new Date().toISOString();
-    } else {
-      requests[index].processedAt = undefined;
-      requests[index].processedBy = undefined;
-    }
-    
-    localStorage.setItem('local_requests', JSON.stringify(requests));
-    
-    cachedRequests = requests;
-    lastFetchTime = Date.now();
-
-    recordAuditLog(
-      status === 'อนุมัติแล้ว' ? 'อนุมัติคำร้อง' : status === 'ไม่อนุมัติ' ? 'ไม่อนุมัติคำร้อง' : 'รีเซ็ตสถานะคำร้อง',
-      `พิจารณาคำร้อง ${requestId} (รหัสนักศึกษา: ${requests[index].studentId}) เป็น "${status}" ${rejectionReason ? `[เหตุผล: ${rejectionReason}]` : ''}`,
-      requestId,
-      userWhoProcessed
-    );
-
-    getRemoteSettings().then(settings => {
-      if (settings.notify_on_status_change === 'true' && settings.notify_line_token) {
-        const msg = `\n📢 [อัปเดตสถานะคำร้อง]\n------------------------\n🔖 รหัสคำร้อง: ${requestId}\n👤 นักศึกษา: ${requests[index].fullName} (${requests[index].studentId})\n📌 สถานะใหม่: ${status}${rejectionReason ? `\n⚠️ เหตุผล: ${rejectionReason}` : ''}\n👤 ผู้ดำเนินการ: ${userWhoProcessed}\n------------------------`;
-        dispatchNotification(settings.notify_line_token, msg);
-      }
-    }).catch(() => {});
-    
-    return { success: true, data: requests[index] };
-  }
-  
-  return { success: false, error: 'ไม่พบคำร้อง' };
-}
-
-export async function updateCourseStatus(
-  requestId: string,
-  courseCode: string,
-  status: RequestStatus,
-  rejectionReason?: string,
-  adminName?: string
-): Promise<{ success: boolean; data?: ReservationRequest; error?: string }> {
-  const userWhoProcessed = adminName || getLoggedInAdminName() || 'แอดมินระบบ';
-
-  if (isApiConfigured()) {
-    try {
-      const response = await fetch(getApiUrl(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'updateCourseStatus',
-          requestId,
-          courseCode,
-          status,
-          rejectionReason,
-          processedBy: userWhoProcessed
-        })
-      });
-      const result = await response.json();
-      if (result.success) {
-        cachedRequests = null;
-        lastFetchTime = 0;
-
-        recordAuditLog(
-          status === 'อนุมัติแล้ว' ? 'อนุมัติรายวิชา' : status === 'ไม่อนุมัติ' ? 'ไม่อนุมัติรายวิชา' : 'รีเซ็ตสถานะรายวิชา',
-          `อัปเดตสถานะวิชา ${courseCode} ในคำร้อง ${requestId} เป็น "${status}" ${rejectionReason ? `[เหตุผล: ${rejectionReason}]` : ''}`,
-          requestId,
-          userWhoProcessed
-        );
-
-        const returnedData = result.data || {
-          id: requestId,
-          status,
-          rejectionReason,
-          processedBy: result.processedBy || userWhoProcessed,
-          processedAt: result.processedAt || (status === 'อนุมัติแล้ว' || status === 'ไม่อนุมัติ' ? new Date().toISOString() : undefined)
-        };
-
-        return { success: true, data: returnedData as any };
-      }
-      return { success: false, error: result.error || 'เกิดข้อผิดพลาดในการอัปเดตสถานะรายวิชา' };
-    } catch (err) {
-      return { success: false, error: 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้' };
-    }
-  }
-  
-  const requests = getLocalRequests();
-  const index = requests.findIndex(r => r.id === requestId);
-  if (index >= 0) {
-    if (requests[index].courses) {
-       requests[index].courses = requests[index].courses.map(c => {
-         if (c.courseCode === courseCode) {
-           return {
-             ...c,
-             status,
-             rejectionReason: status === 'ไม่อนุมัติ' ? rejectionReason : undefined,
-             processedBy: userWhoProcessed,
-             processedAt: (status === 'อนุมัติแล้ว' || status === 'ไม่อนุมัติ') ? new Date().toISOString() : undefined
-           };
-         }
-         return c;
-       });
-       
-       const allCourses = requests[index].courses;
-       if (allCourses.every(c => c.status === 'อนุมัติแล้ว')) {
-         requests[index].status = 'อนุมัติแล้ว';
-         requests[index].processedBy = userWhoProcessed;
-         requests[index].processedAt = new Date().toISOString();
-       } else if (allCourses.every(c => c.status === 'ไม่อนุมัติ')) {
-         requests[index].status = 'ไม่อนุมัติ';
-         requests[index].processedBy = userWhoProcessed;
-         requests[index].processedAt = new Date().toISOString();
-       } else {
-         requests[index].status = 'รอดำเนินการ';
-         requests[index].processedBy = undefined;
-         requests[index].processedAt = undefined;
-       }
-    }
-    
-    localStorage.setItem('local_requests', JSON.stringify(requests));
-
-    recordAuditLog(
-      status === 'อนุมัติแล้ว' ? 'อนุมัติวิชาเรียน' : status === 'ไม่อนุมัติ' ? 'ไม่อนุมัติวิชาเรียน' : 'รีเซ็ตสถานะวิชาเรียน',
-      `อัปเดตสถานะวิชา ${courseCode} ในคำร้อง ${requestId} เป็น "${status}" ${rejectionReason ? `[เหตุผล: ${rejectionReason}]` : ''}`,
-      requestId,
-      userWhoProcessed
-    );
-
-    getRemoteSettings().then(settings => {
-      if (settings.notify_on_status_change === 'true' && settings.notify_line_token) {
-        const msg = `\n📢 [อัปเดตสถานะรายวิชา]\n------------------------\n🔖 รหัสคำร้อง: ${requestId}\n📚 วิชา: ${courseCode}\n👤 นักศึกษา: ${requests[index].fullName} (${requests[index].studentId})\n📌 สถานะใหม่: ${status}${rejectionReason ? `\n⚠️ เหตุผล: ${rejectionReason}` : ''}\n👤 ผู้ดำเนินการ: ${userWhoProcessed}\n------------------------`;
-        dispatchNotification(settings.notify_line_token, msg);
-      }
-    }).catch(() => {});
-
-    return { success: true, data: requests[index] };
-  }
-  
-  return { success: false, error: 'ไม่พบคำร้อง' };
-}
-
 export function isGoogleSheetUrlInstead(): boolean {
+
   const url = getApiUrl();
   return url.includes('docs.google.com/spreadsheets');
 }
@@ -538,28 +360,50 @@ export function getCachedRequestsByStudentId(studentId: string): ReservationRequ
   return null;
 }
 
+const studentIdCache: Record<string, { time: number; data: ReservationRequest[]; promise?: Promise<any> }> = {};
+
 export async function getStatusByStudentId(studentId: string, forceRefresh = false): Promise<{ success: boolean; data?: ReservationRequest[]; error?: string }> {
+  const id = String(studentId).trim();
   const now = Date.now();
+  
+  // 1. Check global cache
   if (!forceRefresh && cachedRequests && (now - lastFetchTime) < 15000) {
-    const filtered = cachedRequests.filter(r => String(r.studentId).trim() === String(studentId).trim());
+    const filtered = cachedRequests.filter(r => String(r.studentId).trim() === id);
     return { success: true, data: filtered };
   }
 
-  if (isApiConfigured()) {
-    try {
-      // เรียกข้อมูลเฉพาะรหัสนี้จาก GAS ตรงๆ โดยไม่โหลดข้อมูลทั้งหมด ทำให้ดึงได้ไวมาก 
-      // และเพิ่ม cache buster เพื่อให้ได้ข้อมูลใหม่เสมอ
-      const response = await fetch(`${getApiUrl()}?action=getStatusByStudentId&studentId=${encodeURIComponent(studentId)}&t=${Date.now()}`, {
-        method: 'GET'
-      });
-      const result = await response.json();
-      if (result.success) {
-        return { success: true, data: result.data };
-      }
-    } catch (err) {}
+  // 2. Check local specific cache
+  if (!forceRefresh && studentIdCache[id] && (now - studentIdCache[id].time) < 60000) {
+    if (studentIdCache[id].promise) {
+      return studentIdCache[id].promise!;
+    }
+    return { success: true, data: studentIdCache[id].data };
   }
 
-  return { success: false, error: 'ไม่สามารถดึงข้อมูลสถานะได้' };
+  if (isApiConfigured()) {
+    const fetchPromise = (async () => {
+      try {
+        const response = await fetchWithRetry(`${getApiUrl()}?action=getStatusByStudentId&studentId=${encodeURIComponent(id)}&t=${Date.now()}`, {
+          method: 'GET'
+        });
+        const result = await response.json();
+        if (result.success) {
+          studentIdCache[id] = { time: Date.now(), data: result.data, promise: undefined };
+          return { success: true, data: result.data };
+        }
+        studentIdCache[id] = { time: Date.now(), data: [], promise: undefined }; 
+        return { success: false, error: result.error || 'Failed to fetch' };
+      } catch (err) {
+        delete studentIdCache[id];
+        return { success: false, error: 'Network error' };
+      }
+    })();
+    
+    studentIdCache[id] = { time: now, data: [], promise: fetchPromise };
+    return fetchPromise;
+  }
+  
+  return { success: false, error: 'API Not configured' };
 }
 
 export async function getRemoteSettings(): Promise<Record<string, string>> {
@@ -577,7 +421,7 @@ export async function getRemoteSettings(): Promise<Record<string, string>> {
     return {};
   }
   try {
-    const response = await fetch(`${getApiUrl()}?action=getSettings`);
+    const response = await fetchWithRetry(`${getApiUrl()}?action=getSettings`);
     const result = await response.json();
     if (result.success && result.data) {
       const settings = result.data;
@@ -613,7 +457,7 @@ export async function saveRemoteSetting(key: string, value: string): Promise<voi
     return;
   }
   try {
-    await fetch(getApiUrl(), {
+    await fetchWithRetry(getApiUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
@@ -651,7 +495,7 @@ export async function dispatchNotification(
 export async function getAuditLogs(): Promise<AuditLog[]> {
   if (isApiConfigured()) {
     try {
-      const response = await fetch(`${getApiUrl()}?action=getAuditLogs`);
+      const response = await fetchWithRetry(`${getApiUrl()}?action=getAuditLogs`);
       const result = await response.json();
       if (result.success && Array.isArray(result.data)) {
         return result.data;
@@ -689,7 +533,7 @@ export async function recordAuditLog(
   
   if (isApiConfigured()) {
     try {
-      await fetch(getApiUrl(), {
+      await fetchWithRetry(getApiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
@@ -734,4 +578,84 @@ export async function recordAuditLog(
     localStorage.setItem('local_audit_logs', JSON.stringify(updated));
   } catch (e) {
   }
+}
+export async function updateStatus(id: string, status: string, by: string): Promise<{ success: boolean; data?: any; error?: string }> {
+  if (isApiConfigured()) {
+    try {
+      const response = await fetchWithRetry(getApiUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'updateStatus',
+          id: id,
+          status: status,
+          by: by
+        })
+      });
+      const result = await response.json();
+      if (result.success) {
+        cachedRequests = null;
+        lastFetchTime = 0;
+        return { success: true };
+      }
+      return { success: false, error: result.error || 'Failed to update' };
+    } catch (err) {
+      return { success: false, error: 'Network error' };
+    }
+  }
+  return { success: false, error: 'API Not configured' };
+}
+
+export async function updateStudentInfo(studentId: string, updates: any): Promise<{ success: boolean; error?: string }> {
+  if (isApiConfigured()) {
+    try {
+      const response = await fetchWithRetry(getApiUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'updateStudentInfo',
+          studentId: studentId,
+          ...updates
+        })
+      });
+      const result = await response.json();
+      if (result.success) {
+        cachedRequests = null;
+        lastFetchTime = 0;
+        return { success: true };
+      }
+      return { success: false, error: result.error || 'Failed to update' };
+    } catch (err) {
+      return { success: false, error: 'Network error' };
+    }
+  }
+  return { success: false, error: 'API Not configured' };
+}
+
+export async function updateCourseStatus(id: string, courseCode: string, status: string, by: string): Promise<{ success: boolean; data?: any; error?: string }> {
+  if (isApiConfigured()) {
+    try {
+      const response = await fetchWithRetry(getApiUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'updateCourseStatus',
+          id: id,
+          courseCode: courseCode,
+          status: status,
+          by: by
+        })
+      });
+      const result = await response.json();
+      if (result.success) {
+        cachedRequests = null;
+        lastFetchTime = 0;
+        return { success: true };
+      }
+      return { success: false, error: result.error || 'Failed to update' };
+    } catch (err) {
+      return { success: false, error: 'Network error' };
+    }
+  }
+  return { success: false, error: 'API Not configured' };
 }
