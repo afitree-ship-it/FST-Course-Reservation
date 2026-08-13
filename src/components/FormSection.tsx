@@ -289,19 +289,53 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       showToast(isTh ? 'กรุณาอัปโหลดเฉพาะไฟล์รูปภาพ (PNG, JPG, JPEG, etc.)' : 'Please upload image files only (PNG, JPG, JPEG).', 'warning');
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      showToast(isTh ? 'ขนาดไฟล์ใหญ่เกินไป จำกัดที่ 5MB' : 'File size is too large (must be under 5MB).', 'warning');
+    if (file.size > 10 * 1024 * 1024) {
+      showToast(isTh ? 'ขนาดไฟล์ใหญ่เกินไป จำกัดที่ 10MB' : 'File size is too large (must be under 10MB).', 'warning');
       return;
     }
 
     const reader = new FileReader();
     reader.onload = (e) => {
-      setFacebookProofFile({
-        name: file.name,
-        type: file.type,
-        dataUrl: e.target?.result as string
-      });
-      showToast(isTh ? 'อัปโหลดและประมวลผลไฟล์รูปภาพเรียบร้อย' : 'Screenshot uploaded and processed successfully.', 'success');
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const maxDim = 1200; // Compress to max 1200px
+        
+        if (width > height) {
+          if (width > maxDim) {
+            height *= maxDim / width;
+            width = maxDim;
+          }
+        } else {
+          if (height > maxDim) {
+            width *= maxDim / height;
+            height = maxDim;
+          }
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7); // 70% quality JPEG
+          
+          setFacebookProofFile({
+            name: file.name,
+            type: 'image/jpeg',
+            dataUrl: compressedDataUrl
+          });
+          showToast(isTh ? 'อัปโหลดและประมวลผลไฟล์รูปภาพเรียบร้อย' : 'Screenshot uploaded and processed successfully.', 'success');
+        } else {
+          showToast(isTh ? 'เกิดข้อผิดพลาดในการประมวลผลรูปภาพ' : 'Error processing image.', 'error');
+        }
+      };
+      img.onerror = () => {
+        showToast(isTh ? 'เกิดข้อผิดพลาดในการโหลดรูปภาพ' : 'Error loading image.', 'error');
+      };
+      img.src = e.target?.result as string;
     };
     reader.onerror = () => {
       showToast(isTh ? 'เกิดข้อผิดพลาดในการโหลดไฟล์' : 'An error occurred while loading the file.', 'error');
