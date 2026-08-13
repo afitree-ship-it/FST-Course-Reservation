@@ -9,28 +9,8 @@ let lastFetchTime = 0;
 let activeFetchPromise: Promise<{ success: boolean; data?: ReservationRequest[]; error?: string }> | null = null;
 
 export function getApiUrl(): string {
-  const saved = localStorage.getItem(API_URL_KEY);
-  const newDefault = 'https://script.google.com/macros/s/AKfycbzwFDroCYeLYmb_k_fmWQaBJO9Ltb590uvH_g-81jx5B0-MACGMr1p_jM4ytAakMXjMOQ/exec';
-  
-  // If the saved URL is a known previous default, update it to the new default
-  if (saved && saved !== newDefault && saved.includes('script.google.com/macros/s/')) {
-    // We assume if it's a google script URL but not the current newDefault,
-    // and they haven't explicitly set a custom one (or they have, but this is safer to override for updates)
-    // Actually, to be safe, just check against known old defaults.
-    // For now, we will just force update the default if it matches any previous known defaults.
-    const knownOldDefaults = [
-      'https://script.google.com/macros/s/AKfycbygnnK7sTVm64hY70dyYYf-17Jh_sBAQQJeK4WDdnfz4sZMTftEUPJdcgCEiHxiETKRfw/exec',
-      'https://script.google.com/macros/s/AKfycbz6pENWzPN_yTp-9JZNE6wyNZDKuCFf4rX2u0113siwz5bYx_B8eM8qV6OzWMzkUG8dRA/exec',
-      'https://script.google.com/macros/s/AKfycbxuUv6P4rJp7oHFpENEVESElydAolpBl1jXyc59Sj4HldI2qVaAW85KgQoYDuDvYQZEqw/exec'
-    ];
-    
-    if (knownOldDefaults.includes(saved)) {
-      localStorage.setItem(API_URL_KEY, newDefault);
-      return newDefault;
-    }
-  }
-  
-  return saved || newDefault;
+  // บังคับใช้ลิงก์นี้เสมอ ป้องกันเบราว์เซอร์จำลิงก์เก่าและทะลุแคช 100%
+  return 'https://script.google.com/macros/s/AKfycbzwFDroCYeLYmb_k_fmWQaBJO9Ltb590uvH_g-81jx5B0-MACGMr1p_jM4ytAakMXjMOQ/exec';
 }
 
 export function saveApiUrl(url: string): void {
@@ -204,7 +184,7 @@ export async function adminLogin(password: string): Promise<{ success: boolean; 
       return { success: true, name: adminName };
     }
 
-    // 2. Fallback to live synchronization check from Google Sheets (handles cases on brand new devices)
+    // 2. Fallback to live synchronization check from Google Sheets
     if (isApiConfigured()) {
       try {
         savedPasswords = await syncAdminPasswordsWithGoogleSheets();
@@ -279,12 +259,10 @@ export async function submitReservation(data: Partial<ReservationRequest>): Prom
 
 export async function getAllRequests(forceRefresh = false): Promise<{ success: boolean; data?: ReservationRequest[]; error?: string }> {
   const now = Date.now();
-  // If cache is fresh (less than 15 seconds) and we are not forcing, return cache instantly
   if (!forceRefresh && cachedRequests && (now - lastFetchTime) < 15000) {
     return { success: true, data: cachedRequests };
   }
 
-  // Reuse existing promise if active
   if (activeFetchPromise) {
     return activeFetchPromise;
   }
@@ -351,7 +329,6 @@ export async function updateStatus(
       });
       const result = await response.json();
       if (result.success) {
-        // Clear cache so the next fetch is guaranteed fresh
         cachedRequests = null;
         lastFetchTime = 0;
 
@@ -389,7 +366,6 @@ export async function updateStatus(
       requests[index].rejectionReason = undefined;
     }
     
-    // Also update all courses for this request
     if (requests[index].courses) {
        requests[index].courses = requests[index].courses.map(c => ({
          ...c,
@@ -409,11 +385,9 @@ export async function updateStatus(
     
     localStorage.setItem('local_requests', JSON.stringify(requests));
     
-    // Update local cache
     cachedRequests = requests;
     lastFetchTime = Date.now();
 
-    // Record Audit Log
     recordAuditLog(
       status === 'อนุมัติแล้ว' ? 'อนุมัติคำร้อง' : status === 'ไม่อนุมัติ' ? 'ไม่อนุมัติคำร้อง' : 'รีเซ็ตสถานะคำร้อง',
       `พิจารณาคำร้อง ${requestId} (รหัสนักศึกษา: ${requests[index].studentId}) เป็น "${status}" ${rejectionReason ? `[เหตุผล: ${rejectionReason}]` : ''}`,
@@ -421,7 +395,6 @@ export async function updateStatus(
       userWhoProcessed
     );
 
-    // Trigger status change notification if enabled
     getRemoteSettings().then(settings => {
       if (settings.notify_on_status_change === 'true' && settings.notify_line_token) {
         const msg = `\n📢 [อัปเดตสถานะคำร้อง]\n------------------------\n🔖 รหัสคำร้อง: ${requestId}\n👤 นักศึกษา: ${requests[index].fullName} (${requests[index].studentId})\n📌 สถานะใหม่: ${status}${rejectionReason ? `\n⚠️ เหตุผล: ${rejectionReason}` : ''}\n👤 ผู้ดำเนินการ: ${userWhoProcessed}\n------------------------`;
@@ -460,7 +433,6 @@ export async function updateCourseStatus(
       });
       const result = await response.json();
       if (result.success) {
-        // Clear cache so the next fetch is guaranteed fresh
         cachedRequests = null;
         lastFetchTime = 0;
 
@@ -504,7 +476,6 @@ export async function updateCourseStatus(
          return c;
        });
        
-       // Update overall status if all courses have the same status
        const allCourses = requests[index].courses;
        if (allCourses.every(c => c.status === 'อนุมัติแล้ว')) {
          requests[index].status = 'อนุมัติแล้ว';
@@ -523,7 +494,6 @@ export async function updateCourseStatus(
     
     localStorage.setItem('local_requests', JSON.stringify(requests));
 
-    // Record Audit Log
     recordAuditLog(
       status === 'อนุมัติแล้ว' ? 'อนุมัติวิชาเรียน' : status === 'ไม่อนุมัติ' ? 'ไม่อนุมัติวิชาเรียน' : 'รีเซ็ตสถานะวิชาเรียน',
       `อัปเดตสถานะวิชา ${courseCode} ในคำร้อง ${requestId} เป็น "${status}" ${rejectionReason ? `[เหตุผล: ${rejectionReason}]` : ''}`,
@@ -531,7 +501,6 @@ export async function updateCourseStatus(
       userWhoProcessed
     );
 
-    // Trigger status change notification if enabled
     getRemoteSettings().then(settings => {
       if (settings.notify_on_status_change === 'true' && settings.notify_line_token) {
         const msg = `\n📢 [อัปเดตสถานะรายวิชา]\n------------------------\n🔖 รหัสคำร้อง: ${requestId}\n📚 วิชา: ${courseCode}\n👤 นักศึกษา: ${requests[index].fullName} (${requests[index].studentId})\n📌 สถานะใหม่: ${status}${rejectionReason ? `\n⚠️ เหตุผล: ${rejectionReason}` : ''}\n👤 ผู้ดำเนินการ: ${userWhoProcessed}\n------------------------`;
@@ -544,7 +513,6 @@ export async function updateCourseStatus(
   
   return { success: false, error: 'ไม่พบคำร้อง' };
 }
-
 
 export function isGoogleSheetUrlInstead(): boolean {
   const url = getApiUrl();
@@ -564,20 +532,17 @@ export function getCachedRequestsByStudentId(studentId: string): ReservationRequ
 
 export async function getStatusByStudentId(studentId: string, forceRefresh = false): Promise<{ success: boolean; data?: ReservationRequest[]; error?: string }> {
   const now = Date.now();
-  // If we have cached requests and they are fresh (less than 15s), return them instantly
   if (!forceRefresh && cachedRequests && (now - lastFetchTime) < 15000) {
     const filtered = cachedRequests.filter(r => String(r.studentId).trim() === String(studentId).trim());
     return { success: true, data: filtered };
   }
 
-  // Otherwise, pull all requests to warm the cache (highly efficient because it powers all tabs)
   const result = await getAllRequests(forceRefresh);
   if (result.success && result.data) {
     const filtered = result.data.filter(r => String(r.studentId).trim() === String(studentId).trim());
     return { success: true, data: filtered };
   }
 
-  // Fallback to direct query if it fails or isn't configured
   if (isApiConfigured()) {
     try {
       const response = await fetch(`${getApiUrl()}?action=getStatusByStudentId&studentId=${encodeURIComponent(studentId)}`, {
@@ -587,16 +552,13 @@ export async function getStatusByStudentId(studentId: string, forceRefresh = fal
       if (result.success) {
         return { success: true, data: result.data };
       }
-    } catch (err) {
-      // Fallback
-    }
+    } catch (err) {}
   }
 
   return { success: false, error: 'ไม่สามารถดึงข้อมูลสถานะได้' };
 }
 
 export async function getRemoteSettings(): Promise<Record<string, string>> {
-  // 1. ลองดึงจาก Express Server (Local Cache) ก่อน ซึ่งจะเร็วมาก (ไม่ถึง 50ms)
   try {
     const localRes = await fetch('/api/settings');
     const localData = await localRes.json();
@@ -607,7 +569,6 @@ export async function getRemoteSettings(): Promise<Record<string, string>> {
     console.warn('Failed to fetch settings from local server cache, trying Google Sheets...', err);
   }
 
-  // 2. ถ้าหากไม่มีใน Express Cache (เช่น เปิดครั้งแรกสุด หรือรีเซ็ตเซิร์ฟเวอร์) ให้ดึงจาก Google Sheets
   if (!isApiConfigured()) {
     return {};
   }
@@ -615,7 +576,6 @@ export async function getRemoteSettings(): Promise<Record<string, string>> {
     const response = await fetch(`${getApiUrl()}?action=getSettings`);
     const result = await response.json();
     if (result.success && result.data) {
-      // บันทึกเก็บไว้ที่ Express Server (Local Cache) ในเบื้องหลัง เพื่อให้การโหลดครั้งต่อไปและเครื่องอื่น ๆ โหลดได้ทันที
       const settings = result.data;
       for (const [key, val] of Object.entries(settings)) {
         if (val) {
@@ -635,7 +595,6 @@ export async function getRemoteSettings(): Promise<Record<string, string>> {
 }
 
 export async function saveRemoteSetting(key: string, value: string): Promise<void> {
-  // 1. บันทึกเก็บไว้ที่ Express Server (Local Cache) ทันที เพื่อความรวดเร็วสำหรับเบราว์เซอร์อื่น
   try {
     await fetch('/api/settings', {
       method: 'POST',
@@ -646,7 +605,6 @@ export async function saveRemoteSetting(key: string, value: string): Promise<voi
     console.error(`Failed to save to local Express cache ${key}:`, err);
   }
 
-  // 2. บันทึกลง Google Sheets เพื่อเป็นระบบสำรองข้อมูลถาวร (Persistent backup)
   if (!isApiConfigured()) {
     return;
   }
@@ -709,7 +667,6 @@ export async function getAuditLogs(): Promise<AuditLog[]> {
     console.error('Failed to fetch audit logs from Express server:', err);
   }
 
-  // Fallback to local storage if server unreachable
   try {
     const local = localStorage.getItem('local_audit_logs');
     return local ? JSON.parse(local) : [];
@@ -726,7 +683,6 @@ export async function recordAuditLog(
 ): Promise<void> {
   const adminName = adminNameOverride || getLoggedInAdminName() || 'เจ้าหน้าที่';
   
-  // 1. Post to Google Sheets if configured
   if (isApiConfigured()) {
     try {
       await fetch(getApiUrl(), {
@@ -745,7 +701,6 @@ export async function recordAuditLog(
     }
   }
 
-  // 2. Post to local Express server
   try {
     await fetch('/api/audit-logs', {
       method: 'POST',
@@ -761,7 +716,6 @@ export async function recordAuditLog(
     console.error('Failed to post audit log to Express server:', err);
   }
 
-  // 3. Backup in localStorage
   try {
     const existing = await getAuditLogs();
     const newEntry: AuditLog = {
@@ -775,8 +729,5 @@ export async function recordAuditLog(
     const updated = [newEntry, ...existing].slice(0, 300);
     localStorage.setItem('local_audit_logs', JSON.stringify(updated));
   } catch (e) {
-    // Ignore storage errors
   }
 }
-
-
