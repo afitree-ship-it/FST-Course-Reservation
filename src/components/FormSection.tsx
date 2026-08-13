@@ -672,7 +672,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                     value={studentId}
                     onChange={e => setStudentId(e.target.value.replace(/\D/g, ''))}
                     onBlur={() => handleBlur('studentId')}
-                    placeholder="xxxxxxxxx (9 หลัก)"
+                    placeholder="xxxxxxxxx"
                     className={`w-full px-4 py-2.5 sm:py-3 rounded-xl border-2 text-center text-md sm:text-lg font-bold font-sans tracking-widest transition-all focus:outline-hidden focus:ring-4 ${
                       touched.studentId && validationErrors.studentId
                         ? 'border-rose-300 focus:ring-rose-200 focus:border-rose-400 bg-rose-50/20 text-rose-700'
