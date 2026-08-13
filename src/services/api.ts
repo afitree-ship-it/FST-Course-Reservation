@@ -10,13 +10,26 @@ let activeFetchPromise: Promise<{ success: boolean; data?: ReservationRequest[];
 
 export function getApiUrl(): string {
   const saved = localStorage.getItem(API_URL_KEY);
-  const oldDefault = 'https://script.google.com/macros/s/AKfycbzwFDroCYeLYmb_k_fmWQaBJO9Ltb590uvH_g-81jx5B0-MACGMr1p_jM4ytAakMXjMOQ/exec';
   const newDefault = 'https://script.google.com/macros/s/AKfycbzwFDroCYeLYmb_k_fmWQaBJO9Ltb590uvH_g-81jx5B0-MACGMr1p_jM4ytAakMXjMOQ/exec';
   
-  if (saved === oldDefault) {
-    localStorage.setItem(API_URL_KEY, newDefault);
-    return newDefault;
+  // If the saved URL is a known previous default, update it to the new default
+  if (saved && saved !== newDefault && saved.includes('script.google.com/macros/s/')) {
+    // We assume if it's a google script URL but not the current newDefault,
+    // and they haven't explicitly set a custom one (or they have, but this is safer to override for updates)
+    // Actually, to be safe, just check against known old defaults.
+    // For now, we will just force update the default if it matches any previous known defaults.
+    const knownOldDefaults = [
+      'https://script.google.com/macros/s/AKfycbygnnK7sTVm64hY70dyYYf-17Jh_sBAQQJeK4WDdnfz4sZMTftEUPJdcgCEiHxiETKRfw/exec',
+      'https://script.google.com/macros/s/AKfycbz6pENWzPN_yTp-9JZNE6wyNZDKuCFf4rX2u0113siwz5bYx_B8eM8qV6OzWMzkUG8dRA/exec',
+      'https://script.google.com/macros/s/AKfycbxuUv6P4rJp7oHFpENEVESElydAolpBl1jXyc59Sj4HldI2qVaAW85KgQoYDuDvYQZEqw/exec'
+    ];
+    
+    if (knownOldDefaults.includes(saved)) {
+      localStorage.setItem(API_URL_KEY, newDefault);
+      return newDefault;
+    }
   }
+  
   return saved || newDefault;
 }
 
