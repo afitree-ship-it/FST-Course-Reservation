@@ -24,10 +24,10 @@ import { CloudUpload,
   Trash2,
   Mail
 } from 'lucide-react';
-import { YEARS, ReservationRequest } from '../types';
+import { YEARS, ReservationRequest, CoStudent, CourseInput } from '../types';
 import { submitRequest, getStatusByStudentId, getCachedRequestsByStudentId, getRemoteSettings } from '../services/api';
 import { useTranslation } from '../contexts/LanguageContext';
-import { Calendar, Bell, Lock, ShieldAlert } from 'lucide-react';
+import { Calendar, Bell, Lock, ShieldAlert, Users, UserPlus } from 'lucide-react';
 import ScrambleText from './ScrambleText';
 
 const FACULTIES_DATA = {
@@ -97,8 +97,14 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
   const [department, setDepartment] = useState('');
   const [isDeptDropdownOpen, setIsDeptDropdownOpen] = useState(false);
   const [year, setYear] = useState('');
-  const [courses, setCourses] = useState<Omit<ReservationRequest, 'id' | 'fullName' | 'studentId' | 'department' | 'faculty' | 'year' | 'courses' | 'proofType' | 'facebookProofLink' | 'facebookProofFile' | 'phone' | 'consent' | 'status' | 'rejectionReason' | 'createdAt'>[]>([
-    { courseCode: '', courseName: '', section: '', instructor: '' }
+  const [courses, setCourses] = useState<Array<{
+    courseCode: string;
+    courseName: string;
+    section: string;
+    instructor: string;
+    coStudents?: CoStudent[];
+  }>>([
+    { courseCode: '', courseName: '', section: '', instructor: '', coStudents: [] }
   ]);
   const [proofType, setProofType] = useState<'file' | 'link'>('file');
   const [facebookProofLink, setFacebookProofLink] = useState('');
@@ -242,13 +248,58 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
   };
 
   const addCourseField = () => {
-    setCourses(prev => [...prev, { courseCode: '', courseName: '', section: '', instructor: '' }]);
+    setCourses(prev => [...prev, { courseCode: '', courseName: '', section: '', instructor: '', coStudents: [] }]);
   };
 
   const removeCourseField = (index: number) => {
     if (courses.length > 1) {
       setCourses(prev => prev.filter((_, i) => i !== index));
     }
+  };
+
+  const handleAddCoStudent = (courseIndex: number) => {
+    setCourses(prev => {
+      const updated = [...prev];
+      const currentCo = updated[courseIndex].coStudents || [];
+      updated[courseIndex] = {
+        ...updated[courseIndex],
+        coStudents: [...currentCo, { studentId: '', fullName: '' }]
+      };
+      return updated;
+    });
+  };
+
+  const handleRemoveCoStudent = (courseIndex: number, coStudentIndex: number) => {
+    setCourses(prev => {
+      const updated = [...prev];
+      const currentCo = updated[courseIndex].coStudents || [];
+      updated[courseIndex] = {
+        ...updated[courseIndex],
+        coStudents: currentCo.filter((_, idx) => idx !== coStudentIndex)
+      };
+      return updated;
+    });
+  };
+
+  const handleCoStudentChange = (
+    courseIndex: number,
+    coStudentIndex: number,
+    field: 'studentId' | 'fullName',
+    value: string
+  ) => {
+    setCourses(prev => {
+      const updated = [...prev];
+      const currentCo = [...(updated[courseIndex].coStudents || [])];
+      currentCo[coStudentIndex] = {
+        ...currentCo[coStudentIndex],
+        [field]: value
+      };
+      updated[courseIndex] = {
+        ...updated[courseIndex],
+        coStudents: currentCo
+      };
+      return updated;
+    });
   };
 
   const getFormErrors = () => {
@@ -274,6 +325,22 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       if (!course.courseName.trim()) errors[`courseName_${index}`] = t('errCourseName');
       if (!course.section.trim()) errors[`section_${index}`] = t('errSec');
       if (!course.instructor.trim()) errors[`instructor_${index}`] = t('errInstructor');
+
+      if (course.coStudents && course.coStudents.length > 0) {
+        course.coStudents.forEach((cs, csIdx) => {
+          if (!cs.studentId.trim()) {
+            errors[`coStudent_id_${index}_${csIdx}`] = isTh ? 'กรุณากรอกรหัสนักศึกษาเพื่อน' : 'Enter friend student ID';
+          } else if (!isStudentIdValid(cs.studentId)) {
+            errors[`coStudent_id_${index}_${csIdx}`] = isTh ? 'รหัสต้องมี 9 หลัก' : 'Must be 9 digits';
+          } else if (cs.studentId.trim() === studentId.trim()) {
+            errors[`coStudent_id_${index}_${csIdx}`] = isTh ? 'รหัสตรงกับผู้กรอกหลัก' : 'Matches primary student ID';
+          }
+
+          if (!cs.fullName.trim()) {
+            errors[`coStudent_name_${index}_${csIdx}`] = isTh ? 'กรุณากรอกชื่อเพื่อน' : 'Enter friend name';
+          }
+        });
+      }
     });
     
     if (proofType === 'link' && !facebookProofLink.trim()) {
@@ -502,11 +569,17 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       phone: true,
       consent: true,
     };
-    courses.forEach((_, idx) => {
+    courses.forEach((c, idx) => {
       submitTouched[`courseCode_${idx}`] = true;
       submitTouched[`courseName_${idx}`] = true;
       submitTouched[`section_${idx}`] = true;
       submitTouched[`instructor_${idx}`] = true;
+      if (c.coStudents) {
+        c.coStudents.forEach((_, csIdx) => {
+          submitTouched[`coStudent_id_${idx}_${csIdx}`] = true;
+          submitTouched[`coStudent_name_${idx}_${csIdx}`] = true;
+        });
+      }
     });
     setTouched(submitTouched);
 
@@ -516,7 +589,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     }
 
     setIsSubmitting(true);
- const submitPayload = {
+    const submitPayload = {
       fullName,
       studentId: studentId.trim(),
       department,
@@ -530,14 +603,20 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
         courseCode: c.courseCode.toUpperCase().trim(),
         courseName: c.courseName.trim(),
         section: c.section.trim(),
-        instructor: c.instructor.trim()
+        instructor: c.instructor.trim(),
+        coStudents: (c.coStudents || [])
+          .filter(cs => cs.studentId.trim() && cs.fullName.trim())
+          .map(cs => ({
+            studentId: cs.studentId.trim(),
+            fullName: cs.fullName.trim()
+          }))
       })),
       proofType,
       facebookProofLink: proofType === 'link' ? facebookProofLink : undefined,
       facebookProofFile: proofType === 'file' && facebookProofFile ? facebookProofFile : undefined,
       phone: phone.trim(),
       consent,
-      notifyChannel: 'Email',
+      notifyChannel: 'email' as const,
       notifyContact: notifyContact.trim(),
       language: language // 👈 ส่งค่าภาษาปัจจุบัน (เช่น 'th' หรือ 'en') ไปให้ Backend
     };
@@ -1168,6 +1247,114 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                           <p className="mt-1 text-xs text-rose-500 font-sans font-medium">{validationErrors[`instructor_${index}`]}</p>
                         )}
                       </div>
+                    </div>
+
+                    {/* ส่วนเพิ่มเพื่อนร่วมกลุ่ม (Group Reservation) */}
+                    <div className="mt-4 pt-3 border-t border-slate-200/70 space-y-3">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <Users className="w-4 h-4 text-mangosteen" />
+                          <span className="text-xs font-bold text-slate-750 font-sans">
+                            {isTh ? 'เพื่อนร่วมสำรองที่นั่งวิชานี้ (ฝากกรอก)' : 'Group Reservation (Friends)'}
+                          </span>
+                          {(course.coStudents?.length || 0) > 0 && (
+                            <span className="text-[11px] bg-mangosteen/10 text-mangosteen font-bold px-2 py-0.5 rounded-full font-mono">
+                              +{course.coStudents?.length} {isTh ? 'คน' : 'people'}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[11px] text-slate-500 font-sans">
+                          {isTh 
+                            ? `รวมขอสำรอง: ${1 + (course.coStudents?.length || 0)} ที่นั่ง`
+                            : `Total requested: ${1 + (course.coStudents?.length || 0)} seats`}
+                        </span>
+                      </div>
+
+                      {/* Friend rows */}
+                      {course.coStudents && course.coStudents.length > 0 && (
+                        <div className="space-y-2.5 bg-slate-100/70 p-3 rounded-xl border border-slate-200">
+                          <p className="text-[11px] text-slate-500 font-sans leading-relaxed">
+                            {isTh 
+                              ? '📌 เพื่อนสามารถนำรหัสนักศึกษาของตนเองไปตรวจสอบสถานะคำร้องได้โดยตรง' 
+                              : '📌 Friends can use their own Student ID to check request status anytime.'}
+                          </p>
+                          {course.coStudents.map((cs, csIdx) => (
+                            <div key={csIdx} className="bg-white p-2.5 rounded-lg border border-slate-250 shadow-3xs space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-bold text-mangosteen font-sans">
+                                  {isTh ? `เพื่อนคนที่ ${csIdx + 1}` : `Friend #${csIdx + 1}`}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveCoStudent(index, csIdx)}
+                                  className="text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-1 rounded-md transition-colors cursor-pointer text-xs flex items-center gap-1 font-sans"
+                                  title={isTh ? 'ลบเพื่อนคนนี้' : 'Remove friend'}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span className="text-[10px] font-semibold">{isTh ? 'ลบ' : 'Remove'}</span>
+                                </button>
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <div>
+                                  <input
+                                    type="text"
+                                    value={cs.studentId}
+                                    maxLength={9}
+                                    onChange={e => handleCoStudentChange(index, csIdx, 'studentId', e.target.value.replace(/\D/g, ''))}
+                                    onBlur={() => handleBlur(`coStudent_id_${index}_${csIdx}`)}
+                                    placeholder={isTh ? 'รหัสนักศึกษา 9 หลัก' : '9-digit Student ID'}
+                                    className={`w-full px-3 py-2 rounded-lg border text-xs font-mono font-bold transition-all focus:outline-hidden focus:ring-2 ${
+                                      touched[`coStudent_id_${index}_${csIdx}`] && validationErrors[`coStudent_id_${index}_${csIdx}`]
+                                        ? 'border-rose-300 bg-rose-50/30 text-rose-700 focus:ring-rose-200'
+                                        : 'border-slate-250 bg-slate-50 hover:bg-white text-slate-800 focus:border-mangosteen focus:ring-mangosteen/20'
+                                    }`}
+                                  />
+                                  {touched[`coStudent_id_${index}_${csIdx}`] && validationErrors[`coStudent_id_${index}_${csIdx}`] && (
+                                    <p className="mt-1 text-[10px] text-rose-500 font-sans font-medium">
+                                      {validationErrors[`coStudent_id_${index}_${csIdx}`]}
+                                    </p>
+                                  )}
+                                </div>
+
+                                <div>
+                                  <input
+                                    type="text"
+                                    value={cs.fullName}
+                                    onChange={e => handleCoStudentChange(index, csIdx, 'fullName', e.target.value)}
+                                    onBlur={() => handleBlur(`coStudent_name_${index}_${csIdx}`)}
+                                    placeholder={isTh ? 'ชื่อ-นามสกุล เพื่อน' : "Friend's Full Name"}
+                                    className={`w-full px-3 py-2 rounded-lg border text-xs font-sans font-medium transition-all focus:outline-hidden focus:ring-2 ${
+                                      touched[`coStudent_name_${index}_${csIdx}`] && validationErrors[`coStudent_name_${index}_${csIdx}`]
+                                        ? 'border-rose-300 bg-rose-50/30 text-rose-700 focus:ring-rose-200'
+                                        : 'border-slate-250 bg-slate-50 hover:bg-white text-slate-800 focus:border-mangosteen focus:ring-mangosteen/20'
+                                    }`}
+                                  />
+                                  {touched[`coStudent_name_${index}_${csIdx}`] && validationErrors[`coStudent_name_${index}_${csIdx}`] && (
+                                    <p className="mt-1 text-[10px] text-rose-500 font-sans font-medium">
+                                      {validationErrors[`coStudent_name_${index}_${csIdx}`]}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Add friend button */}
+                      <button
+                        type="button"
+                        onClick={() => handleAddCoStudent(index)}
+                        className="w-full py-2 px-3 border border-dashed border-mangosteen/40 hover:border-mangosteen bg-mangosteen/5 hover:bg-mangosteen/10 text-mangosteen text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer font-sans active:scale-[0.99]"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" />
+                        <span>
+                          {course.coStudents && course.coStudents.length > 0 
+                            ? (isTh ? '+ เพิ่มเพื่อนร่วมกลุ่มอีกคน (ไม่จำกัด)' : '+ Add Another Friend (Unlimited)')
+                            : (isTh ? '+ เพิ่มเพื่อนร่วมสำรองที่นั่งวิชานี้ (ฝากกรอก / เพิ่มได้ไม่จำกัด)' : '+ Add Friends to Group Reservation (Unlimited)')}
+                        </span>
+                      </button>
                     </div>
                   </div>
                 ))}

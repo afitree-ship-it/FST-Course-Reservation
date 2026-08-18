@@ -21,7 +21,8 @@ import {
   Layers,
   ChevronDown,
   ChevronUp,
-  Filter
+  Filter,
+  Users
 } from 'lucide-react';
 import { ReservationRequest, RequestStatus } from '../types';
 import { getStatusByStudentId, getCachedRequestsByStudentId } from '../services/api';
@@ -425,6 +426,12 @@ const getStatusBadge = (status: RequestStatus) => {
                                         {isTh ? 'ล่าสุด' : 'Latest'}
                                       </span>
                                     )}
+                                    {String(request.studentId).trim() !== String(studentId).trim() && (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-mangosteen bg-mangosteen/10 border border-mangosteen/20">
+                                        <Users className="w-3 h-3" />
+                                        {isTh ? 'คุณอยู่ในกลุ่มเพื่อนร่วมสำรอง' : 'You are a co-applicant'}
+                                      </span>
+                                    )}
                                   </div>
                                   <div className="flex items-center gap-1 text-xs text-slate-400 font-sans">
                                     <Clock className="w-3.5 h-3.5 text-slate-350" />
@@ -437,6 +444,7 @@ const getStatusBadge = (status: RequestStatus) => {
                               <div className="space-y-3 pl-2">
                                 {coursesArray.map((course, cIdx) => {
                                   const courseStatus = course.status || request.status || 'รอดำเนินการ';
+                                  const hasCoStudents = course.coStudents && course.coStudents.length > 0;
                                   return (
                                     <div 
                                       key={cIdx}
@@ -451,6 +459,11 @@ const getStatusBadge = (status: RequestStatus) => {
                                           <span className="text-sm font-extrabold text-slate-800">
                                             {course.courseName}
                                           </span>
+                                          {hasCoStudents && (
+                                            <span className="text-[11px] font-bold text-mangosteen bg-mangosteen/10 px-2 py-0.5 rounded-full">
+                                              {1 + course.coStudents!.length} {isTh ? 'ที่นั่ง' : 'seats'}
+                                            </span>
+                                          )}
                                         </div>
 
                                         <div className="shrink-0">
@@ -473,6 +486,37 @@ const getStatusBadge = (status: RequestStatus) => {
                                           {isTh ? 'อาจารย์ผู้สอน:' : 'Instructor:'} <span className="font-semibold text-slate-700">{course.instructor || (isTh ? 'ไม่ระบุ' : 'N/A')}</span>
                                         </div>
                                       </div>
+
+                                      {/* Co-students in this course */}
+                                      {hasCoStudents && (
+                                        <div className="pt-2 border-t border-slate-200/40 space-y-1.5">
+                                          <div className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
+                                            <Users className="w-3.5 h-3.5 text-mangosteen" />
+                                            <span>{isTh ? `ผู้ร่วมขอสำรองที่นั่งในกลุ่มนี้ (${1 + course.coStudents!.length} คน):` : `Group Applicants (${1 + course.coStudents!.length} people):`}</span>
+                                          </div>
+                                          <div className="flex flex-wrap gap-1.5">
+                                            <span className={`text-[11px] px-2 py-0.5 rounded-md font-sans border ${
+                                              String(request.studentId).trim() === String(studentId).trim()
+                                                ? 'bg-mangosteen/10 text-mangosteen border-mangosteen/30 font-bold'
+                                                : 'bg-white text-slate-700 border-slate-200 font-medium'
+                                            }`}>
+                                              {request.studentId} {request.fullName} ({isTh ? 'ผู้ยื่นหลัก' : 'Primary'})
+                                            </span>
+                                            {course.coStudents!.map((cs, csIdx) => {
+                                              const isCurrentViewer = String(cs.studentId).trim() === String(studentId).trim();
+                                              return (
+                                                <span key={csIdx} className={`text-[11px] px-2 py-0.5 rounded-md font-sans border ${
+                                                  isCurrentViewer
+                                                    ? 'bg-mangosteen/15 text-mangosteen border-mangosteen/40 font-bold ring-1 ring-mangosteen/30'
+                                                    : 'bg-white text-slate-700 border-slate-200 font-medium'
+                                                }`}>
+                                                  {cs.studentId} {cs.fullName} {isCurrentViewer ? (isTh ? '(คุณ)' : '(You)') : ''}
+                                                </span>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      )}
 
                                       {/* Course level notes */}
                                       {courseStatus === 'ไม่อนุมัติ' && course.rejectionReason && (

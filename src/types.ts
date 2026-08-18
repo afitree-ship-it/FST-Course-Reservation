@@ -5,11 +5,19 @@
 
 export type RequestStatus = 'รอดำเนินการ' | 'อนุมัติแล้ว' | 'ไม่อนุมัติ';
 
+export interface CoStudent {
+  studentId: string;
+  fullName: string;
+  department?: string;
+  year?: string;
+}
+
 export interface CourseInput {
   courseCode: string;
   courseName: string;
   section: string;
   instructor: string;
+  coStudents?: CoStudent[]; // เพื่อนร่วมกลุ่มที่ฝากสำรองที่นั่งวิชานี้ (ไม่จำกัดจำนวน)
   status?: RequestStatus;
   rejectionReason?: string;
   processedAt?: string;
@@ -28,6 +36,7 @@ export interface ReservationRequest {
   courseName?: string;
   section?: string;
   instructor?: string;
+  coStudents?: CoStudent[];
   proofType: 'file' | 'link';
   facebookProofLink?: string;
   facebookProofFile?: {

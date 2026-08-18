@@ -1130,6 +1130,51 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Added Details Section */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 sm:p-4 text-left space-y-2 text-sm">
+                <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
+                  {latestSubmission.request.courses.map((course, idx) => (
+                    <div key={idx} className="bg-white border border-slate-200 rounded-lg px-3 py-2 shadow-xs space-y-1">
+                      <div className="flex justify-between items-start sm:items-center gap-2 flex-col sm:flex-row">
+                        <div className="font-bold text-slate-800 leading-tight">
+                          {course.courseCode} <span className="font-normal text-slate-600 block sm:inline">{course.courseName}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-slate-700 whitespace-nowrap text-xs bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md font-medium">
+                            กลุ่ม: {course.section}
+                          </span>
+                          {course.coStudents && course.coStudents.length > 0 && (
+                            <span className="text-xs bg-mangosteen/10 text-mangosteen border border-mangosteen/20 px-1.5 py-0.5 rounded-md font-bold">
+                              {1 + course.coStudents.length} ที่นั่ง
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {course.coStudents && course.coStudents.length > 0 && (
+                        <div className="text-xs text-slate-500 pt-1 border-t border-slate-100 flex flex-wrap items-center gap-1">
+                          <span className="font-semibold text-slate-600">เพื่อนร่วมกลุ่ม ({course.coStudents.length} คน):</span>
+                          {course.coStudents.map((cs, cIdx) => (
+                            <span key={cIdx} className="bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-[11px]">
+                              {cs.studentId} {cs.fullName}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                
+                <div className="flex justify-between items-center text-slate-600 mt-2 pt-2 border-t border-slate-200 text-xs sm:text-sm">
+                  <span className="font-semibold">วันที่และเวลาที่ส่ง:</span>
+                  <span>
+                    {new Date(latestSubmission.request.createdAt || new Date()).toLocaleString('th-TH', { 
+                      dateStyle: 'medium', 
+                      timeStyle: 'short' 
+                    })} น.
+                  </span>
+                </div>
+              </div>
+
               <div className="pt-4 flex flex-col gap-3">
                 <button
                   onClick={() => handleViewStatusAfterSubmit(latestSubmission.studentId)}

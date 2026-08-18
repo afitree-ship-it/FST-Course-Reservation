@@ -33,7 +33,8 @@ import {
   Image as ImageIcon,
   Upload,
   Link2,
-  X
+  X,
+  Users
 } from 'lucide-react';
 import { ReservationRequest, RequestStatus, AuditLog } from '../types';
 import { compressImage } from '../imageUtils';
@@ -320,22 +321,29 @@ export default function AdminSection({
 
       // Course stats
       const courseList = req.courses && req.courses.length > 0 ? req.courses : [
-        { courseCode: req.courseCode, courseName: req.courseName, section: req.section, status: req.status }
+        { courseCode: req.courseCode, courseName: req.courseName, section: req.section, status: req.status, coStudents: req.coStudents }
       ];
 
       courseList.forEach(c => {
         const code = (c.courseCode || 'UNKNOWN').toUpperCase().trim();
         const name = c.courseName || code;
+        
+        // 🌟 ไฮไลต์: คำนวณจำนวน "ที่นั่ง" ทั้งหมด (ผู้ยื่นหลัก 1 คน + จำนวนเพื่อน)
+        const seatsCount = 1 + (c.coStudents?.length || 0);
+
         if (!courseStatsMap[code]) {
           courseStatsMap[code] = { code, name, total: 0, approved: 0, rejected: 0, pending: 0 };
         }
-        courseStatsMap[code].total++;
+        
+        // บวกยอดสถิติตาม "จำนวนที่นั่ง" ไม่ใช่จำนวนใบคำร้อง
+        courseStatsMap[code].total += seatsCount; 
+        
         if (c.status === 'อนุมัติแล้ว' || (req.status === 'อนุมัติแล้ว' && !c.status)) {
-          courseStatsMap[code].approved++;
+          courseStatsMap[code].approved += seatsCount;
         } else if (c.status === 'ไม่อนุมัติ' || (req.status === 'ไม่อนุมัติ' && !c.status)) {
-          courseStatsMap[code].rejected++;
+          courseStatsMap[code].rejected += seatsCount;
         } else {
-          courseStatsMap[code].pending++;
+          courseStatsMap[code].pending += seatsCount;
         }
       });
     });
@@ -438,6 +446,22 @@ export default function AdminSection({
               label: `${c.courseCode || ''} - ${c.courseName || ''}`,
               secondary: 'รายวิชา',
               searchTexts: [String(c.courseCode || '').toLowerCase(), String(c.courseName || '').toLowerCase()]
+            });
+          }
+
+          // Co-students inside courses
+          if (c.coStudents) {
+            c.coStudents.forEach(cs => {
+              if (cs.studentId && !seenStudents.has(cs.studentId)) {
+                seenStudents.add(cs.studentId);
+                list.push({
+                  type: 'student',
+                  value: cs.studentId,
+                  label: cs.fullName || '',
+                  secondary: `${cs.studentId} (เพื่อนร่วมกลุ่ม)`,
+                  searchTexts: [String(cs.studentId || ''), String(cs.fullName || '').toLowerCase()]
+                });
+              }
             });
           }
         });
@@ -1388,7 +1412,11 @@ function doPost(e) {
           String(req.courseName || '').toLowerCase().includes(query) ||
           (req.courses && req.courses.some(c => 
             String(c.courseCode || '').toLowerCase().includes(query) ||
-            String(c.courseName || '').toLowerCase().includes(query)
+            String(c.courseName || '').toLowerCase().includes(query) ||
+            (c.coStudents && c.coStudents.some(cs => 
+              String(cs.studentId || '').toLowerCase().includes(query) ||
+              String(cs.fullName || '').toLowerCase().includes(query)
+            ))
           ))
       );
     }
@@ -2076,6 +2104,28 @@ function doPost(e) {
                                 </div>
                               </div>
 
+                              {/* Co-students in this course (Admin View) */}
+                              {course.coStudents && course.coStudents.length > 0 && (
+                                <div className="pt-2.5 border-t border-slate-200/80 space-y-1.5 mt-1">
+                                  <div className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                                    <Users className="w-3.5 h-3.5 text-mangosteen" />
+                                    <span>รายชื่อนักศึกษาในกลุ่มนี้ (ขอรวมทั้งหมด {1 + course.coStudents.length} ที่นั่ง):</span>
+                                  </div>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {/* ป้ายผู้ยื่นหลัก (ให้เห็นรวมในแก๊งเดียวกัน) */}
+                                    <span className="bg-mangosteen/10 text-mangosteen text-[11px] px-2 py-0.5 rounded-md border border-mangosteen/30 font-sans font-medium">
+                                      <strong className="font-mono text-mangosteen font-black">{req.studentId}</strong> {req.fullName} <span className="opacity-80 font-bold">(ผู้ยื่นหลัก)</span>
+                                    </span>
+                                    {/* ป้ายเพื่อนร่วมกลุ่ม */}
+                                    {course.coStudents.map((cs, csIdx) => (
+                                      <span key={csIdx} className="bg-slate-100 text-slate-700 text-[11px] px-2 py-0.5 rounded-md border border-slate-200 font-sans font-medium">
+                                        <strong className="font-mono text-slate-900 font-black">{cs.studentId}</strong> {cs.fullName}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
                               {/* Action Buttons Per Course */}
                               <div className="flex flex-col gap-2 mt-2 pt-2 border-t border-slate-100">
                                 {(!course.status || course.status === 'รอดำเนินการ') ? (
@@ -2281,6 +2331,28 @@ function doPost(e) {
                           <div>กลุ่ม (Sec): <strong className="text-mangosteen font-extrabold font-mono leading-none">{course.section || '-'}</strong></div>
                           <div className="truncate" title={course.instructor}>ผู้สอน: <strong className="text-slate-700 font-bold">{course.instructor || 'ไม่ระบุ'}</strong></div>
                         </div>
+
+                        {/* Co-students in this course (Admin Mobile View) */}
+                        {course.coStudents && course.coStudents.length > 0 && (
+                          <div className="pt-2 border-t border-slate-200/80 space-y-1.5 mt-1">
+                            <div className="text-[10px] font-bold text-slate-700 flex items-center gap-1.5">
+                              <Users className="w-3 h-3 text-mangosteen" />
+                              <span>รายชื่อนักศึกษาในกลุ่มนี้ (รวม {1 + course.coStudents.length} ที่นั่ง):</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {/* ป้ายผู้ยื่นหลัก */}
+                              <span className="bg-mangosteen/10 text-mangosteen text-[10px] px-2 py-0.5 rounded-md border border-mangosteen/30 font-sans font-medium">
+                                <strong className="font-mono text-mangosteen font-black">{req.studentId}</strong> {req.fullName} <span className="opacity-80 font-bold">(ผู้ยื่นหลัก)</span>
+                              </span>
+                              {/* ป้ายเพื่อนร่วมกลุ่ม */}
+                              {course.coStudents.map((cs, csIdx) => (
+                                <span key={csIdx} className="bg-slate-100 text-slate-700 text-[10px] px-2 py-0.5 rounded-md border border-slate-200 font-sans font-medium">
+                                  <strong className="font-mono text-slate-900 font-black">{cs.studentId}</strong> {cs.fullName}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         
                         {/* Action Buttons Per Course (Mobile) */}
                         <div className="flex flex-col gap-2 mt-2 pt-2 border-t border-slate-100">

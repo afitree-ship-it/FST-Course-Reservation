@@ -355,7 +355,12 @@ export async function submitRequest(data: Partial<ReservationRequest>): Promise<
 
 export function getCachedRequestsByStudentId(studentId: string): ReservationRequest[] | null {
   if (cachedRequests) {
-    return cachedRequests.filter(r => String(r.studentId).trim() === String(studentId).trim());
+    const target = String(studentId).trim();
+    return cachedRequests.filter(r => 
+      String(r.studentId).trim() === target ||
+      r.courses?.some(c => c.coStudents?.some(cs => String(cs.studentId).trim() === target)) ||
+      r.coStudents?.some(cs => String(cs.studentId).trim() === target)
+    );
   }
   return null;
 }
@@ -368,7 +373,11 @@ export async function getStatusByStudentId(studentId: string, forceRefresh = fal
   
   // 1. Check global cache
   if (!forceRefresh && cachedRequests && (now - lastFetchTime) < 15000) {
-    const filtered = cachedRequests.filter(r => String(r.studentId).trim() === id);
+    const filtered = cachedRequests.filter(r => 
+      String(r.studentId).trim() === id ||
+      r.courses?.some(c => c.coStudents?.some(cs => String(cs.studentId).trim() === id)) ||
+      r.coStudents?.some(cs => String(cs.studentId).trim() === id)
+    );
     return { success: true, data: filtered };
   }
 
@@ -383,16 +392,23 @@ export async function getStatusByStudentId(studentId: string, forceRefresh = fal
   if (isApiConfigured()) {
     const fetchPromise = (async () => {
       try {
-        const response = await fetchWithRetry(`${getApiUrl()}?action=getStatusByStudentId&studentId=${encodeURIComponent(id)}&t=${Date.now()}`, {
-          method: 'GET'
-        });
-        const result = await response.json();
-        if (result.success) {
-          studentIdCache[id] = { time: Date.now(), data: result.data, promise: undefined };
-          return { success: true, data: result.data };
+        // To properly support searching for co-students (which are stored inside the JSON payload),
+        // we fetch all requests and filter them locally. The backend's getStatusByStudentId 
+        // only filters by the primary studentId column.
+        const allReqsResponse = await getAllRequests(true);
+        
+        if (allReqsResponse.success && allReqsResponse.data) {
+          const localMatch = allReqsResponse.data.filter(r => 
+            String(r.studentId).trim() === id ||
+            r.courses?.some(c => c.coStudents?.some(cs => String(cs.studentId).trim() === id)) ||
+            r.coStudents?.some(cs => String(cs.studentId).trim() === id)
+          );
+          studentIdCache[id] = { time: Date.now(), data: localMatch, promise: undefined };
+          return { success: true, data: localMatch };
         }
+
         studentIdCache[id] = { time: Date.now(), data: [], promise: undefined }; 
-        return { success: false, error: result.error || 'Failed to fetch' };
+        return { success: false, error: allReqsResponse.error || 'Failed to fetch' };
       } catch (err) {
         delete studentIdCache[id];
         return { success: false, error: 'Network error' };
@@ -403,7 +419,14 @@ export async function getStatusByStudentId(studentId: string, forceRefresh = fal
     return fetchPromise;
   }
   
-  return { success: false, error: 'API Not configured' };
+  // If API not configured, read from local storage
+  const requests: ReservationRequest[] = JSON.parse(localStorage.getItem('local_requests') || '[]');
+  const filtered = requests.filter(r => 
+    String(r.studentId).trim() === id ||
+    r.courses?.some(c => c.coStudents?.some(cs => String(cs.studentId).trim() === id)) ||
+    r.coStudents?.some(cs => String(cs.studentId).trim() === id)
+  );
+  return { success: true, data: filtered };
 }
 
 export async function getRemoteSettings(): Promise<Record<string, string>> {
@@ -579,7 +602,12 @@ export async function recordAuditLog(
   } catch (e) {
   }
 }
-export async function updateStatus(id: string, status: string, by: string): Promise<{ success: boolean; data?: any; error?: string }> {
+export async function updateStatus(
+  requestId: string, // 👈 เปลี่ยนกลับมาใช้ requestId
+  status: string, 
+  rejectionReason?: string, 
+  processedBy?: string // 👈 เปลี่ยนกลับมาใช้ processedBy
+): Promise<{ success: boolean; data?: any; error?: string }> {
   if (isApiConfigured()) {
     try {
       const response = await fetchWithRetry(getApiUrl(), {
@@ -587,9 +615,45 @@ export async function updateStatus(id: string, status: string, by: string): Prom
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           action: 'updateStatus',
-          id: id,
+          requestId: requestId, // 👈 ต้องเป็นตัวนี้นะครับ
           status: status,
-          by: by
+          rejectionReason: rejectionReason,
+          processedBy: processedBy // 👈 ต้องเป็นตัวนี้นะครับ
+        })
+      });
+      const result = await response.json();
+      if (result.success) {
+        cachedRequests = null;
+        lastFetchTime = 0;
+        return { success: true };
+      }
+      return { success: false, error: result.error || 'Failed to update' };
+    } catch (err) {
+      return { success: false, error: 'Network error' };
+    }
+  }
+  return { success: false, error: 'API Not configured' };
+}
+
+export async function updateCourseStatus(
+  requestId: string, // 👈 เปลี่ยนกลับมาใช้ requestId
+  courseCode: string, 
+  status: string, 
+  rejectionReason?: string, 
+  processedBy?: string // 👈 เปลี่ยนกลับมาใช้ processedBy
+): Promise<{ success: boolean; data?: any; error?: string }> {
+  if (isApiConfigured()) {
+    try {
+      const response = await fetchWithRetry(getApiUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'updateCourseStatus',
+          requestId: requestId, // 👈 ส่ง requestId เหมือนเดิม
+          courseCode: courseCode,
+          status: status,
+          rejectionReason: rejectionReason,
+          processedBy: processedBy // 👈 ส่ง processedBy เหมือนเดิม
         })
       });
       const result = await response.json();
@@ -616,34 +680,6 @@ export async function updateStudentInfo(studentId: string, updates: any): Promis
           action: 'updateStudentInfo',
           studentId: studentId,
           ...updates
-        })
-      });
-      const result = await response.json();
-      if (result.success) {
-        cachedRequests = null;
-        lastFetchTime = 0;
-        return { success: true };
-      }
-      return { success: false, error: result.error || 'Failed to update' };
-    } catch (err) {
-      return { success: false, error: 'Network error' };
-    }
-  }
-  return { success: false, error: 'API Not configured' };
-}
-
-export async function updateCourseStatus(id: string, courseCode: string, status: string, by: string): Promise<{ success: boolean; data?: any; error?: string }> {
-  if (isApiConfigured()) {
-    try {
-      const response = await fetchWithRetry(getApiUrl(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'updateCourseStatus',
-          id: id,
-          courseCode: courseCode,
-          status: status,
-          by: by
         })
       });
       const result = await response.json();
