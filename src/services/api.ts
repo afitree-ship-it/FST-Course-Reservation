@@ -361,11 +361,20 @@ export async function getStatusByStudentId(studentId: string, forceRefresh = fal
   if (isApiConfigured()) {
     const fetchPromise = (async () => {
       try {
-        // To properly support searching for co-students (which are stored inside the JSON payload),
-        // we fetch all requests and filter them locally. The backend's getStatusByStudentId 
-        // only filters by the primary studentId column.
+        // 1. First attempt: Direct targeted lookup from Google Apps Script (fast & lightweight)
+        try {
+          const directRes = await fetchWithRetry(`${getApiUrl()}?action=getStatusByStudentId&studentId=${encodeURIComponent(id)}&t=${Date.now()}`, { method: 'GET' }, 2, 1000);
+          const directData = await directRes.json();
+          if (directData.success && Array.isArray(directData.data) && directData.data.length > 0) {
+            studentIdCache[id] = { time: Date.now(), data: directData.data, promise: undefined };
+            return { success: true, data: directData.data };
+          }
+        } catch (directErr) {
+          // fallback to full scan
+        }
+
+        // 2. Fallback: Full scan via getAllRequests (handles local cache and legacy backends)
         const allReqsResponse = await getAllRequests(true);
-        
         if (allReqsResponse.success && allReqsResponse.data) {
           const localMatch = allReqsResponse.data.filter(r => 
             String(r.studentId).trim() === id ||
@@ -377,7 +386,7 @@ export async function getStatusByStudentId(studentId: string, forceRefresh = fal
         }
 
         studentIdCache[id] = { time: Date.now(), data: [], promise: undefined }; 
-        return { success: false, error: allReqsResponse.error || 'Failed to fetch' };
+        return { success: true, data: [] };
       } catch (err) {
         delete studentIdCache[id];
         return { success: false, error: 'Network error' };
