@@ -10,6 +10,21 @@
   --font-mono: "Inter", "Prompt", "Kanit", ui-monospace, sans-serif;
 }
 
+/* Smooth Scrolling & Base Polishing */
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button, a, input, select, textarea {
+  touch-action: manipulation;
+}
+
 /* Custom scrollbars and transition timings */
 ::-webkit-scrollbar {
   width: 6px;
@@ -24,6 +39,11 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #7A1F2B;
+}
+
+/* Smooth Interactive Elements */
+button:not(:disabled), a {
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .dark-theme {
