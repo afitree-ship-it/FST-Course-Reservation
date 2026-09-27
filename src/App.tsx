@@ -869,31 +869,73 @@ export default function App() {
               </button>
             </div>
 
-            {/* Academic-Standard Lang Toggle Switching Button Group */}
-            <div className="flex items-center bg-slate-100 p-1 rounded-2xl border border-slate-200/50 text-slate-500 text-xs font-bold" id="language-switcher-group">
+            {/* Modern Interactive Language Switch Toggle with Flags */}
+            <div 
+              className="relative inline-flex items-center bg-slate-100/90 p-1 rounded-full border border-slate-200/80 shadow-xs text-xs font-bold select-none" 
+              id="language-switcher-group"
+              role="tablist"
+              aria-label="Language Selector"
+            >
+              {/* TH Option */}
               <button
+                type="button"
                 onClick={() => setLanguage('th')}
-                className={`px-2.5 py-1.5 rounded-xl transition-all duration-300 text-[11px] font-sans tracking-wider cursor-pointer ${
-                  language === 'th' 
-                    ? 'bg-white text-mangosteen shadow-sm border border-slate-200/50 font-black' 
-                    : 'hover:text-slate-700 hover:bg-slate-200/50'
+                className={`relative z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors duration-200 text-xs font-sans tracking-wide cursor-pointer ${
+                  language === 'th'
+                    ? 'text-mangosteen font-black'
+                    : 'text-slate-500 hover:text-slate-700'
                 }`}
-                title="ภาษาไทย"
+                title="ภาษาไทย (Thai)"
                 id="lang-btn-th"
+                role="tab"
+                aria-selected={language === 'th'}
               >
-                TH
+                <svg className="w-4 h-2.5 rounded-xs shadow-2xs shrink-0 overflow-hidden ring-1 ring-black/10" viewBox="0 0 900 600">
+                  <rect width="900" height="600" fill="#ED1C24" />
+                  <rect y="100" width="900" height="400" fill="#FFFFFF" />
+                  <rect y="200" width="900" height="200" fill="#241D4F" />
+                </svg>
+                <span>TH</span>
+                {language === 'th' && (
+                  <motion.div
+                    layoutId="active-lang-pill"
+                    className="absolute inset-0 bg-white rounded-full shadow-xs border border-slate-200/60 -z-10"
+                    transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                  />
+                )}
               </button>
+
+              {/* EN Option */}
               <button
+                type="button"
                 onClick={() => setLanguage('en')}
-                className={`px-2.5 py-1.5 rounded-xl transition-all duration-300 text-[11px] font-sans tracking-wider cursor-pointer ${
-                  language === 'en' 
-                    ? 'bg-white text-mangosteen shadow-sm border border-slate-200/50 font-black' 
-                    : 'hover:text-slate-700 hover:bg-slate-200/50'
+                className={`relative z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors duration-200 text-xs font-sans tracking-wide cursor-pointer ${
+                  language === 'en'
+                    ? 'text-mangosteen font-black'
+                    : 'text-slate-500 hover:text-slate-700'
                 }`}
-                title="English Language"
+                title="English Language (EN)"
                 id="lang-btn-en"
+                role="tab"
+                aria-selected={language === 'en'}
               >
-                EN
+                <svg className="w-4 h-2.5 rounded-xs shadow-2xs shrink-0 overflow-hidden ring-1 ring-black/10" viewBox="0 0 60 30">
+                  <clipPath id="uk-clip"><path d="M0,0 v30 h60 v-30 z"/></clipPath>
+                  <clipPath id="uk-diag"><path d="M0,0 L60,30 M60,0 L0,30"/></clipPath>
+                  <path d="M0,0 v30 h60 v-30 z" fill="#012169"/>
+                  <path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" strokeWidth="6"/>
+                  <path d="M0,0 L60,30 M60,0 L0,30" clipPath="url(#uk-diag)" stroke="#C8102E" strokeWidth="4"/>
+                  <path d="M30,0 v30 M0,15 h60" stroke="#fff" strokeWidth="10"/>
+                  <path d="M30,0 v30 M0,15 h60" stroke="#C8102E" strokeWidth="6"/>
+                </svg>
+                <span>EN</span>
+                {language === 'en' && (
+                  <motion.div
+                    layoutId="active-lang-pill"
+                    className="absolute inset-0 bg-white rounded-full shadow-xs border border-slate-200/60 -z-10"
+                    transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                  />
+                )}
               </button>
             </div>
 
