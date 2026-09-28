@@ -301,6 +301,7 @@ export default function App() {
     });
   }, []);
   const [bellDropdownOpen, setBellDropdownOpen] = useState(false);
+  const [mobileNotiSheetOpen, setMobileNotiSheetOpen] = useState(false);
   const [bottomNotifications, setBottomNotifications] = useState<Array<{
     id: string;
     title: string;
@@ -406,10 +407,38 @@ export default function App() {
     }
   };
 
+  // Helper to play a soft crystal chime sound when a new request arrives
+  const playNotificationSound = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      const now = ctx.currentTime;
+      osc.frequency.setValueAtTime(880, now);
+      osc.frequency.setValueAtTime(1174.66, now + 0.12);
+
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.55);
+    } catch (e) {
+      // Audio blocked if not interacted yet
+    }
+  };
+
   // Poll for requests from the database (either LocalStorage or live GAS Sheet)
   const pollRequests = async () => {
     try {
-      const response = await getAllRequests();
+      // When logged in as admin, force fresh data from Google Sheets to detect new requests instantly
+      const response = await getAllRequests(isAdminLoggedIn);
       if (response.success && response.data) {
         let fetchedRequests = response.data;
 
@@ -572,6 +601,9 @@ export default function App() {
               );
             }
 
+            // Play soft crystal notification chime
+            playNotificationSound();
+
             // Trigger the bottom-right floating popup notification
             setBottomNotifications(prev => [
               ...prev,
@@ -720,7 +752,7 @@ export default function App() {
 
       {/* Primary Header */}
       <header className="bg-white/80 backdrop-blur-xl sticky top-0 z-30 border-b border-slate-200 transition-all duration-300">
-        <div className="max-w-7xl mx-auto px-4 py-3 sm:px-6 lg:px-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="max-w-7xl mx-auto px-4 py-2.5 sm:py-3 sm:px-6 lg:px-8 flex items-center justify-between gap-3 sm:gap-4">
           
           {/* Logo & title click resets or targets reserve page */}
           <div 
@@ -834,9 +866,9 @@ export default function App() {
           </div>
 
           {/* Navigation Control Group */}
-          <div className="flex flex-wrap items-center gap-3 sm:gap-4 self-stretch sm:self-auto justify-between sm:justify-end">
-            {/* Regular Student Toggle Tabs */}
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200/50" id="student-navigation-tabs">
+          <div className="flex items-center gap-2 sm:gap-4 justify-end">
+            {/* Regular Student Toggle Tabs (Desktop Only) */}
+            <div className="hidden md:flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200/50" id="student-navigation-tabs">
               <button
                 onClick={() => {
                   setLatestSubmission(null);
@@ -939,8 +971,8 @@ export default function App() {
               </button>
             </div>
 
-            {/* Subtly Separated staff login trigger */}
-            <div className="hidden sm:block">
+            {/* Subtly Separated staff login trigger (Desktop Only) */}
+            <div className="hidden md:block">
               <button
                 onClick={() => {
                   setLatestSubmission(null);
@@ -959,9 +991,9 @@ export default function App() {
               </button>
             </div>
             
-            {/* Notification Bell Icon & Dropdown Center (Admin Only) */}
-            {isAdminLoggedIn && activeTab === 'admin' && (
-              <div className="relative" id="notification-bell-container">
+            {/* Notification Bell Icon & Dropdown Center (Admin Only - Desktop) */}
+            {isAdminLoggedIn && (
+              <div className="relative hidden md:block" id="notification-bell-container">
                 <button
                   onClick={() => setBellDropdownOpen(!bellDropdownOpen)}
                   className={`p-2 rounded-full transition-all duration-300 relative cursor-pointer ${
@@ -1141,7 +1173,7 @@ export default function App() {
       </header>
 
       {/* Main Container Stage */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-8 sm:px-6 lg:px-8 flex flex-col justify-start relative z-10">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-8 sm:px-6 lg:px-8 pb-28 md:pb-12 flex flex-col justify-start relative z-10">
         
         <AnimatePresence mode="wait">
           
@@ -1304,7 +1336,7 @@ export default function App() {
       </main>
 
       {/* Footer bar hosting responsive links */}
-      <footer className="bg-white border-t border-slate-100 py-6 text-center text-xs text-slate-400 font-sans">
+      <footer className="bg-white border-t border-slate-100 py-6 pb-24 md:pb-6 text-center text-xs text-slate-400 font-sans">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-3">
           <p>
             {t('copyright')}
@@ -1450,6 +1482,326 @@ export default function App() {
           </AnimatePresence>
         </div>
       )}
+
+      {/* ========================================================
+          MOBILE FLOATING BOTTOM NAVIGATION BAR (Namethatui / iOS Style)
+          ======================================================== */}
+      <nav 
+        className="fixed bottom-3.5 left-3 right-3 sm:left-1/2 sm:-translate-x-1/2 sm:w-full sm:max-w-md z-40 md:hidden pointer-events-none select-none"
+        aria-label="Mobile Bottom Navigation"
+        id="mobile-bottom-navigation-dock"
+      >
+        <div className="pointer-events-auto bg-white/92 dark:bg-slate-900/92 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-full shadow-[0_12px_36px_-6px_rgba(0,0,0,0.18)] px-2 py-1.5 flex items-center justify-around ring-1 ring-black/5 dark:ring-white/5">
+          {/* 1. Reserve Tab (Home) */}
+          <button
+            onClick={() => {
+              setLatestSubmission(null);
+              setActiveTab('reserve');
+              setMobileNotiSheetOpen(false);
+            }}
+            className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
+              activeTab === 'reserve' && !latestSubmission && !mobileNotiSheetOpen
+                ? 'text-mangosteen font-bold'
+                : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+            aria-label={t('tabReserve')}
+            id="mobile-tab-reserve"
+          >
+            <div className={`p-1.5 rounded-full transition-all duration-200 ${
+              activeTab === 'reserve' && !latestSubmission && !mobileNotiSheetOpen ? 'bg-mangosteen/10 scale-105' : ''
+            }`}>
+              <FileText className={`w-5 h-5 ${activeTab === 'reserve' && !latestSubmission && !mobileNotiSheetOpen ? 'stroke-[2.2]' : 'stroke-[1.8]'}`} />
+            </div>
+            <span className="text-[10px] tracking-tight mt-0.5 leading-tight">{t('tabReserve')}</span>
+            {activeTab === 'reserve' && !latestSubmission && !mobileNotiSheetOpen && (
+              <motion.div
+                layoutId="bottom-nav-indicator"
+                className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-mangosteen"
+                transition={{ type: "spring", stiffness: 500, damping: 30 }}
+              />
+            )}
+          </button>
+
+          {/* 2. Status Tab (Search) */}
+          <button
+            onClick={() => {
+              setLatestSubmission(null);
+              setActiveTab('status');
+              setMobileNotiSheetOpen(false);
+            }}
+            className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
+              activeTab === 'status' && !mobileNotiSheetOpen
+                ? 'text-mangosteen font-bold'
+                : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+            aria-label={t('tabStatus')}
+            id="mobile-tab-status"
+          >
+            <div className={`p-1.5 rounded-full transition-all duration-200 ${
+              activeTab === 'status' && !mobileNotiSheetOpen ? 'bg-mangosteen/10 scale-105' : ''
+            }`}>
+              <Search className={`w-5 h-5 ${activeTab === 'status' && !mobileNotiSheetOpen ? 'stroke-[2.2]' : 'stroke-[1.8]'}`} />
+            </div>
+            <span className="text-[10px] tracking-tight mt-0.5 leading-tight">{t('tabStatus')}</span>
+            {activeTab === 'status' && !mobileNotiSheetOpen && (
+              <motion.div
+                layoutId="bottom-nav-indicator"
+                className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-mangosteen"
+                transition={{ type: "spring", stiffness: 500, damping: 30 }}
+              />
+            )}
+          </button>
+
+          {/* 3. Notifications Tab (Inbox / Bell with Red Badge) */}
+          <button
+            onClick={() => {
+              setMobileNotiSheetOpen(prev => !prev);
+            }}
+            className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
+              mobileNotiSheetOpen
+                ? 'text-mangosteen font-bold'
+                : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+            aria-label={isTh ? "การแจ้งเตือน" : "Notifications"}
+            id="mobile-tab-notifications"
+          >
+            <div className={`relative p-1.5 rounded-full transition-all duration-200 ${
+              mobileNotiSheetOpen ? 'bg-mangosteen/10 scale-105' : ''
+            }`}>
+              {pendingCount > 0 ? (
+                <BellRing className="w-5 h-5 stroke-[2] text-rose-500 animate-pulse" />
+              ) : (
+                <Bell className="w-5 h-5 stroke-[1.8]" />
+              )}
+              {pendingCount > 0 && (
+                <span className="absolute -top-0.5 -right-1 bg-rose-500 text-white text-[9px] font-black min-w-4 h-4 px-1 rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-sm animate-bounce">
+                  {pendingCount > 99 ? '99+' : pendingCount}
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] tracking-tight mt-0.5 leading-tight">{isTh ? 'แจ้งเตือน' : 'Inbox'}</span>
+            {mobileNotiSheetOpen && (
+              <motion.div
+                layoutId="bottom-nav-indicator"
+                className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-mangosteen"
+                transition={{ type: "spring", stiffness: 500, damping: 30 }}
+              />
+            )}
+          </button>
+
+          {/* 4. Staff / Admin Tab (Profile / Lock) */}
+          <button
+            onClick={() => {
+              setLatestSubmission(null);
+              setActiveTab('admin');
+              setMobileNotiSheetOpen(false);
+            }}
+            className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
+              activeTab === 'admin' && !mobileNotiSheetOpen
+                ? 'text-mangosteen font-bold'
+                : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+            aria-label={t('tabAdmin')}
+            id="mobile-tab-admin"
+          >
+            <div className={`p-1.5 rounded-full transition-all duration-200 ${
+              activeTab === 'admin' && !mobileNotiSheetOpen ? 'bg-mangosteen/10 scale-105' : ''
+            }`}>
+              {isAdminLoggedIn ? (
+                <User className={`w-5 h-5 ${activeTab === 'admin' && !mobileNotiSheetOpen ? 'stroke-[2.2]' : 'stroke-[1.8]'}`} />
+              ) : (
+                <Lock className={`w-5 h-5 ${activeTab === 'admin' && !mobileNotiSheetOpen ? 'stroke-[2.2]' : 'stroke-[1.8]'}`} />
+              )}
+            </div>
+            <span className="text-[10px] tracking-tight mt-0.5 leading-tight">
+              {isAdminLoggedIn ? (isTh ? 'เจ้าหน้าที่' : 'Admin') : t('tabAdmin')}
+            </span>
+            {activeTab === 'admin' && !mobileNotiSheetOpen && (
+              <motion.div
+                layoutId="bottom-nav-indicator"
+                className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-mangosteen"
+                transition={{ type: "spring", stiffness: 500, damping: 30 }}
+              />
+            )}
+          </button>
+        </div>
+      </nav>
+
+      {/* ========================================================
+          MOBILE NOTIFICATION BOTTOM SHEET MODAL
+          ======================================================== */}
+      <AnimatePresence>
+        {mobileNotiSheetOpen && (
+          <div className="fixed inset-0 z-50 md:hidden flex flex-col justify-end">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/50 backdrop-blur-xs"
+              onClick={() => setMobileNotiSheetOpen(false)}
+            />
+
+            {/* Bottom Sheet Card */}
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: "spring", damping: 28, stiffness: 300 }}
+              className="relative bg-white dark:bg-slate-900 rounded-t-3xl border-t border-slate-200 dark:border-slate-800 shadow-2xl p-5 max-h-[82vh] flex flex-col z-10 pb-8"
+            >
+              {/* Handle indicator */}
+              <div className="w-12 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full mx-auto mb-3" />
+
+              {/* Sheet Header */}
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-mangosteen/10 text-mangosteen rounded-xl">
+                    <BellRing className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-sm text-slate-800 dark:text-white">
+                      {isAdminLoggedIn ? (isTh ? 'แจ้งเตือนคำร้องใหม่' : 'Pending Requests') : (isTh ? 'ศูนย์การแจ้งเตือน' : 'Notification Center')}
+                    </h3>
+                    {isAdminLoggedIn && pendingCount > 0 && (
+                      <p className="text-[11px] text-rose-500 font-bold">
+                        {pendingCount} {isTh ? 'คำร้องรอดำเนินการ' : 'pending requests'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {isAdminLoggedIn && pendingCount > 0 && (
+                    <button
+                      onClick={() => {
+                        const currentPendingIds = pendingRequestsList.map(r => r.id);
+                        const newCleared = [...new Set([...clearedNotificationIds, ...currentPendingIds])];
+                        saveClearedNotificationIds(newCleared);
+                        showToast(isTh ? 'ล้างการแจ้งเตือนทั้งหมดแล้ว' : 'All notifications cleared.', 'success');
+                      }}
+                      className="text-[11px] font-bold text-slate-500 hover:text-mangosteen bg-slate-100 dark:bg-slate-800 px-2.5 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>{isTh ? 'เคลียร์' : 'Clear'}</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setMobileNotiSheetOpen(false)}
+                    className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Sheet Body */}
+              <div className="flex-1 overflow-y-auto py-3 space-y-2.5 max-h-[50vh]">
+                {isAdminLoggedIn ? (
+                  pendingRequestsList.length === 0 ? (
+                    <div className="py-8 text-center text-slate-400 space-y-2">
+                      <CheckCircle className="w-10 h-10 text-emerald-500 mx-auto" />
+                      <p className="text-sm font-semibold">{isTh ? 'ไม่มีคำร้องค้างพิจารณา' : 'All caught up! No pending requests.'}</p>
+                    </div>
+                  ) : (
+                    pendingRequestsList.map((req, rIdx) => {
+                      const coursesList = req.courses && req.courses.length > 0
+                        ? req.courses
+                        : [{ courseCode: req.courseCode || 'N/A', courseName: req.courseName || '', section: req.section || '' }];
+                      return (
+                        <div
+                          key={rIdx}
+                          onClick={() => {
+                            setActiveTab('admin');
+                            setTargetRequestId(req.id);
+                            setMobileNotiSheetOpen(false);
+                          }}
+                          className="p-3.5 bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl border border-slate-200/80 dark:border-slate-700 transition-colors cursor-pointer space-y-1.5 text-left"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-xs text-slate-800 dark:text-white truncate max-w-[170px]">
+                              {req.fullName}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {req.studentId}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                            {isTh ? 'ขอสำรองวิชา:' : 'Requested:'}{' '}
+                            <span className="font-bold text-mangosteen font-mono">{coursesList.length} {isTh ? 'วิชา' : 'course(s)'}</span>
+                          </div>
+                          <div className="pl-2 border-l-2 border-slate-200 dark:border-slate-700 space-y-0.5">
+                            {coursesList.map((c, cIdx) => (
+                              <div key={cIdx} className="text-[10px] text-slate-600 dark:text-slate-300 font-mono flex items-center gap-1.5">
+                                <span className="font-bold text-mangosteen">{c.courseCode}</span>
+                                <span className="truncate">{c.courseName}</span>
+                                <span className="text-slate-400 font-sans">Sec {c.section}</span>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="text-[9px] text-slate-400 flex items-center gap-1 pt-0.5">
+                            <Clock className="w-2.5 h-2.5" />
+                            <span>
+                              {new Date(req.createdAt || new Date().toISOString()).toLocaleTimeString(isTh ? 'th-TH' : 'en-US', {
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )
+                ) : (
+                  /* Student View */
+                  <div className="py-2 space-y-3">
+                    <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl flex items-start gap-3">
+                      <CheckCircle className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                      <div className="text-xs space-y-1 text-left">
+                        <div className="font-bold text-emerald-800 dark:text-emerald-300">
+                          {isTh ? 'ระบบเปิดรับคำร้องออนไลน์ตามปกติ' : 'Reservation System Active'}
+                        </div>
+                        <p className="text-emerald-700 dark:text-emerald-400 leading-relaxed text-[11px]">
+                          {isTh 
+                            ? 'นักศึกษาสามารถยื่นขอสำรองที่นั่งรายวิชาได้ตลอด 24 ชั่วโมง และติดตามผลการพิจารณาผ่านเมนู "ตรวจสอบสถานะ"' 
+                            : 'Students can submit seat reservation requests 24/7 and track approval progress in "Check Status".'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        setMobileNotiSheetOpen(false);
+                        setActiveTab('status');
+                      }}
+                      className="w-full py-3 bg-mangosteen text-white font-bold text-xs rounded-xl shadow-md flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-all"
+                    >
+                      <Search className="w-4 h-4" />
+                      <span>{isTh ? 'ไปที่หน้าตรวจสอบสถานะ' : 'Go to Status Check'}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Sheet Footer */}
+              {isAdminLoggedIn && (
+                <div className="pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    onClick={() => {
+                      setActiveTab('admin');
+                      setMobileNotiSheetOpen(false);
+                    }}
+                    className="w-full py-2.5 bg-mangosteen text-white font-bold text-xs rounded-xl shadow-md flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-all"
+                  >
+                    <span>{isTh ? 'เปิดบอร์ดควบคุมคำร้องทั้งหมด' : 'Go to Admin Dashboard'}</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
