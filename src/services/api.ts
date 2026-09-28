@@ -177,7 +177,7 @@ export async function addAdminPassword(password: string, name: string): Promise<
 
 export function getLoggedInAdminName(): string {
   try {
-    return localStorage.getItem('logged_in_admin_name') || '';
+    return sessionStorage.getItem('logged_in_admin_name') || '';
   } catch (err) {
     return '';
   }
@@ -185,6 +185,7 @@ export function getLoggedInAdminName(): string {
 
 export function adminLogout(): void {
   try {
+    sessionStorage.removeItem('logged_in_admin_name');
     localStorage.removeItem('logged_in_admin_name');
   } catch (err) {}
 }
@@ -198,7 +199,8 @@ export async function adminLogin(password: string): Promise<{ success: boolean; 
     let matched = savedPasswords.find(p => p.hash === hashedPass);
     if (matched) {
       const adminName = matched.name || 'แอดมินทั่วไป';
-      localStorage.setItem('logged_in_admin_name', adminName);
+      sessionStorage.setItem('logged_in_admin_name', adminName);
+      localStorage.removeItem('logged_in_admin_name');
       return { success: true, name: adminName };
     }
 
@@ -209,7 +211,8 @@ export async function adminLogin(password: string): Promise<{ success: boolean; 
         matched = savedPasswords.find(p => p.hash === hashedPass);
         if (matched) {
           const adminName = matched.name || 'แอดมินทั่วไป';
-          localStorage.setItem('logged_in_admin_name', adminName);
+          sessionStorage.setItem('logged_in_admin_name', adminName);
+          localStorage.removeItem('logged_in_admin_name');
           return { success: true, name: adminName };
         }
       } catch (syncErr) {
@@ -226,74 +229,43 @@ export async function adminLogin(password: string): Promise<{ success: boolean; 
 export async function submitReservation(data: Partial<ReservationRequest>): Promise<{ success: boolean; data?: ReservationRequest; error?: string }> {
   if (isApiConfigured()) {
     try {
-      const fetchPromise = (async () => {
-        const response = await fetch(getApiUrl(), {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            action: 'submitRequest',
-            ...data
-          })
-        });
-        return await response.json();
-      })();
+      const response = await fetchWithRetry(getApiUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'submitRequest',
+          ...data
+        })
+      }, 2, 2000);
+      const result = await response.json();
 
-      // Fast-resolve timeout: If GAS takes more than 1.2 seconds, we assume it reached the sheet successfully!
-      const result = await Promise.race([
-        fetchPromise,
-        new Promise<any>(resolve => setTimeout(() => resolve({
-          success: true,
-          data: {
-            ...data,
-            id: `RES-${new Date().getFullYear() + 543}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`,
-            createdAt: new Date().toISOString(),
-            status: 'รอดำเนินการ'
-          },
-          isFastResolved: true
-        }), 1200))
-      ]);
-
-      if (result.success) {
+      if (result.success && result.data) {
         cachedRequests = null;
         lastFetchTime = 0;
         
-        const returnedData = result.data || {
+        const returnedData: ReservationRequest = {
           ...data,
-          id: result.id || `RES-${new Date().getFullYear() + 543}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`,
-          createdAt: new Date().toISOString(),
-          status: 'รอดำเนินการ'
-        };
+          ...result.data,
+          id: result.data.id || result.id,
+          createdAt: result.data.createdAt || new Date().toISOString(),
+          status: result.data.status || 'รอดำเนินการ'
+        } as ReservationRequest;
 
         // บันทึกสำรองลงเครื่อง
         const requests: ReservationRequest[] = JSON.parse(localStorage.getItem('local_requests') || '[]');
-        requests.unshift(returnedData as ReservationRequest);
+        requests.unshift(returnedData);
         localStorage.setItem('local_requests', JSON.stringify(requests));
 
         // แจ้งเตือน LINE (ถ้ามี) ทำงานเบื้องหลัง
-        if (!result.isFastResolved) {
-           getRemoteSettings().then(settings => {
-            if (settings.notify_on_new_request === 'true' && settings.notify_line_token) {
-              const courseList = (returnedData.courses || []).map((c: any) => `• ${c.courseCode} ${c.courseName} (กลุ่ม ${c.section})`).join('\n');
-              const msg = `\n📩 [มีคำร้องสำรองที่นั่งเข้าใหม่!]\n------------------------\n👤 นักศึกษา: ${returnedData.fullName}\n🆔 รหัสนักศึกษา: ${returnedData.studentId}\n🏫 สาขาวิชา: ${returnedData.department}\n🔖 รหัสติดตาม: ${returnedData.id}\n\n📚 รายวิชาที่ขอสำรอง:\n${courseList}\n------------------------\nกรุณาเข้าตรวจในระบบแอดมิน`;
-              dispatchNotification(settings.notify_line_token, msg);
-            }
-          }).catch(() => {});
-        } else {
-           fetchPromise.then(actualResult => {
-               if (actualResult.success) {
-                   getRemoteSettings().then(settings => {
-                    if (settings.notify_on_new_request === 'true' && settings.notify_line_token) {
-                      const actualData = actualResult.data || returnedData;
-                      const courseList = (actualData.courses || []).map((c: any) => `• ${c.courseCode} ${c.courseName} (กลุ่ม ${c.section})`).join('\n');
-                      const msg = `\n📩 [มีคำร้องสำรองที่นั่งเข้าใหม่!]\n------------------------\n👤 นักศึกษา: ${actualData.fullName}\n🆔 รหัสนักศึกษา: ${actualData.studentId}\n🏫 สาขาวิชา: ${actualData.department}\n🔖 รหัสติดตาม: ${actualData.id}\n\n📚 รายวิชาที่ขอสำรอง:\n${courseList}\n------------------------\nกรุณาเข้าตรวจในระบบแอดมิน`;
-                      dispatchNotification(settings.notify_line_token, msg);
-                    }
-                  }).catch(() => {});
-               }
-           }).catch(() => {});
-        }
+        getRemoteSettings().then(settings => {
+          if (settings.notify_on_new_request === 'true' && settings.notify_line_token) {
+            const courseList = (returnedData.courses || []).map((c: any) => `• ${c.courseCode} ${c.courseName} (กลุ่ม ${c.section})`).join('\n');
+            const msg = `\n📩 [มีคำร้องสำรองที่นั่งเข้าใหม่!]\n------------------------\n👤 นักศึกษา: ${returnedData.fullName}\n🆔 รหัสนักศึกษา: ${returnedData.studentId}\n🏫 สาขาวิชา: ${returnedData.department}\n🔖 รหัสติดตาม: ${returnedData.id}\n\n📚 รายวิชาที่ขอสำรอง:\n${courseList}\n------------------------\nกรุณาเข้าตรวจในระบบแอดมิน`;
+            dispatchNotification(settings.notify_line_token, msg);
+          }
+        }).catch(() => {});
 
-        return { success: true, data: returnedData as ReservationRequest };
+        return { success: true, data: returnedData };
       }
       return { success: false, error: result.error || 'เกิดข้อผิดพลาดในการส่งข้อมูล' };
     } catch (err) {
@@ -392,11 +364,20 @@ export async function getStatusByStudentId(studentId: string, forceRefresh = fal
   if (isApiConfigured()) {
     const fetchPromise = (async () => {
       try {
-        // To properly support searching for co-students (which are stored inside the JSON payload),
-        // we fetch all requests and filter them locally. The backend's getStatusByStudentId 
-        // only filters by the primary studentId column.
+        // 1. First attempt: Direct targeted lookup from Google Apps Script (fast & lightweight)
+        try {
+          const directRes = await fetchWithRetry(`${getApiUrl()}?action=getStatusByStudentId&studentId=${encodeURIComponent(id)}&t=${Date.now()}`, { method: 'GET' }, 2, 1000);
+          const directData = await directRes.json();
+          if (directData.success && Array.isArray(directData.data) && directData.data.length > 0) {
+            studentIdCache[id] = { time: Date.now(), data: directData.data, promise: undefined };
+            return { success: true, data: directData.data };
+          }
+        } catch (directErr) {
+          // fallback to full scan
+        }
+
+        // 2. Fallback: Full scan via getAllRequests (handles local cache and legacy backends)
         const allReqsResponse = await getAllRequests(true);
-        
         if (allReqsResponse.success && allReqsResponse.data) {
           const localMatch = allReqsResponse.data.filter(r => 
             String(r.studentId).trim() === id ||
@@ -408,7 +389,7 @@ export async function getStatusByStudentId(studentId: string, forceRefresh = fal
         }
 
         studentIdCache[id] = { time: Date.now(), data: [], promise: undefined }; 
-        return { success: false, error: allReqsResponse.error || 'Failed to fetch' };
+        return { success: true, data: [] };
       } catch (err) {
         delete studentIdCache[id];
         return { success: false, error: 'Network error' };
@@ -502,6 +483,26 @@ export async function dispatchNotification(
     return { success: false, error: 'ไม่พบ Endpoint หรือข้อความการแจ้งเตือน' };
   }
 
+  // 1. Send via Google Apps Script backend (reliable in cloud / Vercel without proxy)
+  if (isApiConfigured()) {
+    try {
+      const res = await fetchWithRetry(getApiUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'dispatchNotification',
+          tokenOrWebhook,
+          message
+        })
+      }, 2, 1000);
+      const data = await res.json();
+      if (data.success) return { success: true };
+    } catch (gasErr) {
+      console.warn('Google Apps Script notification dispatch error:', gasErr);
+    }
+  }
+
+  // 2. Fallback to local server proxy
   try {
     const res = await fetch('/api/notify', {
       method: 'POST',

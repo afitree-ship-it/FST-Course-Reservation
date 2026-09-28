@@ -56,13 +56,32 @@ export default function StatusCheckSection({ initialStudentId = '', showToast }:
   const currentBEYear = new Date().getFullYear() + 543;
   const [selectedYear, setSelectedYear] = useState<number>(currentBEYear);
 
+  const parseDateSafe = (val: any): Date => {
+    if (!val) return new Date();
+    if (val instanceof Date) return val;
+    const str = String(val).trim();
+    const dmy = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/);
+    if (dmy) {
+      const day = parseInt(dmy[1], 10);
+      const month = parseInt(dmy[2], 10) - 1;
+      let year = parseInt(dmy[3], 10);
+      if (year > 2400) year -= 543;
+      const hour = dmy[4] ? parseInt(dmy[4], 10) : 0;
+      const min = dmy[5] ? parseInt(dmy[5], 10) : 0;
+      const sec = dmy[6] ? parseInt(dmy[6], 10) : 0;
+      return new Date(year, month, day, hour, min, sec);
+    }
+    const d = new Date(str);
+    return isNaN(d.getTime()) ? new Date() : d;
+  };
+
   // Get unique BE years from results (always includes currentBEYear)
   const availableYears = React.useMemo(() => {
     const yearsSet = new Set<number>();
     yearsSet.add(currentBEYear);
     results.forEach(r => {
       try {
-        const year = new Date(r.createdAt).getFullYear() + 543;
+        const year = parseDateSafe(r.createdAt).getFullYear() + 543;
         if (!isNaN(year)) {
           yearsSet.add(year);
         }
@@ -75,7 +94,7 @@ export default function StatusCheckSection({ initialStudentId = '', showToast }:
   const resultsForYear = React.useMemo(() => {
     return results.filter(r => {
       try {
-        const year = new Date(r.createdAt).getFullYear() + 543;
+        const year = parseDateSafe(r.createdAt).getFullYear() + 543;
         return year === selectedYear;
       } catch (e) {
         return selectedYear === currentBEYear;
@@ -107,7 +126,7 @@ export default function StatusCheckSection({ initialStudentId = '', showToast }:
     const cached = getCachedRequestsByStudentId(trimmedId);
     let hasShownCache = false;
     if (cached && cached.length > 0) {
-      const sortedData = [...cached].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      const sortedData = [...cached].sort((a, b) => parseDateSafe(b.createdAt).getTime() - parseDateSafe(a.createdAt).getTime());
       setResults(sortedData);
       setHasSearched(true);
       setExpandedId(sortedData[0].id);
@@ -123,8 +142,8 @@ export default function StatusCheckSection({ initialStudentId = '', showToast }:
 
     try {
       const response = await getStatusByStudentId(trimmedId, true);
-      if (response.success) {
-        const sortedData = [...response.data].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      if (response.success && response.data) {
+        const sortedData = [...response.data].sort((a, b) => parseDateSafe(b.createdAt).getTime() - parseDateSafe(a.createdAt).getTime());
         setResults(sortedData);
         setHasSearched(true);
         
@@ -162,7 +181,7 @@ export default function StatusCheckSection({ initialStudentId = '', showToast }:
   
   const formatDate = (isoString: string) => {
     try {
-      const d = new Date(isoString);
+      const d = parseDateSafe(isoString);
       if (isTh) {
         return d.toLocaleDateString('th-TH', {
           year: 'numeric',

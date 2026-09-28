@@ -10,6 +10,21 @@
   --font-mono: "Inter", "Prompt", "Kanit", ui-monospace, sans-serif;
 }
 
+/* Smooth Scrolling & Base Polishing */
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button, a, input, select, textarea {
+  touch-action: manipulation;
+}
+
 /* Custom scrollbars and transition timings */
 ::-webkit-scrollbar {
   width: 6px;
@@ -24,6 +39,25 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #7A1F2B;
+}
+
+/* Tactile Button Click & Interactive Micro-Interactions */
+button:not(:disabled), a[role="button"], input[type="button"], input[type="submit"] {
+  transition: transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, color 0.15s ease;
+  user-select: none;
+}
+
+button:not(:disabled):active, a[role="button"]:active, input[type="button"]:active, input[type="submit"]:active {
+  transform: scale(0.965);
+}
+
+/* Primary buttons tactile press depth with shadow softening */
+button.bg-mangosteen:not(:disabled):active,
+button.bg-emerald-600:not(:disabled):active,
+button.bg-slate-600:not(:disabled):active,
+button.bg-slate-800:not(:disabled):active {
+  transform: scale(0.96) translateY(1px);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12) !important;
 }
 
 .dark-theme {

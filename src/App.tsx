@@ -42,7 +42,9 @@ export default function App() {
   const { language, setLanguage, t, isTh } = useTranslation();
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(() => {
     try {
-      return !!localStorage.getItem('logged_in_admin_name');
+      // Security: Always clear legacy persistent login so password is required afresh
+      localStorage.removeItem('logged_in_admin_name');
+      return !!sessionStorage.getItem('logged_in_admin_name');
     } catch (e) {
       return false;
     }
@@ -51,7 +53,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'reserve' | 'status' | 'admin'>(() => {
     try {
       const savedTab = localStorage.getItem('active_tab') as 'reserve' | 'status' | 'admin';
-      if (savedTab === 'admin' && !localStorage.getItem('logged_in_admin_name')) {
+      if (savedTab === 'admin' && !sessionStorage.getItem('logged_in_admin_name')) {
         return 'reserve';
       }
       return savedTab || 'reserve';
@@ -224,6 +226,14 @@ export default function App() {
 
   const handleFormSubmitSuccess = (studentId: string, request: ReservationRequest) => {
     setLatestSubmission({ studentId, request });
+    try {
+      localStorage.setItem('my_recent_submission', JSON.stringify({
+        studentId,
+        requestId: request.id,
+        courses: request.courses,
+        createdAt: new Date().toISOString()
+      }));
+    } catch (e) {}
   };
 
   // --- REAL-TIME NOTIFICATION SYSTEM ---
@@ -301,6 +311,7 @@ export default function App() {
     });
   }, []);
   const [bellDropdownOpen, setBellDropdownOpen] = useState(false);
+  const [mobileNotiSheetOpen, setMobileNotiSheetOpen] = useState(false);
   const [bottomNotifications, setBottomNotifications] = useState<Array<{
     id: string;
     title: string;
@@ -406,10 +417,38 @@ export default function App() {
     }
   };
 
+  // Helper to play a soft crystal chime sound when a new request arrives
+  const playNotificationSound = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      const now = ctx.currentTime;
+      osc.frequency.setValueAtTime(880, now);
+      osc.frequency.setValueAtTime(1174.66, now + 0.12);
+
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.55);
+    } catch (e) {
+      // Audio blocked if not interacted yet
+    }
+  };
+
   // Poll for requests from the database (either LocalStorage or live GAS Sheet)
   const pollRequests = async () => {
     try {
-      const response = await getAllRequests();
+      // When logged in as admin, force fresh data from Google Sheets to detect new requests instantly
+      const response = await getAllRequests(isAdminLoggedIn);
       if (response.success && response.data) {
         let fetchedRequests = response.data;
 
@@ -572,6 +611,9 @@ export default function App() {
               );
             }
 
+            // Play soft crystal notification chime
+            playNotificationSound();
+
             // Trigger the bottom-right floating popup notification
             setBottomNotifications(prev => [
               ...prev,
@@ -720,7 +762,7 @@ export default function App() {
 
       {/* Primary Header */}
       <header className="bg-white/80 backdrop-blur-xl sticky top-0 z-30 border-b border-slate-200 transition-all duration-300">
-        <div className="max-w-7xl mx-auto px-4 py-3 sm:px-6 lg:px-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="max-w-7xl mx-auto px-4 py-2.5 sm:py-3 sm:px-6 lg:px-8 flex items-center justify-between gap-3 sm:gap-4">
           
           {/* Logo & title click resets or targets reserve page */}
           <div 
@@ -820,23 +862,25 @@ export default function App() {
                 )}
               </AnimatePresence>
             </div>
-            <div>
-              <h1 className="text-md sm:text-lg font-black font-sans tracking-tight text-slate-800 flex items-center gap-1.5 leading-tight">
-                {t('systemTitle')}
-                <span className="text-[10px] font-bold text-mangosteen bg-mangosteen/10 px-1.5 py-0.5 rounded-md uppercase tracking-wider">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 flex-nowrap">
+                <h1 className="text-xs sm:text-base font-black font-sans tracking-tight text-slate-800 leading-tight whitespace-nowrap">
+                  {isTh ? 'ระบบสำรองที่นั่ง' : 'Seat Reservation'}
+                </h1>
+                <span className="text-[9px] font-extrabold text-mangosteen bg-mangosteen/10 px-1.5 py-0.5 rounded-md uppercase tracking-wider shrink-0">
                   FST
                 </span>
-              </h1>
-              <p className="text-[10px] font-semibold text-slate-500 font-sans tracking-wide uppercase flex items-center">
+              </div>
+              <p className="text-[9.5px] sm:text-[10px] font-semibold text-slate-400 font-sans tracking-wide uppercase truncate mt-0.5">
                 {t('fstSubtitle')}
               </p>
             </div>
           </div>
 
           {/* Navigation Control Group */}
-          <div className="flex flex-wrap items-center gap-3 sm:gap-4 self-stretch sm:self-auto justify-between sm:justify-end">
-            {/* Regular Student Toggle Tabs */}
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200/50" id="student-navigation-tabs">
+          <div className="flex items-center gap-2 sm:gap-4 justify-end shrink-0">
+            {/* Regular Student Toggle Tabs (Desktop Only) */}
+            <div className="hidden md:flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200/50" id="student-navigation-tabs">
               <button
                 onClick={() => {
                   setLatestSubmission(null);
@@ -869,36 +913,111 @@ export default function App() {
               </button>
             </div>
 
-            {/* Academic-Standard Lang Toggle Switching Button Group */}
-            <div className="flex items-center bg-slate-100 p-1 rounded-2xl border border-slate-200/50 text-slate-500 text-xs font-bold" id="language-switcher-group">
+            {/* Mobile Single-Touch Language Toggle (Compact) */}
+            <button
+              type="button"
+              onClick={() => setLanguage(language === 'th' ? 'en' : 'th')}
+              className="md:hidden flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100/90 hover:bg-slate-200 text-slate-700 rounded-full border border-slate-200/80 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-2xs shrink-0 select-none"
+              title={isTh ? "เปลี่ยนเป็น English" : "Switch to Thai"}
+              id="mobile-lang-toggle"
+            >
+              {language === 'th' ? (
+                <>
+                  <svg className="w-4 h-2.5 rounded-xs shadow-2xs shrink-0 overflow-hidden ring-1 ring-black/10" viewBox="0 0 900 600">
+                    <rect width="900" height="600" fill="#ED1C24" />
+                    <rect y="100" width="900" height="400" fill="#FFFFFF" />
+                    <rect y="200" width="900" height="200" fill="#241D4F" />
+                  </svg>
+                  <span className="text-[11px] font-black text-mangosteen">TH</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-2.5 rounded-xs shadow-2xs shrink-0 overflow-hidden ring-1 ring-black/10" viewBox="0 0 60 30">
+                    <clipPath id="uk-clip-m"><path d="M0,0 v30 h60 v-30 z"/></clipPath>
+                    <clipPath id="uk-diag-m"><path d="M0,0 L60,30 M60,0 L0,30"/></clipPath>
+                    <path d="M0,0 v30 h60 v-30 z" fill="#012169"/>
+                    <path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" strokeWidth="6"/>
+                    <path d="M0,0 L60,30 M60,0 L0,30" clipPath="url(#uk-diag-m)" stroke="#C8102E" strokeWidth="4"/>
+                    <path d="M30,0 v30 M0,15 h60" stroke="#fff" strokeWidth="10"/>
+                    <path d="M30,0 v30 M0,15 h60" stroke="#C8102E" strokeWidth="6"/>
+                  </svg>
+                  <span className="text-[11px] font-black text-mangosteen">EN</span>
+                </>
+              )}
+            </button>
+
+            {/* Desktop Dual-Language Switcher with Flags */}
+            <div 
+              className="hidden md:inline-flex relative items-center bg-slate-100/90 p-1 rounded-full border border-slate-200/80 shadow-xs text-xs font-bold select-none shrink-0" 
+              id="language-switcher-group"
+              role="tablist"
+              aria-label="Language Selector"
+            >
+              {/* TH Option */}
               <button
+                type="button"
                 onClick={() => setLanguage('th')}
-                className={`px-2.5 py-1.5 rounded-xl transition-all duration-300 text-[11px] font-sans tracking-wider cursor-pointer ${
-                  language === 'th' 
-                    ? 'bg-white text-mangosteen shadow-sm border border-slate-200/50 font-black' 
-                    : 'hover:text-slate-700 hover:bg-slate-200/50'
+                className={`relative z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors duration-200 text-xs font-sans tracking-wide cursor-pointer ${
+                  language === 'th'
+                    ? 'text-mangosteen font-black'
+                    : 'text-slate-500 hover:text-slate-700'
                 }`}
-                title="ภาษาไทย"
+                title="ภาษาไทย (Thai)"
                 id="lang-btn-th"
+                role="tab"
+                aria-selected={language === 'th'}
               >
-                TH
+                <svg className="w-4 h-2.5 rounded-xs shadow-2xs shrink-0 overflow-hidden ring-1 ring-black/10" viewBox="0 0 900 600">
+                  <rect width="900" height="600" fill="#ED1C24" />
+                  <rect y="100" width="900" height="400" fill="#FFFFFF" />
+                  <rect y="200" width="900" height="200" fill="#241D4F" />
+                </svg>
+                <span>TH</span>
+                {language === 'th' && (
+                  <motion.div
+                    layoutId="active-lang-pill"
+                    className="absolute inset-0 bg-white rounded-full shadow-xs border border-slate-200/60 -z-10"
+                    transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                  />
+                )}
               </button>
+
+              {/* EN Option */}
               <button
+                type="button"
                 onClick={() => setLanguage('en')}
-                className={`px-2.5 py-1.5 rounded-xl transition-all duration-300 text-[11px] font-sans tracking-wider cursor-pointer ${
-                  language === 'en' 
-                    ? 'bg-white text-mangosteen shadow-sm border border-slate-200/50 font-black' 
-                    : 'hover:text-slate-700 hover:bg-slate-200/50'
+                className={`relative z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors duration-200 text-xs font-sans tracking-wide cursor-pointer ${
+                  language === 'en'
+                    ? 'text-mangosteen font-black'
+                    : 'text-slate-500 hover:text-slate-700'
                 }`}
-                title="English Language"
+                title="English Language (EN)"
                 id="lang-btn-en"
+                role="tab"
+                aria-selected={language === 'en'}
               >
-                EN
+                <svg className="w-4 h-2.5 rounded-xs shadow-2xs shrink-0 overflow-hidden ring-1 ring-black/10" viewBox="0 0 60 30">
+                  <clipPath id="uk-clip"><path d="M0,0 v30 h60 v-30 z"/></clipPath>
+                  <clipPath id="uk-diag"><path d="M0,0 L60,30 M60,0 L0,30"/></clipPath>
+                  <path d="M0,0 v30 h60 v-30 z" fill="#012169"/>
+                  <path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" strokeWidth="6"/>
+                  <path d="M0,0 L60,30 M60,0 L0,30" clipPath="url(#uk-diag)" stroke="#C8102E" strokeWidth="4"/>
+                  <path d="M30,0 v30 M0,15 h60" stroke="#fff" strokeWidth="10"/>
+                  <path d="M30,0 v30 M0,15 h60" stroke="#C8102E" strokeWidth="6"/>
+                </svg>
+                <span>EN</span>
+                {language === 'en' && (
+                  <motion.div
+                    layoutId="active-lang-pill"
+                    className="absolute inset-0 bg-white rounded-full shadow-xs border border-slate-200/60 -z-10"
+                    transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                  />
+                )}
               </button>
             </div>
 
-            {/* Subtly Separated staff login trigger */}
-            <div className="hidden sm:block">
+            {/* Subtly Separated staff login trigger (Desktop Only) */}
+            <div className="hidden md:block">
               <button
                 onClick={() => {
                   setLatestSubmission(null);
@@ -917,9 +1036,9 @@ export default function App() {
               </button>
             </div>
             
-            {/* Notification Bell Icon & Dropdown Center (Admin Only) */}
-            {isAdminLoggedIn && activeTab === 'admin' && (
-              <div className="relative" id="notification-bell-container">
+            {/* Notification Bell Icon & Dropdown Center (Admin Only - Desktop) */}
+            {isAdminLoggedIn && (
+              <div className="relative hidden md:block" id="notification-bell-container">
                 <button
                   onClick={() => setBellDropdownOpen(!bellDropdownOpen)}
                   className={`p-2 rounded-full transition-all duration-300 relative cursor-pointer ${
@@ -1099,7 +1218,7 @@ export default function App() {
       </header>
 
       {/* Main Container Stage */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-8 sm:px-6 lg:px-8 flex flex-col justify-start relative z-10">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-8 sm:px-6 lg:px-8 pb-28 md:pb-12 flex flex-col justify-start relative z-10">
         
         <AnimatePresence mode="wait">
           
@@ -1262,7 +1381,7 @@ export default function App() {
       </main>
 
       {/* Footer bar hosting responsive links */}
-      <footer className="bg-white border-t border-slate-100 py-6 text-center text-xs text-slate-400 font-sans">
+      <footer className="bg-white border-t border-slate-100 py-6 pb-24 md:pb-6 text-center text-xs text-slate-400 font-sans">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-3">
           <p>
             {t('copyright')}
@@ -1408,6 +1527,110 @@ export default function App() {
           </AnimatePresence>
         </div>
       )}
+
+      {/* ========================================================
+          MOBILE FLOATING BOTTOM NAVIGATION BAR (Clean 3-Tab Style)
+          ======================================================== */}
+      <nav 
+        className="fixed bottom-3.5 left-4 right-4 sm:left-1/2 sm:-translate-x-1/2 sm:w-full sm:max-w-md z-40 md:hidden pointer-events-none select-none"
+        aria-label="Mobile Bottom Navigation"
+        id="mobile-bottom-navigation-dock"
+      >
+        <div className="pointer-events-auto bg-white/80 dark:bg-slate-900/80 backdrop-blur-2xl border border-white/70 dark:border-slate-800/80 rounded-full shadow-[0_12px_36px_-6px_rgba(122,31,43,0.14),0_4px_16px_rgba(0,0,0,0.06)] px-3 py-1.5 flex items-center justify-around ring-1 ring-rose-950/5 dark:ring-white/5">
+          {/* 1. Reserve Tab */}
+          <button
+            onClick={() => {
+              setLatestSubmission(null);
+              setActiveTab('reserve');
+            }}
+            className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
+              activeTab === 'reserve' && !latestSubmission
+                ? 'text-mangosteen font-bold'
+                : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+            aria-label={t('tabReserve')}
+            id="mobile-tab-reserve"
+          >
+            <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 ${
+              activeTab === 'reserve' && !latestSubmission ? 'bg-mangosteen/10 scale-105' : ''
+            }`}>
+              <FileText className={`w-5 h-5 ${activeTab === 'reserve' && !latestSubmission ? 'stroke-[2.2] text-mangosteen' : 'stroke-[1.8]'}`} />
+            </div>
+            <span className="text-[10.5px] tracking-tight mt-0.5 leading-tight">{t('tabReserve')}</span>
+            {activeTab === 'reserve' && !latestSubmission && (
+              <motion.div
+                layoutId="bottom-nav-indicator"
+                className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-mangosteen shadow-xs"
+                transition={{ type: "spring", stiffness: 500, damping: 30 }}
+              />
+            )}
+          </button>
+
+          {/* 2. Status Tab */}
+          <button
+            onClick={() => {
+              setLatestSubmission(null);
+              setActiveTab('status');
+            }}
+            className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
+              activeTab === 'status'
+                ? 'text-mangosteen font-bold'
+                : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+            aria-label={t('tabStatus')}
+            id="mobile-tab-status"
+          >
+            <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 ${
+              activeTab === 'status' ? 'bg-mangosteen/10 scale-105' : ''
+            }`}>
+              <Search className={`w-5 h-5 ${activeTab === 'status' ? 'stroke-[2.2] text-mangosteen' : 'stroke-[1.8]'}`} />
+            </div>
+            <span className="text-[10.5px] tracking-tight mt-0.5 leading-tight">{t('tabStatus')}</span>
+            {activeTab === 'status' && (
+              <motion.div
+                layoutId="bottom-nav-indicator"
+                className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-mangosteen shadow-xs"
+                transition={{ type: "spring", stiffness: 500, damping: 30 }}
+              />
+            )}
+          </button>
+
+          {/* 3. Staff / Admin Tab */}
+          <button
+            onClick={() => {
+              setLatestSubmission(null);
+              setActiveTab('admin');
+            }}
+            className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
+              activeTab === 'admin'
+                ? 'text-mangosteen font-bold'
+                : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+            aria-label={t('tabAdmin')}
+            id="mobile-tab-admin"
+          >
+            <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 ${
+              activeTab === 'admin' ? 'bg-mangosteen/10 scale-105' : ''
+            }`}>
+              {isAdminLoggedIn ? (
+                <User className={`w-5 h-5 ${activeTab === 'admin' ? 'stroke-[2.2] text-mangosteen' : 'stroke-[1.8]'}`} />
+              ) : (
+                <Lock className={`w-5 h-5 ${activeTab === 'admin' ? 'stroke-[2.2] text-mangosteen' : 'stroke-[1.8]'}`} />
+              )}
+            </div>
+            <span className="text-[10.5px] tracking-tight mt-0.5 leading-tight">
+              {isAdminLoggedIn ? (isTh ? 'เจ้าหน้าที่' : 'Admin') : t('tabAdmin')}
+            </span>
+            {activeTab === 'admin' && (
+              <motion.div
+                layoutId="bottom-nav-indicator"
+                className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-mangosteen shadow-xs"
+                transition={{ type: "spring", stiffness: 500, damping: 30 }}
+              />
+            )}
+          </button>
+        </div>
+      </nav>
     </div>
   );
 }
