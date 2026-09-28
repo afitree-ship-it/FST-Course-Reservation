@@ -78,6 +78,21 @@ export default function App() {
   // Back-and-forth query sharing state
   const [selectedStudentId, setSelectedStudentId] = useState('');
 
+  // Key to force reset FormSection back to step 1 (Student ID input)
+  const [formResetKey, setFormResetKey] = useState(0);
+
+  const handleResetToHome = () => {
+    setLatestSubmission(null);
+    setSelectedStudentId('');
+    setActiveTab('reserve');
+    setFormResetKey((prev) => prev + 1);
+    try {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch {
+      window.scrollTo(0, 0);
+    }
+  };
+
   // Mobile language selector dropdown state
   const [mobileLangDropdownOpen, setMobileLangDropdownOpen] = useState(false);
 
@@ -768,14 +783,21 @@ export default function App() {
       <header className="bg-white/80 backdrop-blur-xl sticky top-0 z-30 border-b border-slate-200 transition-all duration-300">
         <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-2 sm:py-3 flex items-center justify-between gap-1.5 sm:gap-4">
           
-          {/* Logo & title click resets or targets reserve page */}
+          {/* Logo & title click resets to step 1 (Student ID input) */}
           <div 
-            onClick={() => {
-              setLatestSubmission(null);
-              setActiveTab('reserve');
+            onClick={handleResetToHome}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleResetToHome();
+              }
             }}
-            className="flex items-center gap-2 sm:gap-3 cursor-pointer group select-none min-w-0 flex-1"
+            className="flex items-center gap-2 sm:gap-3 cursor-pointer group select-none min-w-0 flex-1 transition-all duration-200 active:scale-[0.99]"
             id="brand-header-logo"
+            aria-label={isTh ? "กลับหน้าแรก ใส่รหัสนักศึกษา" : "Back to home, enter student ID"}
+            title={isTh ? "คลิกเพื่อกลับหน้าแรก (ใส่รหัสนักศึกษา)" : "Click to go to home (Student ID)"}
           >
             <div className="w-8 h-8 sm:w-10 sm:h-10 shrink-0 transition-all duration-300 group-hover:rotate-6 group-hover:scale-105 flex items-center justify-center relative">
               <AnimatePresence mode="wait">
@@ -881,12 +903,9 @@ export default function App() {
             {/* Regular Student Toggle Tabs (Desktop Only) */}
             <div className="hidden md:flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200/50" id="student-navigation-tabs">
               <button
-                onClick={() => {
-                  setLatestSubmission(null);
-                  setActiveTab('reserve');
-                }}
+                onClick={handleResetToHome}
                 className={`py-2 px-3 sm:py-2 sm:px-4 text-xs font-semibold font-sans rounded-xl transition-all duration-300 flex items-center gap-2 cursor-pointer ${
-                  activeTab === 'reserve'
+                  activeTab === 'reserve' && !latestSubmission
                     ? 'bg-white text-mangosteen shadow-sm border border-slate-200/50'
                     : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
                 }`}
@@ -1389,6 +1408,7 @@ export default function App() {
               {/* --- SECTION 1: ENROLLMENT REGISTRATION FORM --- */}
               {activeTab === 'reserve' && (
                 <FormSection 
+                  key={formResetKey}
                   onSuccess={handleFormSubmitSuccess}
                   showToast={showToast}
                 />
@@ -1611,10 +1631,7 @@ export default function App() {
         <div className="pointer-events-auto bg-[#7A1F2B] dark:bg-[#7A1F2B] border border-white/25 dark:border-white/20 rounded-full shadow-[0_16px_36px_-6px_rgba(122,31,43,0.45),0_6px_20px_rgba(0,0,0,0.2),inset_0_1px_1.5px_rgba(255,255,255,0.3)] px-3 py-1.5 flex items-center justify-around ring-1 ring-black/10">
           {/* 1. Reserve Tab */}
           <button
-            onClick={() => {
-              setLatestSubmission(null);
-              setActiveTab('reserve');
-            }}
+            onClick={handleResetToHome}
             className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
               activeTab === 'reserve' && !latestSubmission
                 ? 'text-white font-bold'
