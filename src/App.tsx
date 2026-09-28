@@ -1529,23 +1529,22 @@ export default function App() {
       )}
 
       {/* ========================================================
-          MOBILE FLOATING BOTTOM NAVIGATION BAR (Namethatui / iOS Style)
+          MOBILE FLOATING BOTTOM NAVIGATION BAR (Clean 3-Tab Style)
           ======================================================== */}
       <nav 
-        className="fixed bottom-3.5 left-3 right-3 sm:left-1/2 sm:-translate-x-1/2 sm:w-full sm:max-w-md z-40 md:hidden pointer-events-none select-none"
+        className="fixed bottom-3.5 left-4 right-4 sm:left-1/2 sm:-translate-x-1/2 sm:w-full sm:max-w-md z-40 md:hidden pointer-events-none select-none"
         aria-label="Mobile Bottom Navigation"
         id="mobile-bottom-navigation-dock"
       >
-        <div className="pointer-events-auto bg-white/92 dark:bg-slate-900/92 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-full shadow-[0_12px_36px_-6px_rgba(0,0,0,0.18)] px-2 py-1.5 flex items-center justify-around ring-1 ring-black/5 dark:ring-white/5">
-          {/* 1. Reserve Tab (Home) */}
+        <div className="pointer-events-auto bg-white/92 dark:bg-slate-900/92 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-full shadow-[0_12px_36px_-6px_rgba(0,0,0,0.18)] px-3 py-1.5 flex items-center justify-around ring-1 ring-black/5 dark:ring-white/5">
+          {/* 1. Reserve Tab */}
           <button
             onClick={() => {
               setLatestSubmission(null);
               setActiveTab('reserve');
-              setMobileNotiSheetOpen(false);
             }}
-            className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
-              activeTab === 'reserve' && !latestSubmission && !mobileNotiSheetOpen
+            className={`relative flex-1 flex flex-col items-center justify-center py-1.5 px-2 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
+              activeTab === 'reserve' && !latestSubmission
                 ? 'text-mangosteen font-bold'
                 : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
             }`}
@@ -1553,12 +1552,12 @@ export default function App() {
             id="mobile-tab-reserve"
           >
             <div className={`p-1.5 rounded-full transition-all duration-200 ${
-              activeTab === 'reserve' && !latestSubmission && !mobileNotiSheetOpen ? 'bg-mangosteen/10 scale-105' : ''
+              activeTab === 'reserve' && !latestSubmission ? 'bg-mangosteen/10 scale-105' : ''
             }`}>
-              <FileText className={`w-5 h-5 ${activeTab === 'reserve' && !latestSubmission && !mobileNotiSheetOpen ? 'stroke-[2.2]' : 'stroke-[1.8]'}`} />
+              <FileText className={`w-5 h-5 ${activeTab === 'reserve' && !latestSubmission ? 'stroke-[2.2]' : 'stroke-[1.8]'}`} />
             </div>
-            <span className="text-[10px] tracking-tight mt-0.5 leading-tight">{t('tabReserve')}</span>
-            {activeTab === 'reserve' && !latestSubmission && !mobileNotiSheetOpen && (
+            <span className="text-[10.5px] tracking-tight mt-0.5 leading-tight">{t('tabReserve')}</span>
+            {activeTab === 'reserve' && !latestSubmission && (
               <motion.div
                 layoutId="bottom-nav-indicator"
                 className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-mangosteen"
@@ -1567,15 +1566,14 @@ export default function App() {
             )}
           </button>
 
-          {/* 2. Status Tab (Search) */}
+          {/* 2. Status Tab */}
           <button
             onClick={() => {
               setLatestSubmission(null);
               setActiveTab('status');
-              setMobileNotiSheetOpen(false);
             }}
-            className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
-              activeTab === 'status' && !mobileNotiSheetOpen
+            className={`relative flex-1 flex flex-col items-center justify-center py-1.5 px-2 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
+              activeTab === 'status'
                 ? 'text-mangosteen font-bold'
                 : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
             }`}
@@ -1583,12 +1581,12 @@ export default function App() {
             id="mobile-tab-status"
           >
             <div className={`p-1.5 rounded-full transition-all duration-200 ${
-              activeTab === 'status' && !mobileNotiSheetOpen ? 'bg-mangosteen/10 scale-105' : ''
+              activeTab === 'status' ? 'bg-mangosteen/10 scale-105' : ''
             }`}>
-              <Search className={`w-5 h-5 ${activeTab === 'status' && !mobileNotiSheetOpen ? 'stroke-[2.2]' : 'stroke-[1.8]'}`} />
+              <Search className={`w-5 h-5 ${activeTab === 'status' ? 'stroke-[2.2]' : 'stroke-[1.8]'}`} />
             </div>
-            <span className="text-[10px] tracking-tight mt-0.5 leading-tight">{t('tabStatus')}</span>
-            {activeTab === 'status' && !mobileNotiSheetOpen && (
+            <span className="text-[10.5px] tracking-tight mt-0.5 leading-tight">{t('tabStatus')}</span>
+            {activeTab === 'status' && (
               <motion.div
                 layoutId="bottom-nav-indicator"
                 className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-mangosteen"
@@ -1597,52 +1595,14 @@ export default function App() {
             )}
           </button>
 
-          {/* 3. Notifications Tab (Inbox / Bell with Red Badge) */}
-          <button
-            onClick={() => {
-              setMobileNotiSheetOpen(prev => !prev);
-            }}
-            className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
-              mobileNotiSheetOpen
-                ? 'text-mangosteen font-bold'
-                : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-            }`}
-            aria-label={isTh ? "การแจ้งเตือน" : "Notifications"}
-            id="mobile-tab-notifications"
-          >
-            <div className={`relative p-1.5 rounded-full transition-all duration-200 ${
-              mobileNotiSheetOpen ? 'bg-mangosteen/10 scale-105' : ''
-            }`}>
-              {isAdminLoggedIn && pendingCount > 0 ? (
-                <BellRing className="w-5 h-5 stroke-[2] text-rose-500 animate-pulse" />
-              ) : (
-                <Bell className="w-5 h-5 stroke-[1.8]" />
-              )}
-              {isAdminLoggedIn && pendingCount > 0 && (
-                <span className="absolute -top-0.5 -right-1 bg-rose-500 text-white text-[9px] font-black min-w-4 h-4 px-1 rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-sm animate-bounce">
-                  {pendingCount > 99 ? '99+' : pendingCount}
-                </span>
-              )}
-            </div>
-            <span className="text-[10px] tracking-tight mt-0.5 leading-tight">{isTh ? 'แจ้งเตือน' : 'Inbox'}</span>
-            {mobileNotiSheetOpen && (
-              <motion.div
-                layoutId="bottom-nav-indicator"
-                className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-mangosteen"
-                transition={{ type: "spring", stiffness: 500, damping: 30 }}
-              />
-            )}
-          </button>
-
-          {/* 4. Staff / Admin Tab (Profile / Lock) */}
+          {/* 3. Staff / Admin Tab */}
           <button
             onClick={() => {
               setLatestSubmission(null);
               setActiveTab('admin');
-              setMobileNotiSheetOpen(false);
             }}
-            className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
-              activeTab === 'admin' && !mobileNotiSheetOpen
+            className={`relative flex-1 flex flex-col items-center justify-center py-1.5 px-2 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
+              activeTab === 'admin'
                 ? 'text-mangosteen font-bold'
                 : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
             }`}
@@ -1650,18 +1610,18 @@ export default function App() {
             id="mobile-tab-admin"
           >
             <div className={`p-1.5 rounded-full transition-all duration-200 ${
-              activeTab === 'admin' && !mobileNotiSheetOpen ? 'bg-mangosteen/10 scale-105' : ''
+              activeTab === 'admin' ? 'bg-mangosteen/10 scale-105' : ''
             }`}>
               {isAdminLoggedIn ? (
-                <User className={`w-5 h-5 ${activeTab === 'admin' && !mobileNotiSheetOpen ? 'stroke-[2.2]' : 'stroke-[1.8]'}`} />
+                <User className={`w-5 h-5 ${activeTab === 'admin' ? 'stroke-[2.2]' : 'stroke-[1.8]'}`} />
               ) : (
-                <Lock className={`w-5 h-5 ${activeTab === 'admin' && !mobileNotiSheetOpen ? 'stroke-[2.2]' : 'stroke-[1.8]'}`} />
+                <Lock className={`w-5 h-5 ${activeTab === 'admin' ? 'stroke-[2.2]' : 'stroke-[1.8]'}`} />
               )}
             </div>
-            <span className="text-[10px] tracking-tight mt-0.5 leading-tight">
+            <span className="text-[10.5px] tracking-tight mt-0.5 leading-tight">
               {isAdminLoggedIn ? (isTh ? 'เจ้าหน้าที่' : 'Admin') : t('tabAdmin')}
             </span>
-            {activeTab === 'admin' && !mobileNotiSheetOpen && (
+            {activeTab === 'admin' && (
               <motion.div
                 layoutId="bottom-nav-indicator"
                 className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-mangosteen"
@@ -1671,254 +1631,6 @@ export default function App() {
           </button>
         </div>
       </nav>
-
-      {/* ========================================================
-          MOBILE NOTIFICATION BOTTOM SHEET MODAL
-          ======================================================== */}
-      <AnimatePresence>
-        {mobileNotiSheetOpen && (
-          <div className="fixed inset-0 z-50 md:hidden flex flex-col justify-end">
-            {/* Backdrop */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-slate-900/50 backdrop-blur-xs"
-              onClick={() => setMobileNotiSheetOpen(false)}
-            />
-
-            {/* Bottom Sheet Card */}
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: "spring", damping: 28, stiffness: 300 }}
-              className="relative bg-white dark:bg-slate-900 rounded-t-3xl border-t border-slate-200 dark:border-slate-800 shadow-2xl p-5 max-h-[82vh] flex flex-col z-10 pb-8"
-            >
-              {/* Handle indicator */}
-              <div className="w-12 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full mx-auto mb-3" />
-
-              {/* Sheet Header */}
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-                <div className="flex items-center gap-2">
-                  <div className="p-2 bg-mangosteen/10 text-mangosteen rounded-xl">
-                    <BellRing className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="font-extrabold text-sm text-slate-800 dark:text-white">
-                      {isAdminLoggedIn ? (isTh ? 'แจ้งเตือนคำร้องใหม่' : 'Pending Requests') : (isTh ? 'ศูนย์การแจ้งเตือน' : 'Notification Center')}
-                    </h3>
-                    {isAdminLoggedIn && pendingCount > 0 && (
-                      <p className="text-[11px] text-rose-500 font-bold">
-                        {pendingCount} {isTh ? 'คำร้องรอดำเนินการ' : 'pending requests'}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {isAdminLoggedIn && pendingCount > 0 && (
-                    <button
-                      onClick={() => {
-                        const currentPendingIds = pendingRequestsList.map(r => r.id);
-                        const newCleared = [...new Set([...clearedNotificationIds, ...currentPendingIds])];
-                        saveClearedNotificationIds(newCleared);
-                        showToast(isTh ? 'ล้างการแจ้งเตือนทั้งหมดแล้ว' : 'All notifications cleared.', 'success');
-                      }}
-                      className="text-[11px] font-bold text-slate-500 hover:text-mangosteen bg-slate-100 dark:bg-slate-800 px-2.5 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer transition-colors"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>{isTh ? 'เคลียร์' : 'Clear'}</span>
-                    </button>
-                  )}
-                  <button
-                    onClick={() => setMobileNotiSheetOpen(false)}
-                    className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Sheet Body */}
-              <div className="flex-1 overflow-y-auto py-3 space-y-2.5 max-h-[50vh]">
-                {isAdminLoggedIn ? (
-                  pendingRequestsList.length === 0 ? (
-                    <div className="py-8 text-center text-slate-400 space-y-2">
-                      <CheckCircle className="w-10 h-10 text-emerald-500 mx-auto" />
-                      <p className="text-sm font-semibold">{isTh ? 'ไม่มีคำร้องค้างพิจารณา' : 'All caught up! No pending requests.'}</p>
-                    </div>
-                  ) : (
-                    pendingRequestsList.map((req, rIdx) => {
-                      const coursesList = req.courses && req.courses.length > 0
-                        ? req.courses
-                        : [{ courseCode: req.courseCode || 'N/A', courseName: req.courseName || '', section: req.section || '' }];
-                      return (
-                        <div
-                          key={rIdx}
-                          onClick={() => {
-                            setActiveTab('admin');
-                            setTargetRequestId(req.id);
-                            setMobileNotiSheetOpen(false);
-                          }}
-                          className="p-3.5 bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl border border-slate-200/80 dark:border-slate-700 transition-colors cursor-pointer space-y-1.5 text-left"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="font-bold text-xs text-slate-800 dark:text-white truncate max-w-[170px]">
-                              {req.fullName}
-                            </span>
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              {req.studentId}
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                            {isTh ? 'ขอสำรองวิชา:' : 'Requested:'}{' '}
-                            <span className="font-bold text-mangosteen font-mono">{coursesList.length} {isTh ? 'วิชา' : 'course(s)'}</span>
-                          </div>
-                          <div className="pl-2 border-l-2 border-slate-200 dark:border-slate-700 space-y-0.5">
-                            {coursesList.map((c, cIdx) => (
-                              <div key={cIdx} className="text-[10px] text-slate-600 dark:text-slate-300 font-mono flex items-center gap-1.5">
-                                <span className="font-bold text-mangosteen">{c.courseCode}</span>
-                                <span className="truncate">{c.courseName}</span>
-                                <span className="text-slate-400 font-sans">Sec {c.section}</span>
-                              </div>
-                            ))}
-                          </div>
-                          <div className="text-[9px] text-slate-400 flex items-center gap-1 pt-0.5">
-                            <Clock className="w-2.5 h-2.5" />
-                            <span>
-                              {new Date(req.createdAt || new Date().toISOString()).toLocaleTimeString(isTh ? 'th-TH' : 'en-US', {
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )
-                ) : (
-                  /* Student View */
-                  <div className="py-2 space-y-3">
-                    {latestSubmission || localStorage.getItem('my_recent_submission') ? (
-                      (() => {
-                        const saved = latestSubmission ? {
-                          studentId: latestSubmission.studentId,
-                          courses: latestSubmission.request.courses,
-                          createdAt: latestSubmission.request.createdAt
-                        } : (() => {
-                          try {
-                            return JSON.parse(localStorage.getItem('my_recent_submission') || '{}');
-                          } catch (e) { return null; }
-                        })();
-
-                        if (!saved || !saved.studentId) {
-                          return (
-                            <div className="p-6 text-center text-slate-400 space-y-2">
-                              <Bell className="w-8 h-8 text-slate-300 mx-auto" />
-                              <div className="text-xs font-bold text-slate-700 dark:text-slate-200">ยังไม่มีการแจ้งเตือนใหม่</div>
-                              <p className="text-[11px] text-slate-400">เมื่อคุณยื่นคำร้องสำรองที่นั่งแล้ว ผลการพิจารณาคำร้องจะแจ้งเตือนให้ทราบที่นี่</p>
-                              <button
-                                onClick={() => {
-                                  setMobileNotiSheetOpen(false);
-                                  setActiveTab('reserve');
-                                }}
-                                className="mt-2 px-4 py-2 bg-mangosteen text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer"
-                              >
-                                ยื่นคำร้องสำรองที่นั่ง
-                              </button>
-                            </div>
-                          );
-                        }
-
-                        return (
-                          <div className="space-y-3">
-                            <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-200/80 dark:border-slate-700 text-left space-y-2">
-                              <div className="flex items-center justify-between">
-                                <span className="font-extrabold text-xs text-slate-800 dark:text-white">คำร้องล่าสุดของคุณ</span>
-                                <span className="font-mono text-[10px] text-slate-500 font-bold bg-slate-200/80 dark:bg-slate-700 px-2 py-0.5 rounded-md">
-                                  {saved.studentId}
-                                </span>
-                              </div>
-                              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                                {isTh ? 'ระบบกำลังติดตามสถานะคำร้องของคุณจากฐานข้อมูลคณะ' : 'Tracking your submission status in the system.'}
-                              </p>
-                              {saved.courses && (
-                                <div className="space-y-1 pt-1 border-t border-slate-200/60 dark:border-slate-700">
-                                  {saved.courses.map((c: any, idx: number) => (
-                                    <div key={idx} className="flex justify-between items-center text-[10px] font-mono">
-                                      <span className="font-bold text-mangosteen truncate max-w-[170px]">{c.courseCode} ({c.section || 'Sec 01'})</span>
-                                      <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded shrink-0">
-                                        {c.status || 'รอดำเนินการ'}
-                                      </span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-
-                            <button
-                              onClick={() => {
-                                setMobileNotiSheetOpen(false);
-                                setSelectedStudentId(saved.studentId);
-                                setActiveTab('status');
-                              }}
-                              className="w-full py-2.5 bg-mangosteen text-white font-bold text-xs rounded-xl shadow-sm flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-all"
-                            >
-                              <Search className="w-4 h-4" />
-                              <span>{isTh ? 'ตรวจสอบสถานะคำร้องแบบละเอียด' : 'Check Detailed Status'}</span>
-                            </button>
-                          </div>
-                        );
-                      })()
-                    ) : (
-                      <div className="p-6 text-center text-slate-400 space-y-2">
-                        <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto text-slate-400">
-                          <Bell className="w-6 h-6" />
-                        </div>
-                        <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                          {isTh ? 'ยังไม่มีการแจ้งเตือนใหม่' : 'No New Notifications'}
-                        </div>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed max-w-xs mx-auto">
-                          {isTh 
-                            ? 'เมื่อคุณส่งแบบฟอร์มขอสำรองที่นั่งแล้ว ความคืบหน้าและผลการอนุมัติรายวิชาจะแสดงแจ้งเตือนให้ทราบที่นี่ทันที' 
-                            : 'When you submit a course seat reservation, progress and approval updates will appear here.'}
-                        </p>
-                        <button
-                          onClick={() => {
-                            setMobileNotiSheetOpen(false);
-                            setActiveTab('reserve');
-                          }}
-                          className="mt-3 w-full py-2.5 bg-mangosteen text-white font-bold text-xs rounded-xl shadow-sm flex items-center justify-center gap-1.5 cursor-pointer active:scale-98 transition-all"
-                        >
-                          <FileText className="w-3.5 h-3.5" />
-                          <span>{isTh ? 'ไปยื่นคำร้องสำรองที่นั่ง' : 'Go to Reservation Form'}</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Sheet Footer */}
-              {isAdminLoggedIn && (
-                <div className="pt-3 border-t border-slate-100 dark:border-slate-800">
-                  <button
-                    onClick={() => {
-                      setActiveTab('admin');
-                      setMobileNotiSheetOpen(false);
-                    }}
-                    className="w-full py-2.5 bg-mangosteen text-white font-bold text-xs rounded-xl shadow-md flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-all"
-                  >
-                    <span>{isTh ? 'เปิดบอร์ดควบคุมคำร้องทั้งหมด' : 'Go to Admin Dashboard'}</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
