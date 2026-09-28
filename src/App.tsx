@@ -1608,7 +1608,7 @@ export default function App() {
         aria-label="Mobile Bottom Navigation"
         id="mobile-bottom-navigation-dock"
       >
-        <div className="pointer-events-auto bg-[#7A1F2B] dark:bg-[#7A1F2B] border border-white/25 dark:border-white/20 rounded-full shadow-[0_16px_36px_-6px_rgba(122,31,43,0.45),0_6px_20px_rgba(0,0,0,0.2),inset_0_1px_1.5px_rgba(255,255,255,0.3)] px-3 py-1.5 flex items-center justify-around ring-1 ring-black/10">
+        <div className="pointer-events-auto bg-gradient-to-r from-[#58111B] via-[#7A1F2B] to-[#9E2638] dark:from-[#4A0D16] dark:via-[#7A1F2B] dark:to-[#8E2233] border border-white/25 dark:border-white/20 rounded-full shadow-[0_16px_36px_-6px_rgba(122,31,43,0.5),0_6px_20px_rgba(0,0,0,0.25),inset_0_1px_1.5px_rgba(255,255,255,0.35)] px-3 py-1.5 flex items-center justify-around ring-1 ring-black/15">
           {/* 1. Reserve Tab */}
           <button
             onClick={() => {
