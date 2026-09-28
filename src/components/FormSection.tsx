@@ -109,6 +109,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
   const [proofType, setProofType] = useState<'file' | 'link'>('file');
   const [facebookProofLink, setFacebookProofLink] = useState('');
   const [facebookProofFile, setFacebookProofFile] = useState<{ name: string; type: string; dataUrl: string } | null>(null);
+  const [isProofAutoRestored, setIsProofAutoRestored] = useState(false);
   const [phone, setPhone] = useState('');
   const [consent, setConsent] = useState(true);
 
@@ -454,6 +455,24 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
               type: 'image/jpeg',
               dataUrl: compressedDataUrl
             });
+            setIsProofAutoRestored(false);
+            try {
+              const saveObj = {
+                proofType: 'file',
+                facebookProofFile: {
+                  name: file.name,
+                  type: 'image/jpeg',
+                  dataUrl: compressedDataUrl
+                },
+                facebookProofLink: ''
+              };
+              if (studentId.trim()) {
+                localStorage.setItem('saved_proof_' + studentId.trim(), JSON.stringify(saveObj));
+              }
+              localStorage.setItem('saved_proof_last', JSON.stringify(saveObj));
+            } catch (err) {
+              // ignore quota
+            }
             showToast(isTh ? 'อัปโหลดและประมวลผลไฟล์รูปภาพเรียบร้อย' : 'Screenshot uploaded and processed successfully.', 'success');
           } else {
             showToast(isTh ? 'เกิดข้อผิดพลาดในการประมวลผลรูปภาพ' : 'Error processing image.', 'error');
@@ -498,8 +517,79 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     }
   };
 
+  const getDirectImageUrl = (url?: string): string => {
+    if (!url) return '';
+    if (url.startsWith('data:image/') || url.startsWith('blob:')) return url;
+    const driveMatch = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/id=([a-zA-Z0-9_-]+)/);
+    if (driveMatch && driveMatch[1]) {
+      return `https://drive.google.com/thumbnail?id=${driveMatch[1]}&sz=w800`;
+    }
+    return url;
+  };
+
   const clearFile = () => {
     setFacebookProofFile(null);
+    setIsProofAutoRestored(false);
+    try {
+      if (studentId.trim()) {
+        localStorage.removeItem('saved_proof_' + studentId.trim());
+      }
+      localStorage.removeItem('saved_proof_last');
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  const restoreProofData = (id: string, remoteData?: ReservationRequest): boolean => {
+    try {
+      // 1. Check local storage for this student or last saved proof (fastest and retains high-res base64)
+      const savedRaw = (id ? localStorage.getItem('saved_proof_' + id) : null) || localStorage.getItem('saved_proof_last');
+      if (savedRaw) {
+        const parsed = JSON.parse(savedRaw);
+        if (parsed.proofType === 'file' && parsed.facebookProofFile?.dataUrl) {
+          setProofType('file');
+          setFacebookProofFile(parsed.facebookProofFile);
+          setIsProofAutoRestored(true);
+          return true;
+        } else if (parsed.proofType === 'link' && parsed.facebookProofLink) {
+          setProofType('link');
+          setFacebookProofLink(parsed.facebookProofLink);
+          setIsProofAutoRestored(true);
+          return true;
+        }
+      }
+    } catch (err) {
+      // ignore JSON parse error
+    }
+
+    // 2. Check remote record from past requests
+    if (remoteData) {
+      if (remoteData.proofType === 'link' && remoteData.facebookProofLink) {
+        setProofType('link');
+        setFacebookProofLink(remoteData.facebookProofLink);
+        setIsProofAutoRestored(true);
+        return true;
+      } else if (remoteData.facebookProofFile && remoteData.facebookProofFile.dataUrl) {
+        setProofType('file');
+        setFacebookProofFile(remoteData.facebookProofFile);
+        setIsProofAutoRestored(true);
+        return true;
+      } else if (remoteData.proofType === 'file' && remoteData.facebookProofLink) {
+        // GAS saves drive URL in facebookProofLink
+        const driveUrl = remoteData.facebookProofLink;
+        setProofType('file');
+        setFacebookProofFile({
+          name: isTh ? 'รูปโปรไฟล์ Facebook จากคำร้องเดิม' : 'Previous Facebook Profile Proof',
+          type: 'image/jpeg',
+          dataUrl: driveUrl
+        });
+        setIsProofAutoRestored(true);
+        return true;
+      }
+    }
+
+    setIsProofAutoRestored(false);
+    return false;
   };
 
   const handleCheckStudentId = async (e: React.FormEvent) => {
@@ -523,6 +613,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       setYear(String(latest.year || ''));
       setPhone(String(latest.phone || ''));
       if (latest.notifyContact) setNotifyContact(String(latest.notifyContact));
+      restoreProofData(studentId.trim(), latest);
       setHasProfile(true);
       setTouched({});
       setStep(2);
@@ -541,6 +632,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
         setYear(String(latest.year || ''));
         setPhone(String(latest.phone || ''));
         if (latest.notifyContact) setNotifyContact(String(latest.notifyContact));
+        restoreProofData(studentId.trim(), latest);
         setHasProfile(true);
       } else {
         setFullName('');
@@ -553,6 +645,8 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
         setFacebookProofFile(null);
         setNotifyContact('');
         setHasProfile(false);
+        // Check if this browser has a saved proof of contact from earlier
+        restoreProofData(studentId.trim());
       }
       setStep(2);
     } catch (err) {
@@ -566,6 +660,8 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       setFacebookProofFile(null);
       setNotifyContact('');
       setHasProfile(false);
+      // Check if this browser has a saved proof of contact from earlier
+      restoreProofData(studentId.trim());
       setTouched({});
       setStep(2);
     } finally {
@@ -648,6 +744,22 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       const response = await submitRequest(submitPayload);
       if (response.success && response.data) {
         localStorage.setItem('notify_contact_email', notifyContact.trim());
+
+        // Remember contact proof (image or link)
+        try {
+          const proofPayload = {
+            proofType,
+            facebookProofLink: proofType === 'link' ? facebookProofLink.trim() : '',
+            facebookProofFile: proofType === 'file' && facebookProofFile ? facebookProofFile : null
+          };
+          if (studentId.trim()) {
+            localStorage.setItem('saved_proof_' + studentId.trim(), JSON.stringify(proofPayload));
+          }
+          localStorage.setItem('saved_proof_last', JSON.stringify(proofPayload));
+        } catch (proofErr) {
+          // ignore storage quota error
+        }
+
         showToast(isTh ? 'ส่งคำร้องขอดำเนินการเรียบร้อยแล้ว!' : 'Seat reservation requested successfully!', 'success');
         onSuccess(studentId.trim(), response.data);
       } else {
@@ -1405,10 +1517,31 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
 
               {/* Section 3: ช่องทางสำหรับติดต่อกลับเพื่อยืนยันหรือตรวจสอบข้อมูล */}
               <div className="space-y-4">
-                <div className="flex items-center gap-2 border-b border-slate-100 pb-2 mb-4">
-                  <Globe className="w-4 h-4 text-mangosteen" />
-                  <h3 className="font-bold text-sm text-slate-800 font-sans tracking-wide">{t('ช่องทางการติดต่อ')}</h3>
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-4">
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-mangosteen" />
+                    <h3 className="font-bold text-sm text-slate-800 font-sans tracking-wide">{t('ช่องทางการติดต่อ')}</h3>
+                  </div>
+                  {isProofAutoRestored && (
+                    <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-3xs">
+                      <span>✓</span>
+                      <span>{isTh ? 'จดจำข้อมูลเดิมอัตโนมัติ' : 'Auto-remembered'}</span>
+                    </span>
+                  )}
                 </div>
+
+                {isProofAutoRestored && (
+                  <div className="bg-emerald-50/80 border border-emerald-200 text-emerald-800 p-3 rounded-xl flex items-center justify-between gap-3 text-xs font-sans shadow-2xs">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">⚡</span>
+                      <span>
+                        {isTh
+                          ? 'ระบบจดจำรูปภาพ / ลิงก์ติดต่อเดิมให้แล้ว ไม่จำเป็นต้องแนบใหม่ทุกครั้ง (สามารถกดลบเพื่อเปลี่ยนใหม่ได้ตลอดเวลา)'
+                          : 'Your contact proof is automatically remembered. No need to upload each time unless you want to update it.'}
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex flex-col sm:flex-row gap-3">
                   <span className="text-sm font-bold text-mangosteen shrink-0 pt-0.5 font-sans">
@@ -1475,7 +1608,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                         <div className="flex flex-col items-center gap-3 w-full" onClick={e => e.stopPropagation()}>
                           <div className="relative">
                             <img
-                              src={facebookProofFile.dataUrl}
+                              src={getDirectImageUrl(facebookProofFile.dataUrl)}
                               alt="Facebook Profile Screenshot"
                               className="max-h-36 rounded-lg pointer-events-none object-contain shadow-xs border border-slate-200"
                             />
@@ -1518,7 +1651,21 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                       <input
                         type="url"
                         value={facebookProofLink}
-                        onChange={e => setFacebookProofLink(e.target.value)}
+                        onChange={e => {
+                          setFacebookProofLink(e.target.value);
+                          setIsProofAutoRestored(false);
+                          try {
+                            const saveObj = {
+                              proofType: 'link',
+                              facebookProofFile: null,
+                              facebookProofLink: e.target.value
+                            };
+                            if (studentId.trim()) {
+                              localStorage.setItem('saved_proof_' + studentId.trim(), JSON.stringify(saveObj));
+                            }
+                            localStorage.setItem('saved_proof_last', JSON.stringify(saveObj));
+                          } catch (err) {}
+                        }}
                         onBlur={() => handleBlur('facebookProofLink')}
                         placeholder="https://facebook.com/your.username"
                         className={`w-full pl-10 pr-4 py-2.5 rounded-lg border text-sm font-sans transition-all focus:outline-hidden focus:ring-2 ${
