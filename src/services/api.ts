@@ -480,6 +480,26 @@ export async function dispatchNotification(
     return { success: false, error: 'ไม่พบ Endpoint หรือข้อความการแจ้งเตือน' };
   }
 
+  // 1. Send via Google Apps Script backend (reliable in cloud / Vercel without proxy)
+  if (isApiConfigured()) {
+    try {
+      const res = await fetchWithRetry(getApiUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'dispatchNotification',
+          tokenOrWebhook,
+          message
+        })
+      }, 2, 1000);
+      const data = await res.json();
+      if (data.success) return { success: true };
+    } catch (gasErr) {
+      console.warn('Google Apps Script notification dispatch error:', gasErr);
+    }
+  }
+
+  // 2. Fallback to local server proxy
   try {
     const res = await fetch('/api/notify', {
       method: 'POST',
