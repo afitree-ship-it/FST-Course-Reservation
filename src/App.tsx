@@ -1608,7 +1608,7 @@ export default function App() {
         aria-label="Mobile Bottom Navigation"
         id="mobile-bottom-navigation-dock"
       >
-        <div className="pointer-events-auto bg-[#7A1F2B]/75 dark:bg-[#7A1F2B]/75 backdrop-blur-2xl border border-white/30 dark:border-white/20 rounded-full shadow-[0_16px_40px_-6px_rgba(122,31,43,0.38),inset_0_1px_1.5px_rgba(255,255,255,0.45)] px-3 py-1.5 flex items-center justify-around ring-1 ring-black/10">
+        <div className="pointer-events-auto bg-[#7A1F2B] dark:bg-[#7A1F2B] border border-white/25 dark:border-white/20 rounded-full shadow-[0_16px_36px_-6px_rgba(122,31,43,0.45),0_6px_20px_rgba(0,0,0,0.2),inset_0_1px_1.5px_rgba(255,255,255,0.3)] px-3 py-1.5 flex items-center justify-around ring-1 ring-black/10">
           {/* 1. Reserve Tab */}
           <button
             onClick={() => {
@@ -1618,7 +1618,7 @@ export default function App() {
             className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
               activeTab === 'reserve' && !latestSubmission
                 ? 'text-white font-bold'
-                : 'text-white/60 hover:text-white/90'
+                : 'text-white/75 hover:text-white'
             }`}
             aria-label={t('tabReserve')}
             id="mobile-tab-reserve"
@@ -1626,7 +1626,7 @@ export default function App() {
             <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 ${
               activeTab === 'reserve' && !latestSubmission ? 'bg-white/20 scale-105 shadow-inner' : ''
             }`}>
-              <FileText className={`w-5 h-5 ${activeTab === 'reserve' && !latestSubmission ? 'stroke-[2.2] text-white' : 'stroke-[1.8] text-white/70'}`} />
+              <FileText className={`w-5 h-5 ${activeTab === 'reserve' && !latestSubmission ? 'stroke-[2.2] text-white' : 'stroke-[1.8] text-white/80'}`} />
             </div>
             <span className="text-[10.5px] tracking-tight mt-0.5 leading-tight">{t('tabReserve')}</span>
             {activeTab === 'reserve' && !latestSubmission && (
@@ -1647,7 +1647,7 @@ export default function App() {
             className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
               activeTab === 'status'
                 ? 'text-white font-bold'
-                : 'text-white/60 hover:text-white/90'
+                : 'text-white/75 hover:text-white'
             }`}
             aria-label={t('tabStatus')}
             id="mobile-tab-status"
@@ -1655,7 +1655,7 @@ export default function App() {
             <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 ${
               activeTab === 'status' ? 'bg-white/20 scale-105 shadow-inner' : ''
             }`}>
-              <Search className={`w-5 h-5 ${activeTab === 'status' ? 'stroke-[2.2] text-white' : 'stroke-[1.8] text-white/70'}`} />
+              <Search className={`w-5 h-5 ${activeTab === 'status' ? 'stroke-[2.2] text-white' : 'stroke-[1.8] text-white/80'}`} />
             </div>
             <span className="text-[10.5px] tracking-tight mt-0.5 leading-tight">{t('tabStatus')}</span>
             {activeTab === 'status' && (
@@ -1676,7 +1676,7 @@ export default function App() {
             className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
               activeTab === 'admin'
                 ? 'text-white font-bold'
-                : 'text-white/60 hover:text-white/90'
+                : 'text-white/75 hover:text-white'
             }`}
             aria-label={t('tabAdmin')}
             id="mobile-tab-admin"
@@ -1685,9 +1685,9 @@ export default function App() {
               activeTab === 'admin' ? 'bg-white/20 scale-105 shadow-inner' : ''
             }`}>
               {isAdminLoggedIn ? (
-                <User className={`w-5 h-5 ${activeTab === 'admin' ? 'stroke-[2.2] text-white' : 'stroke-[1.8] text-white/70'}`} />
+                <User className={`w-5 h-5 ${activeTab === 'admin' ? 'stroke-[2.2] text-white' : 'stroke-[1.8] text-white/80'}`} />
               ) : (
-                <Lock className={`w-5 h-5 ${activeTab === 'admin' ? 'stroke-[2.2] text-white' : 'stroke-[1.8] text-white/70'}`} />
+                <Lock className={`w-5 h-5 ${activeTab === 'admin' ? 'stroke-[2.2] text-white' : 'stroke-[1.8] text-white/80'}`} />
               )}
             </div>
             <span className="text-[10.5px] tracking-tight mt-0.5 leading-tight">
