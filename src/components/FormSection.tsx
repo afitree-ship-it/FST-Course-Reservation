@@ -239,10 +239,33 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     }
   };
 
+  // Smart formatting for Thai names & academic titles
+  // Solves mobile keyboard issue where pressing '.' emits a space, and PC Thai keyboard where '.' emits 'ใ'
+  const autoFormatThaiNameOrTitle = (val: string): string => {
+    return val
+      // Replace 'ใ' that mistakenly follows abbreviations (PC Thai keyboard '.' key = 'ใ')
+      .replace(/(ผศ|รศ|ศ|ดร|อ|นส|น\.ส)ใ/g, '$1.')
+      // Replace space right after common Thai academic/honorific abbreviations with a dot
+      .replace(/^(\s*ผศ)\s+/g, '$1.')
+      .replace(/^(\s*รศ)\s+/g, '$1.')
+      .replace(/^(\s*ศ)\s+/g, '$1.')
+      .replace(/^(\s*ดร)\s+/g, '$1.')
+      .replace(/^(\s*อ)\s+/g, '$1.')
+      .replace(/^(\s*นส)\s+/g, '$1.')
+      .replace(/^(\s*น\.ส)\s+/g, '$1.')
+      // Also handle compound titles like ผศ.ดร or รศ.ดร
+      .replace(/(ผศ\.)(ดร)\s+/g, '$1$2.')
+      .replace(/(รศ\.)(ดร)\s+/g, '$1$2.');
+  };
+
   const handleCourseChange = (index: number, field: string, value: string) => {
+    let finalValue = value;
+    if (field === 'instructor') {
+      finalValue = autoFormatThaiNameOrTitle(value);
+    }
     setCourses(prev => {
       const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
+      updated[index] = { ...updated[index], [field]: finalValue };
       return updated;
     });
   };
@@ -832,14 +855,42 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* ชื่อ-นามสกุล */}
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5 font-sans">
-                      {t('fullNameLabel')} <span className="text-rose-500">*</span>
-                    </label>
+                    <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+                      <label className="block text-sm font-semibold text-slate-700 font-sans">
+                        {t('fullNameLabel')} <span className="text-rose-500">*</span>
+                      </label>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {['นาย', 'นางสาว', 'น.ส.'].map(prefix => (
+                          <button
+                            key={prefix}
+                            type="button"
+                            onClick={() => {
+                              const clean = fullName.replace(/^(นาย|นางสาว|น\.ส\.|นาง)\s*/, '');
+                              setFullName(`${prefix} ${clean}`);
+                            }}
+                            className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 transition-all active:scale-95 cursor-pointer"
+                          >
+                            + {prefix}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => setFullName(prev => prev + '.')}
+                          className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-mangosteen/10 text-mangosteen border border-mangosteen/25 hover:bg-mangosteen/20 transition-all active:scale-95 cursor-pointer"
+                          title="กดเพื่อแทรกจุด (.)"
+                        >
+                          + จุด (.)
+                        </button>
+                      </div>
+                    </div>
                     <div className="relative">
                       <input
                         type="text"
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        spellCheck="false"
                         value={fullName}
-                        onChange={e => setFullName(e.target.value)}
+                        onChange={e => setFullName(autoFormatThaiNameOrTitle(e.target.value))}
                         onBlur={() => handleBlur('fullName')}
                         placeholder={isTh ? 'เช่น นายสุขใจ เรียนดี' : 'e.g., Muhammad Zakariya'}
                         className={`w-full px-4 py-3 rounded-xl border-2 bg-slate-50 hover:bg-white text-sm sm:text-base font-medium font-sans transition-all focus:outline-hidden focus:ring-4 ${
@@ -1227,11 +1278,39 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
 
                       {/* ผู้สอน */}
                       <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5 font-sans">
-                          {t('instructorLabel')} <span className="text-rose-500">*</span>
-                        </label>
+                        <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+                          <label className="block text-xs font-semibold text-slate-700 font-sans">
+                            {t('instructorLabel')} <span className="text-rose-500">*</span>
+                          </label>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {['ผศ.ดร.', 'ดร.', 'ผศ.', 'รศ.ดร.', 'อ.'].map(rank => (
+                              <button
+                                key={rank}
+                                type="button"
+                                onClick={() => {
+                                  const clean = course.instructor.replace(/^(ผศ\.ดร\.|ดร\.|ผศ\.|รศ\.ดร\.|รศ\.|ศ\.ดร\.|ศ\.|อ\.)\s*/, '');
+                                  handleCourseChange(index, 'instructor', `${rank} ${clean}`);
+                                }}
+                                className="text-[10.5px] font-medium px-1.5 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 transition-all active:scale-95 cursor-pointer"
+                              >
+                                + {rank}
+                              </button>
+                            ))}
+                            <button
+                              type="button"
+                              onClick={() => handleCourseChange(index, 'instructor', course.instructor + '.')}
+                              className="text-[10.5px] font-bold px-1.5 py-0.5 rounded-md bg-mangosteen/10 text-mangosteen border border-mangosteen/25 hover:bg-mangosteen/20 transition-all active:scale-95 cursor-pointer"
+                              title="กดเพื่อแทรกจุด (.)"
+                            >
+                              + จุด (.)
+                            </button>
+                          </div>
+                        </div>
                         <input
                           type="text"
+                          autoCapitalize="off"
+                          autoCorrect="off"
+                          spellCheck="false"
                           value={course.instructor}
                           onChange={e => handleCourseChange(index, 'instructor', e.target.value)}
                           onBlur={() => handleBlur(`instructor_${index}`)}
@@ -1319,8 +1398,11 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                                 <div>
                                   <input
                                     type="text"
+                                    autoCapitalize="off"
+                                    autoCorrect="off"
+                                    spellCheck="false"
                                     value={cs.fullName}
-                                    onChange={e => handleCoStudentChange(index, csIdx, 'fullName', e.target.value)}
+                                    onChange={e => handleCoStudentChange(index, csIdx, 'fullName', autoFormatThaiNameOrTitle(e.target.value))}
                                     onBlur={() => handleBlur(`coStudent_name_${index}_${csIdx}`)}
                                     placeholder={isTh ? 'ชื่อ-นามสกุล เพื่อน' : "Friend's Full Name"}
                                     className={`w-full px-3 py-2 rounded-lg border text-xs font-sans font-medium transition-all focus:outline-hidden focus:ring-2 ${
