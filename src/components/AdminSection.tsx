@@ -946,7 +946,98 @@ function sendSafeEmail(toEmail, subject, textBody, htmlBody) {
       return { success: true, message: 'MailApp' };
     } catch (mailErr) {
       return { success: false, message: mailErr.message };
+}
+
+// ส่งข้อความแจ้งเตือนแอดมินผ่าน LINE / Discord / Webhook
+function sendAdminWebhookNotification(message) {
+  try {
+    var sSheet = settingsSheet();
+    var sRows = sSheet.getDataRange().getValues();
+    var notifyEnabled = 'false';
+    var notifyToken = '';
+    for (var i = 1; i < sRows.length; i++) {
+      if (String(sRows[i][0]) === 'notify_on_new_request') notifyEnabled = String(sRows[i][1]);
+      if (String(sRows[i][0]) === 'notify_line_token') notifyToken = String(sRows[i][1]);
     }
+    if (notifyEnabled !== 'true' || !notifyToken) return;
+
+    if (notifyToken.indexOf('http://') === 0 || notifyToken.indexOf('https://') === 0) {
+      UrlFetchApp.fetch(notifyToken, {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify({ content: message, text: message }),
+        muteHttpExceptions: true
+      });
+    } else {
+      UrlFetchApp.fetch('https://notify-api.line.me/api/notify', {
+        method: 'post',
+        headers: { 'Authorization': 'Bearer ' + notifyToken },
+        payload: { message: message },
+        muteHttpExceptions: true
+      });
+    }
+  } catch (err) {
+    Logger.log('Admin notify error: ' + err.toString());
+  }
+}
+
+function sendStatusChangeWebhookNotification(message) {
+  try {
+    var sSheet = settingsSheet();
+    var sRows = sSheet.getDataRange().getValues();
+    var notifyEnabled = 'true';
+    var notifyToken = '';
+    for (var i = 1; i < sRows.length; i++) {
+      if (String(sRows[i][0]) === 'notify_on_status_change') notifyEnabled = String(sRows[i][1]);
+      if (String(sRows[i][0]) === 'notify_line_token') notifyToken = String(sRows[i][1]);
+    }
+    if (notifyEnabled === 'false' || !notifyToken) return;
+
+    if (notifyToken.indexOf('http://') === 0 || notifyToken.indexOf('https://') === 0) {
+      UrlFetchApp.fetch(notifyToken, {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify({ content: message, text: message }),
+        muteHttpExceptions: true
+      });
+    } else {
+      UrlFetchApp.fetch('https://notify-api.line.me/api/notify', {
+        method: 'post',
+        headers: { 'Authorization': 'Bearer ' + notifyToken },
+        payload: { message: message },
+        muteHttpExceptions: true
+      });
+    }
+  } catch (err) {
+    Logger.log('Status change notify error: ' + err.toString());
+  }
+}
+
+function handleDispatchNotification(data) {
+  var tokenOrWebhook = data.tokenOrWebhook;
+  var message = data.message;
+  if (!tokenOrWebhook || !message) {
+    return jsonOut({ success: false, error: 'Missing token or message' });
+  }
+  try {
+    if (tokenOrWebhook.indexOf('http://') === 0 || tokenOrWebhook.indexOf('https://') === 0) {
+      UrlFetchApp.fetch(tokenOrWebhook, {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify({ content: message, text: message }),
+        muteHttpExceptions: true
+      });
+    } else {
+      UrlFetchApp.fetch('https://notify-api.line.me/api/notify', {
+        method: 'post',
+        headers: { 'Authorization': 'Bearer ' + tokenOrWebhook },
+        payload: { message: message },
+        muteHttpExceptions: true
+      });
+    }
+    return jsonOut({ success: true });
+  } catch (e) {
+    return jsonOut({ success: false, error: e.toString() });
   }
 }
 
@@ -1170,6 +1261,7 @@ function doPost(e) {
     if (action === 'deleteAdmin') return handleDeleteAdmin(postData);
     if (action === 'saveSetting') return handleSaveSetting(postData);
     if (action === 'recordAuditLog') return handleRecordAuditLog(postData);
+    if (action === 'dispatchNotification') return handleDispatchNotification(postData);
 
     return jsonOut({ success: false, error: 'Unknown POST action: ' + action });
   } catch (err) {
@@ -1368,6 +1460,28 @@ function handleSubmitRequest(data) {
     sheet.getRange(newRowIndex, 24).setValue("⚠️ ไม่พบอีเมลผู้ยื่น");
   }
 
+  // ส่งแจ้งเตือนคำร้องเข้าใหม่ไปยังแอดมิน (LINE / Discord / Webhook)
+  try {
+    var courseSummaryList = courses.map(function(c) {
+      return "• " + (c.courseCode || '') + " " + (c.courseName || '') + " (กลุ่ม " + (c.section || '') + ")";
+    }).join("\\n");
+
+    var adminAlertMsg = "\\n📩 [มีคำร้องสำรองที่นั่งเข้าใหม่!]\\n" +
+                        "------------------------\\n" +
+                        "👤 นักศึกษา: " + (data.fullName || '-') + "\\n" +
+                        "🆔 รหัสนักศึกษา: " + (data.studentId || '-') + "\\n" +
+                        "🏫 สาขาวิชา: " + (data.department || '-') + "\\n" +
+                        "🔖 รหัสคำร้อง: " + id + "\\n" +
+                        "👥 จำนวนที่นั่ง: " + totalSeats + " ที่นั่ง\\n\\n" +
+                        "📚 รายวิชาที่ขอสำรอง:\\n" + courseSummaryList + "\\n" +
+                        "------------------------\\n" +
+                        "กรุณาเข้าตรวจในระบบแอดมิน";
+
+    sendAdminWebhookNotification(adminAlertMsg);
+  } catch (alertErr) {
+    Logger.log("Admin notification error: " + alertErr.toString());
+  }
+
   return jsonOut({ success: true, data: newReq });
 }
 
@@ -1501,6 +1615,18 @@ function handleUpdateStatus(data) {
   } else {
     sheet.getRange(rowNum, 24).setValue(sheet.getRange(rowNum, 24).getValue() + " | ⚠️ ไม่มีอีเมล");
   }
+
+  try {
+    var statusAlertMsg = "\\n📢 [ผลการพิจารณาคำร้องสำรองที่นั่ง]\\n" +
+                         "------------------------\\n" +
+                         "🔖 รหัสคำร้อง: " + result.id + "\\n" +
+                         "👤 นักศึกษา: " + result.fullName + " (" + result.studentId + ")\\n" +
+                         "⚖️ ผลการพิจารณา: " + status + "\\n" +
+                         "👮‍♂️ ผู้ดำเนินการ: " + processedBy + "\\n" +
+                         (rejectionReason ? "📌 หมายเหตุ: " + rejectionReason + "\\n" : "") +
+                         "------------------------";
+    sendStatusChangeWebhookNotification(statusAlertMsg);
+  } catch (err) {}
 
   return jsonOut({ success: true, data: result, processedBy: processedBy, processedAt: now });
 }
@@ -1652,6 +1778,19 @@ function handleUpdateCourseStatus(data) {
       sheet.getRange(rowNum, 24).setValue(oldEmailStatus2 + " | ❌ แจ้งวิชาล้มเหลว: " + sendRes3.message);
     }
   }
+
+  try {
+    var courseAlertMsg = "\\n📢 [ผลการพิจารณารายวิชา]\\n" +
+                         "------------------------\\n" +
+                         "🔖 รหัสคำร้อง: " + result.id + "\\n" +
+                         "👤 นักศึกษา: " + result.fullName + " (" + result.studentId + ")\\n" +
+                         "📚 วิชา: " + data.courseCode + "\\n" +
+                         "⚖️ ผลการพิจารณา: " + status + "\\n" +
+                         "👮‍♂️ ผู้ดำเนินการ: " + processedBy + "\\n" +
+                         (rejectionReason ? "📌 หมายเหตุ: " + rejectionReason + "\\n" : "") +
+                         "------------------------";
+    sendStatusChangeWebhookNotification(courseAlertMsg);
+  } catch (err) {}
 
   return jsonOut({ success: true, data: result, processedBy: processedBy, processedAt: now });
 }
