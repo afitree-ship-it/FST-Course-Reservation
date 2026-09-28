@@ -21,7 +21,7 @@ interface ToastContainerProps {
 
 export default function ToastContainer({ toasts, onClose }: ToastContainerProps) {
   return (
-    <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] flex flex-col-reverse gap-2.5 w-full max-w-md px-4 pointer-events-none">
+    <div className="fixed bottom-24 sm:bottom-8 left-1/2 -translate-x-1/2 z-[100] flex flex-col-reverse gap-2.5 w-full max-w-md px-4 pointer-events-none">
       <AnimatePresence>
         {toasts.map((toast) => {
           let bgColor = 'bg-white/95';

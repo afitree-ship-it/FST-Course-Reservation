@@ -758,7 +758,6 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                         : 'border-slate-200 focus:border-mangosteen focus:ring-mangosteen/20 text-slate-700'
                     }`}
                     id="input-studentId-step1"
-                    autoFocus
                   />
                   <div className="text-right text-[11px] font-semibold text-slate-400 mt-1">
                     {studentId.length}/9 หลัก

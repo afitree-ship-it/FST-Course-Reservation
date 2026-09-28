@@ -27,7 +27,8 @@ import {
   Trash2,
   User,
   X,
-  ShoppingBag
+  ShoppingBag,
+  ChevronDown
 } from 'lucide-react';
 
 import FormSection from './components/FormSection';
@@ -762,7 +763,7 @@ export default function App() {
 
       {/* Primary Header */}
       <header className="bg-white/80 backdrop-blur-xl sticky top-0 z-30 border-b border-slate-200 transition-all duration-300">
-        <div className="max-w-7xl mx-auto px-4 py-2.5 sm:py-3 sm:px-6 lg:px-8 flex items-center justify-between gap-3 sm:gap-4">
+        <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-2 sm:py-3 flex items-center justify-between gap-1.5 sm:gap-4">
           
           {/* Logo & title click resets or targets reserve page */}
           <div 
@@ -770,10 +771,10 @@ export default function App() {
               setLatestSubmission(null);
               setActiveTab('reserve');
             }}
-            className="flex items-center gap-3 cursor-pointer group select-none"
+            className="flex items-center gap-2 sm:gap-3 cursor-pointer group select-none min-w-0 flex-1"
             id="brand-header-logo"
           >
-            <div className="w-10 h-10 shrink-0 transition-all duration-300 group-hover:rotate-6 group-hover:scale-105 flex items-center justify-center relative">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 shrink-0 transition-all duration-300 group-hover:rotate-6 group-hover:scale-105 flex items-center justify-center relative">
               <AnimatePresence mode="wait">
                 {customLogo ? (
                   <motion.img 
@@ -878,7 +879,7 @@ export default function App() {
           </div>
 
           {/* Navigation Control Group */}
-          <div className="flex items-center gap-2 sm:gap-4 justify-end shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-4 justify-end shrink-0">
             {/* Regular Student Toggle Tabs (Desktop Only) */}
             <div className="hidden md:flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200/50" id="student-navigation-tabs">
               <button
@@ -913,26 +914,26 @@ export default function App() {
               </button>
             </div>
 
-            {/* Mobile Single-Touch Language Toggle (Compact) */}
+            {/* Mobile Single-Touch Language Toggle (Compact with Downward Arrow) */}
             <button
               type="button"
               onClick={() => setLanguage(language === 'th' ? 'en' : 'th')}
-              className="md:hidden flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100/90 hover:bg-slate-200 text-slate-700 rounded-full border border-slate-200/80 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-2xs shrink-0 select-none"
+              className="md:hidden flex items-center gap-1 px-2 py-1 bg-slate-100/90 hover:bg-slate-200 text-slate-700 rounded-full border border-slate-200/80 text-[11px] font-bold transition-all active:scale-95 cursor-pointer shadow-2xs shrink-0 select-none"
               title={isTh ? "เปลี่ยนเป็น English" : "Switch to Thai"}
               id="mobile-lang-toggle"
             >
               {language === 'th' ? (
                 <>
-                  <svg className="w-4 h-2.5 rounded-xs shadow-2xs shrink-0 overflow-hidden ring-1 ring-black/10" viewBox="0 0 900 600">
+                  <svg className="w-3.5 h-2.5 rounded-xs shadow-2xs shrink-0 overflow-hidden ring-1 ring-black/10" viewBox="0 0 900 600">
                     <rect width="900" height="600" fill="#ED1C24" />
                     <rect y="100" width="900" height="400" fill="#FFFFFF" />
                     <rect y="200" width="900" height="200" fill="#241D4F" />
                   </svg>
-                  <span className="text-[11px] font-black text-mangosteen">TH</span>
+                  <span className="text-[10.5px] font-black text-mangosteen">TH</span>
                 </>
               ) : (
                 <>
-                  <svg className="w-4 h-2.5 rounded-xs shadow-2xs shrink-0 overflow-hidden ring-1 ring-black/10" viewBox="0 0 60 30">
+                  <svg className="w-3.5 h-2.5 rounded-xs shadow-2xs shrink-0 overflow-hidden ring-1 ring-black/10" viewBox="0 0 60 30">
                     <clipPath id="uk-clip-m"><path d="M0,0 v30 h60 v-30 z"/></clipPath>
                     <clipPath id="uk-diag-m"><path d="M0,0 L60,30 M60,0 L0,30"/></clipPath>
                     <path d="M0,0 v30 h60 v-30 z" fill="#012169"/>
@@ -941,9 +942,10 @@ export default function App() {
                     <path d="M30,0 v30 M0,15 h60" stroke="#fff" strokeWidth="10"/>
                     <path d="M30,0 v30 M0,15 h60" stroke="#C8102E" strokeWidth="6"/>
                   </svg>
-                  <span className="text-[11px] font-black text-mangosteen">EN</span>
+                  <span className="text-[10.5px] font-black text-mangosteen">EN</span>
                 </>
               )}
+              <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
             </button>
 
             {/* Desktop Dual-Language Switcher with Flags */}
@@ -1207,10 +1209,10 @@ export default function App() {
             {/* Dark Mode Toggle */}
             <button
               onClick={() => setDarkMode(!darkMode)}
-              className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 rounded-full transition-colors cursor-pointer"
+              className="p-1.5 sm:p-2 w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 rounded-full transition-colors cursor-pointer shrink-0"
               title="สลับโหมดหน้าจอ"
             >
-              {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              {darkMode ? <Sun className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Moon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
             </button>
           </div>
 
@@ -1410,7 +1412,7 @@ export default function App() {
 
       {/* Custom Bottom-Right Floating Notifications Container for Newly Submitted Requests */}
       {isAdminLoggedIn && activeTab === 'admin' && bottomNotifications.length > 0 && (
-        <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-3 w-full max-w-sm pointer-events-none">
+        <div className="fixed bottom-24 right-3 sm:bottom-5 sm:right-5 z-50 flex flex-col gap-3 w-full max-w-sm pointer-events-none">
           {bottomNotifications.length > 1 && (
             <button
               onClick={() => setBottomNotifications([])}
@@ -1536,7 +1538,7 @@ export default function App() {
         aria-label="Mobile Bottom Navigation"
         id="mobile-bottom-navigation-dock"
       >
-        <div className="pointer-events-auto bg-white/80 dark:bg-slate-900/80 backdrop-blur-2xl border border-white/70 dark:border-slate-800/80 rounded-full shadow-[0_12px_36px_-6px_rgba(122,31,43,0.14),0_4px_16px_rgba(0,0,0,0.06)] px-3 py-1.5 flex items-center justify-around ring-1 ring-rose-950/5 dark:ring-white/5">
+        <div className="pointer-events-auto bg-[#7A1F2B]/90 dark:bg-[#7A1F2B]/90 backdrop-blur-xl border border-white/20 dark:border-white/15 rounded-full shadow-[0_14px_40px_-6px_rgba(122,31,43,0.5),0_4px_16px_rgba(0,0,0,0.2)] px-3 py-1.5 flex items-center justify-around ring-1 ring-white/10">
           {/* 1. Reserve Tab */}
           <button
             onClick={() => {
@@ -1545,22 +1547,22 @@ export default function App() {
             }}
             className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
               activeTab === 'reserve' && !latestSubmission
-                ? 'text-mangosteen font-bold'
-                : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                ? 'text-white font-bold'
+                : 'text-white/60 hover:text-white/90'
             }`}
             aria-label={t('tabReserve')}
             id="mobile-tab-reserve"
           >
             <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 ${
-              activeTab === 'reserve' && !latestSubmission ? 'bg-mangosteen/10 scale-105' : ''
+              activeTab === 'reserve' && !latestSubmission ? 'bg-white/20 scale-105 shadow-inner' : ''
             }`}>
-              <FileText className={`w-5 h-5 ${activeTab === 'reserve' && !latestSubmission ? 'stroke-[2.2] text-mangosteen' : 'stroke-[1.8]'}`} />
+              <FileText className={`w-5 h-5 ${activeTab === 'reserve' && !latestSubmission ? 'stroke-[2.2] text-white' : 'stroke-[1.8] text-white/70'}`} />
             </div>
             <span className="text-[10.5px] tracking-tight mt-0.5 leading-tight">{t('tabReserve')}</span>
             {activeTab === 'reserve' && !latestSubmission && (
               <motion.div
                 layoutId="bottom-nav-indicator"
-                className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-mangosteen shadow-xs"
+                className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]"
                 transition={{ type: "spring", stiffness: 500, damping: 30 }}
               />
             )}
@@ -1574,22 +1576,22 @@ export default function App() {
             }}
             className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
               activeTab === 'status'
-                ? 'text-mangosteen font-bold'
-                : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                ? 'text-white font-bold'
+                : 'text-white/60 hover:text-white/90'
             }`}
             aria-label={t('tabStatus')}
             id="mobile-tab-status"
           >
             <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 ${
-              activeTab === 'status' ? 'bg-mangosteen/10 scale-105' : ''
+              activeTab === 'status' ? 'bg-white/20 scale-105 shadow-inner' : ''
             }`}>
-              <Search className={`w-5 h-5 ${activeTab === 'status' ? 'stroke-[2.2] text-mangosteen' : 'stroke-[1.8]'}`} />
+              <Search className={`w-5 h-5 ${activeTab === 'status' ? 'stroke-[2.2] text-white' : 'stroke-[1.8] text-white/70'}`} />
             </div>
             <span className="text-[10.5px] tracking-tight mt-0.5 leading-tight">{t('tabStatus')}</span>
             {activeTab === 'status' && (
               <motion.div
                 layoutId="bottom-nav-indicator"
-                className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-mangosteen shadow-xs"
+                className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]"
                 transition={{ type: "spring", stiffness: 500, damping: 30 }}
               />
             )}
@@ -1603,19 +1605,19 @@ export default function App() {
             }}
             className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
               activeTab === 'admin'
-                ? 'text-mangosteen font-bold'
-                : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                ? 'text-white font-bold'
+                : 'text-white/60 hover:text-white/90'
             }`}
             aria-label={t('tabAdmin')}
             id="mobile-tab-admin"
           >
             <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 ${
-              activeTab === 'admin' ? 'bg-mangosteen/10 scale-105' : ''
+              activeTab === 'admin' ? 'bg-white/20 scale-105 shadow-inner' : ''
             }`}>
               {isAdminLoggedIn ? (
-                <User className={`w-5 h-5 ${activeTab === 'admin' ? 'stroke-[2.2] text-mangosteen' : 'stroke-[1.8]'}`} />
+                <User className={`w-5 h-5 ${activeTab === 'admin' ? 'stroke-[2.2] text-white' : 'stroke-[1.8] text-white/70'}`} />
               ) : (
-                <Lock className={`w-5 h-5 ${activeTab === 'admin' ? 'stroke-[2.2] text-mangosteen' : 'stroke-[1.8]'}`} />
+                <Lock className={`w-5 h-5 ${activeTab === 'admin' ? 'stroke-[2.2] text-white' : 'stroke-[1.8] text-white/70'}`} />
               )}
             </div>
             <span className="text-[10.5px] tracking-tight mt-0.5 leading-tight">
@@ -1624,7 +1626,7 @@ export default function App() {
             {activeTab === 'admin' && (
               <motion.div
                 layoutId="bottom-nav-indicator"
-                className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-mangosteen shadow-xs"
+                className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]"
                 transition={{ type: "spring", stiffness: 500, damping: 30 }}
               />
             )}
