@@ -177,7 +177,7 @@ export async function addAdminPassword(password: string, name: string): Promise<
 
 export function getLoggedInAdminName(): string {
   try {
-    return localStorage.getItem('logged_in_admin_name') || '';
+    return sessionStorage.getItem('logged_in_admin_name') || '';
   } catch (err) {
     return '';
   }
@@ -185,6 +185,7 @@ export function getLoggedInAdminName(): string {
 
 export function adminLogout(): void {
   try {
+    sessionStorage.removeItem('logged_in_admin_name');
     localStorage.removeItem('logged_in_admin_name');
   } catch (err) {}
 }
@@ -198,7 +199,8 @@ export async function adminLogin(password: string): Promise<{ success: boolean; 
     let matched = savedPasswords.find(p => p.hash === hashedPass);
     if (matched) {
       const adminName = matched.name || 'แอดมินทั่วไป';
-      localStorage.setItem('logged_in_admin_name', adminName);
+      sessionStorage.setItem('logged_in_admin_name', adminName);
+      localStorage.removeItem('logged_in_admin_name');
       return { success: true, name: adminName };
     }
 
@@ -209,7 +211,8 @@ export async function adminLogin(password: string): Promise<{ success: boolean; 
         matched = savedPasswords.find(p => p.hash === hashedPass);
         if (matched) {
           const adminName = matched.name || 'แอดมินทั่วไป';
-          localStorage.setItem('logged_in_admin_name', adminName);
+          sessionStorage.setItem('logged_in_admin_name', adminName);
+          localStorage.removeItem('logged_in_admin_name');
           return { success: true, name: adminName };
         }
       } catch (syncErr) {
