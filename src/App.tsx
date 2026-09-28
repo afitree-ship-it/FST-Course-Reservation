@@ -78,6 +78,9 @@ export default function App() {
   // Back-and-forth query sharing state
   const [selectedStudentId, setSelectedStudentId] = useState('');
 
+  // Mobile language selector dropdown state
+  const [mobileLangDropdownOpen, setMobileLangDropdownOpen] = useState(false);
+
   const [darkMode, setDarkMode] = useState(() => {
     return localStorage.getItem('darkMode') === 'true';
   });
@@ -864,15 +867,10 @@ export default function App() {
               </AnimatePresence>
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5 flex-nowrap">
-                <h1 className="text-xs sm:text-base font-black font-sans tracking-tight text-slate-800 leading-tight whitespace-nowrap">
-                  {isTh ? 'ระบบสำรองที่นั่ง' : 'Seat Reservation'}
-                </h1>
-                <span className="text-[9px] font-extrabold text-mangosteen bg-mangosteen/10 px-1.5 py-0.5 rounded-md uppercase tracking-wider shrink-0">
-                  FST
-                </span>
-              </div>
-              <p className="text-[9.5px] sm:text-[10px] font-semibold text-slate-400 font-sans tracking-wide uppercase truncate mt-0.5">
+              <h1 className="text-sm sm:text-base md:text-lg font-black font-sans tracking-tight text-slate-800 dark:text-white leading-tight whitespace-nowrap">
+                {isTh ? 'ระบบสำรองที่นั่ง' : 'Seat Reservation'}
+              </h1>
+              <p className="text-[9px] sm:text-[10px] font-medium text-slate-400 dark:text-slate-400 font-sans tracking-tight sm:tracking-normal whitespace-nowrap overflow-visible mt-0.5">
                 {t('fstSubtitle')}
               </p>
             </div>
@@ -914,39 +912,111 @@ export default function App() {
               </button>
             </div>
 
-            {/* Mobile Single-Touch Language Toggle (Compact with Downward Arrow) */}
-            <button
-              type="button"
-              onClick={() => setLanguage(language === 'th' ? 'en' : 'th')}
-              className="md:hidden flex items-center gap-1 px-2 py-1 bg-slate-100/90 hover:bg-slate-200 text-slate-700 rounded-full border border-slate-200/80 text-[11px] font-bold transition-all active:scale-95 cursor-pointer shadow-2xs shrink-0 select-none"
-              title={isTh ? "เปลี่ยนเป็น English" : "Switch to Thai"}
-              id="mobile-lang-toggle"
-            >
-              {language === 'th' ? (
-                <>
-                  <svg className="w-3.5 h-2.5 rounded-xs shadow-2xs shrink-0 overflow-hidden ring-1 ring-black/10" viewBox="0 0 900 600">
-                    <rect width="900" height="600" fill="#ED1C24" />
-                    <rect y="100" width="900" height="400" fill="#FFFFFF" />
-                    <rect y="200" width="900" height="200" fill="#241D4F" />
-                  </svg>
-                  <span className="text-[10.5px] font-black text-mangosteen">TH</span>
-                </>
-              ) : (
-                <>
-                  <svg className="w-3.5 h-2.5 rounded-xs shadow-2xs shrink-0 overflow-hidden ring-1 ring-black/10" viewBox="0 0 60 30">
-                    <clipPath id="uk-clip-m"><path d="M0,0 v30 h60 v-30 z"/></clipPath>
-                    <clipPath id="uk-diag-m"><path d="M0,0 L60,30 M60,0 L0,30"/></clipPath>
-                    <path d="M0,0 v30 h60 v-30 z" fill="#012169"/>
-                    <path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" strokeWidth="6"/>
-                    <path d="M0,0 L60,30 M60,0 L0,30" clipPath="url(#uk-diag-m)" stroke="#C8102E" strokeWidth="4"/>
-                    <path d="M30,0 v30 M0,15 h60" stroke="#fff" strokeWidth="10"/>
-                    <path d="M30,0 v30 M0,15 h60" stroke="#C8102E" strokeWidth="6"/>
-                  </svg>
-                  <span className="text-[10.5px] font-black text-mangosteen">EN</span>
-                </>
-              )}
-              <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
-            </button>
+            {/* Mobile Dropdown Language Selector */}
+            <div className="relative md:hidden shrink-0" id="mobile-lang-dropdown-wrapper">
+              <button
+                type="button"
+                onClick={() => setMobileLangDropdownOpen(!mobileLangDropdownOpen)}
+                className="flex items-center gap-1 px-2.5 py-1 bg-slate-100/90 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-full border border-slate-200/80 dark:border-slate-700 text-[11px] font-bold transition-all active:scale-95 cursor-pointer shadow-2xs select-none"
+                title={isTh ? "เลือกภาษา / Select Language" : "Select Language"}
+                id="mobile-lang-toggle"
+              >
+                {language === 'th' ? (
+                  <>
+                    <svg className="w-3.5 h-2.5 rounded-xs shadow-2xs shrink-0 overflow-hidden ring-1 ring-black/10" viewBox="0 0 900 600">
+                      <rect width="900" height="600" fill="#ED1C24" />
+                      <rect y="100" width="900" height="400" fill="#FFFFFF" />
+                      <rect y="200" width="900" height="200" fill="#241D4F" />
+                    </svg>
+                    <span className="text-[10.5px] font-black text-mangosteen">TH</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-3.5 h-2.5 rounded-xs shadow-2xs shrink-0 overflow-hidden ring-1 ring-black/10" viewBox="0 0 60 30">
+                      <clipPath id="uk-clip-m"><path d="M0,0 v30 h60 v-30 z"/></clipPath>
+                      <clipPath id="uk-diag-m"><path d="M0,0 L60,30 M60,0 L0,30"/></clipPath>
+                      <path d="M0,0 v30 h60 v-30 z" fill="#012169"/>
+                      <path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" strokeWidth="6"/>
+                      <path d="M0,0 L60,30 M60,0 L0,30" clipPath="url(#uk-diag-m)" stroke="#C8102E" strokeWidth="4"/>
+                      <path d="M30,0 v30 M0,15 h60" stroke="#fff" strokeWidth="10"/>
+                      <path d="M30,0 v30 M0,15 h60" stroke="#C8102E" strokeWidth="6"/>
+                    </svg>
+                    <span className="text-[10.5px] font-black text-mangosteen">EN</span>
+                  </>
+                )}
+                <ChevronDown className={`w-3 h-3 text-slate-400 shrink-0 transition-transform duration-200 ${mobileLangDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              <AnimatePresence>
+                {mobileLangDropdownOpen && (
+                  <>
+                    <div 
+                      className="fixed inset-0 z-40" 
+                      onClick={() => setMobileLangDropdownOpen(false)} 
+                    />
+                    <motion.div
+                      initial={{ opacity: 0, y: -6, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -6, scale: 0.95 }}
+                      transition={{ duration: 0.15 }}
+                      className="absolute right-0 mt-1.5 w-36 bg-white dark:bg-slate-850 rounded-2xl shadow-xl border border-slate-200/90 dark:border-slate-700 py-1.5 z-50 overflow-hidden font-sans select-none"
+                    >
+                      <div className="px-3 py-1 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                        {isTh ? 'เลือกภาษา' : 'Language'}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLanguage('th');
+                          setMobileLangDropdownOpen(false);
+                        }}
+                        className={`w-full px-3 py-2 text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                          language === 'th'
+                            ? 'bg-mangosteen/10 text-mangosteen font-bold dark:bg-mangosteen/20'
+                            : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <svg className="w-4 h-3 rounded-xs shadow-2xs shrink-0 ring-1 ring-black/10" viewBox="0 0 900 600">
+                            <rect width="900" height="600" fill="#ED1C24" />
+                            <rect y="100" width="900" height="400" fill="#FFFFFF" />
+                            <rect y="200" width="900" height="200" fill="#241D4F" />
+                          </svg>
+                          <span>ภาษาไทย</span>
+                        </div>
+                        {language === 'th' && <Check className="w-3.5 h-3.5 text-mangosteen" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLanguage('en');
+                          setMobileLangDropdownOpen(false);
+                        }}
+                        className={`w-full px-3 py-2 text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                          language === 'en'
+                            ? 'bg-mangosteen/10 text-mangosteen font-bold dark:bg-mangosteen/20'
+                            : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <svg className="w-4 h-3 rounded-xs shadow-2xs shrink-0 ring-1 ring-black/10" viewBox="0 0 60 30">
+                            <clipPath id="uk-clip-mld"><path d="M0,0 v30 h60 v-30 z"/></clipPath>
+                            <clipPath id="uk-diag-mld"><path d="M0,0 L60,30 M60,0 L0,30"/></clipPath>
+                            <path d="M0,0 v30 h60 v-30 z" fill="#012169"/>
+                            <path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" strokeWidth="6"/>
+                            <path d="M0,0 L60,30 M60,0 L0,30" clipPath="url(#uk-diag-mld)" stroke="#C8102E" strokeWidth="4"/>
+                            <path d="M30,0 v30 M0,15 h60" stroke="#fff" strokeWidth="10"/>
+                            <path d="M30,0 v30 M0,15 h60" stroke="#C8102E" strokeWidth="6"/>
+                          </svg>
+                          <span>English</span>
+                        </div>
+                        {language === 'en' && <Check className="w-3.5 h-3.5 text-mangosteen" />}
+                      </button>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
+            </div>
 
             {/* Desktop Dual-Language Switcher with Flags */}
             <div 
@@ -1538,7 +1608,7 @@ export default function App() {
         aria-label="Mobile Bottom Navigation"
         id="mobile-bottom-navigation-dock"
       >
-        <div className="pointer-events-auto bg-[#7A1F2B]/90 dark:bg-[#7A1F2B]/90 backdrop-blur-xl border border-white/20 dark:border-white/15 rounded-full shadow-[0_14px_40px_-6px_rgba(122,31,43,0.5),0_4px_16px_rgba(0,0,0,0.2)] px-3 py-1.5 flex items-center justify-around ring-1 ring-white/10">
+        <div className="pointer-events-auto bg-[#7A1F2B]/75 dark:bg-[#7A1F2B]/75 backdrop-blur-2xl border border-white/30 dark:border-white/20 rounded-full shadow-[0_16px_40px_-6px_rgba(122,31,43,0.38),inset_0_1px_1.5px_rgba(255,255,255,0.45)] px-3 py-1.5 flex items-center justify-around ring-1 ring-black/10">
           {/* 1. Reserve Tab */}
           <button
             onClick={() => {
