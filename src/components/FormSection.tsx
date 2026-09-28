@@ -855,34 +855,9 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* ชื่อ-นามสกุล */}
                   <div>
-                    <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
-                      <label className="block text-sm font-semibold text-slate-700 font-sans">
-                        {t('fullNameLabel')} <span className="text-rose-500">*</span>
-                      </label>
-                      <div className="flex items-center gap-1 flex-wrap">
-                        {['นาย', 'นางสาว', 'น.ส.'].map(prefix => (
-                          <button
-                            key={prefix}
-                            type="button"
-                            onClick={() => {
-                              const clean = fullName.replace(/^(นาย|นางสาว|น\.ส\.|นาง)\s*/, '');
-                              setFullName(`${prefix} ${clean}`);
-                            }}
-                            className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 transition-all active:scale-95 cursor-pointer"
-                          >
-                            + {prefix}
-                          </button>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => setFullName(prev => prev + '.')}
-                          className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-mangosteen/10 text-mangosteen border border-mangosteen/25 hover:bg-mangosteen/20 transition-all active:scale-95 cursor-pointer"
-                          title="กดเพื่อแทรกจุด (.)"
-                        >
-                          + จุด (.)
-                        </button>
-                      </div>
-                    </div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1.5 font-sans">
+                      {t('fullNameLabel')} <span className="text-rose-500">*</span>
+                    </label>
                     <div className="relative">
                       <input
                         type="text"
@@ -1278,34 +1253,9 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
 
                       {/* ผู้สอน */}
                       <div>
-                        <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
-                          <label className="block text-xs font-semibold text-slate-700 font-sans">
-                            {t('instructorLabel')} <span className="text-rose-500">*</span>
-                          </label>
-                          <div className="flex items-center gap-1 flex-wrap">
-                            {['ผศ.ดร.', 'ดร.', 'ผศ.', 'รศ.ดร.', 'อ.'].map(rank => (
-                              <button
-                                key={rank}
-                                type="button"
-                                onClick={() => {
-                                  const clean = course.instructor.replace(/^(ผศ\.ดร\.|ดร\.|ผศ\.|รศ\.ดร\.|รศ\.|ศ\.ดร\.|ศ\.|อ\.)\s*/, '');
-                                  handleCourseChange(index, 'instructor', `${rank} ${clean}`);
-                                }}
-                                className="text-[10.5px] font-medium px-1.5 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 transition-all active:scale-95 cursor-pointer"
-                              >
-                                + {rank}
-                              </button>
-                            ))}
-                            <button
-                              type="button"
-                              onClick={() => handleCourseChange(index, 'instructor', course.instructor + '.')}
-                              className="text-[10.5px] font-bold px-1.5 py-0.5 rounded-md bg-mangosteen/10 text-mangosteen border border-mangosteen/25 hover:bg-mangosteen/20 transition-all active:scale-95 cursor-pointer"
-                              title="กดเพื่อแทรกจุด (.)"
-                            >
-                              + จุด (.)
-                            </button>
-                          </div>
-                        </div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1.5 font-sans">
+                          {t('instructorLabel')} <span className="text-rose-500">*</span>
+                        </label>
                         <input
                           type="text"
                           autoCapitalize="off"
