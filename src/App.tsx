@@ -42,7 +42,9 @@ export default function App() {
   const { language, setLanguage, t, isTh } = useTranslation();
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(() => {
     try {
-      return !!localStorage.getItem('logged_in_admin_name');
+      // Security: Always clear legacy persistent login so password is required afresh
+      localStorage.removeItem('logged_in_admin_name');
+      return !!sessionStorage.getItem('logged_in_admin_name');
     } catch (e) {
       return false;
     }
@@ -51,7 +53,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'reserve' | 'status' | 'admin'>(() => {
     try {
       const savedTab = localStorage.getItem('active_tab') as 'reserve' | 'status' | 'admin';
-      if (savedTab === 'admin' && !localStorage.getItem('logged_in_admin_name')) {
+      if (savedTab === 'admin' && !sessionStorage.getItem('logged_in_admin_name')) {
         return 'reserve';
       }
       return savedTab || 'reserve';
@@ -224,6 +226,14 @@ export default function App() {
 
   const handleFormSubmitSuccess = (studentId: string, request: ReservationRequest) => {
     setLatestSubmission({ studentId, request });
+    try {
+      localStorage.setItem('my_recent_submission', JSON.stringify({
+        studentId,
+        requestId: request.id,
+        courses: request.courses,
+        createdAt: new Date().toISOString()
+      }));
+    } catch (e) {}
   };
 
   // --- REAL-TIME NOTIFICATION SYSTEM ---
@@ -852,21 +862,23 @@ export default function App() {
                 )}
               </AnimatePresence>
             </div>
-            <div>
-              <h1 className="text-md sm:text-lg font-black font-sans tracking-tight text-slate-800 flex items-center gap-1.5 leading-tight">
-                {t('systemTitle')}
-                <span className="text-[10px] font-bold text-mangosteen bg-mangosteen/10 px-1.5 py-0.5 rounded-md uppercase tracking-wider">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 flex-nowrap">
+                <h1 className="text-xs sm:text-base font-black font-sans tracking-tight text-slate-800 leading-tight whitespace-nowrap">
+                  {isTh ? 'ระบบสำรองที่นั่ง' : 'Seat Reservation'}
+                </h1>
+                <span className="text-[9px] font-extrabold text-mangosteen bg-mangosteen/10 px-1.5 py-0.5 rounded-md uppercase tracking-wider shrink-0">
                   FST
                 </span>
-              </h1>
-              <p className="text-[10px] font-semibold text-slate-500 font-sans tracking-wide uppercase flex items-center">
+              </div>
+              <p className="text-[9.5px] sm:text-[10px] font-semibold text-slate-400 font-sans tracking-wide uppercase truncate mt-0.5">
                 {t('fstSubtitle')}
               </p>
             </div>
           </div>
 
           {/* Navigation Control Group */}
-          <div className="flex items-center gap-2 sm:gap-4 justify-end">
+          <div className="flex items-center gap-2 sm:gap-4 justify-end shrink-0">
             {/* Regular Student Toggle Tabs (Desktop Only) */}
             <div className="hidden md:flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200/50" id="student-navigation-tabs">
               <button
@@ -901,9 +913,42 @@ export default function App() {
               </button>
             </div>
 
-            {/* Modern Interactive Language Switch Toggle with Flags */}
+            {/* Mobile Single-Touch Language Toggle (Compact) */}
+            <button
+              type="button"
+              onClick={() => setLanguage(language === 'th' ? 'en' : 'th')}
+              className="md:hidden flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100/90 hover:bg-slate-200 text-slate-700 rounded-full border border-slate-200/80 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-2xs shrink-0 select-none"
+              title={isTh ? "เปลี่ยนเป็น English" : "Switch to Thai"}
+              id="mobile-lang-toggle"
+            >
+              {language === 'th' ? (
+                <>
+                  <svg className="w-4 h-2.5 rounded-xs shadow-2xs shrink-0 overflow-hidden ring-1 ring-black/10" viewBox="0 0 900 600">
+                    <rect width="900" height="600" fill="#ED1C24" />
+                    <rect y="100" width="900" height="400" fill="#FFFFFF" />
+                    <rect y="200" width="900" height="200" fill="#241D4F" />
+                  </svg>
+                  <span className="text-[11px] font-black text-mangosteen">TH</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-2.5 rounded-xs shadow-2xs shrink-0 overflow-hidden ring-1 ring-black/10" viewBox="0 0 60 30">
+                    <clipPath id="uk-clip-m"><path d="M0,0 v30 h60 v-30 z"/></clipPath>
+                    <clipPath id="uk-diag-m"><path d="M0,0 L60,30 M60,0 L0,30"/></clipPath>
+                    <path d="M0,0 v30 h60 v-30 z" fill="#012169"/>
+                    <path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" strokeWidth="6"/>
+                    <path d="M0,0 L60,30 M60,0 L0,30" clipPath="url(#uk-diag-m)" stroke="#C8102E" strokeWidth="4"/>
+                    <path d="M30,0 v30 M0,15 h60" stroke="#fff" strokeWidth="10"/>
+                    <path d="M30,0 v30 M0,15 h60" stroke="#C8102E" strokeWidth="6"/>
+                  </svg>
+                  <span className="text-[11px] font-black text-mangosteen">EN</span>
+                </>
+              )}
+            </button>
+
+            {/* Desktop Dual-Language Switcher with Flags */}
             <div 
-              className="relative inline-flex items-center bg-slate-100/90 p-1 rounded-full border border-slate-200/80 shadow-xs text-xs font-bold select-none" 
+              className="hidden md:inline-flex relative items-center bg-slate-100/90 p-1 rounded-full border border-slate-200/80 shadow-xs text-xs font-bold select-none shrink-0" 
               id="language-switcher-group"
               role="tablist"
               aria-label="Language Selector"
@@ -1568,12 +1613,12 @@ export default function App() {
             <div className={`relative p-1.5 rounded-full transition-all duration-200 ${
               mobileNotiSheetOpen ? 'bg-mangosteen/10 scale-105' : ''
             }`}>
-              {pendingCount > 0 ? (
+              {isAdminLoggedIn && pendingCount > 0 ? (
                 <BellRing className="w-5 h-5 stroke-[2] text-rose-500 animate-pulse" />
               ) : (
                 <Bell className="w-5 h-5 stroke-[1.8]" />
               )}
-              {pendingCount > 0 && (
+              {isAdminLoggedIn && pendingCount > 0 && (
                 <span className="absolute -top-0.5 -right-1 bg-rose-500 text-white text-[9px] font-black min-w-4 h-4 px-1 rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-sm animate-bounce">
                   {pendingCount > 99 ? '99+' : pendingCount}
                 </span>
@@ -1755,30 +1800,102 @@ export default function App() {
                 ) : (
                   /* Student View */
                   <div className="py-2 space-y-3">
-                    <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl flex items-start gap-3">
-                      <CheckCircle className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                      <div className="text-xs space-y-1 text-left">
-                        <div className="font-bold text-emerald-800 dark:text-emerald-300">
-                          {isTh ? 'ระบบเปิดรับคำร้องออนไลน์ตามปกติ' : 'Reservation System Active'}
-                        </div>
-                        <p className="text-emerald-700 dark:text-emerald-400 leading-relaxed text-[11px]">
-                          {isTh 
-                            ? 'นักศึกษาสามารถยื่นขอสำรองที่นั่งรายวิชาได้ตลอด 24 ชั่วโมง และติดตามผลการพิจารณาผ่านเมนู "ตรวจสอบสถานะ"' 
-                            : 'Students can submit seat reservation requests 24/7 and track approval progress in "Check Status".'}
-                        </p>
-                      </div>
-                    </div>
+                    {latestSubmission || localStorage.getItem('my_recent_submission') ? (
+                      (() => {
+                        const saved = latestSubmission ? {
+                          studentId: latestSubmission.studentId,
+                          courses: latestSubmission.request.courses,
+                          createdAt: latestSubmission.request.createdAt
+                        } : (() => {
+                          try {
+                            return JSON.parse(localStorage.getItem('my_recent_submission') || '{}');
+                          } catch (e) { return null; }
+                        })();
 
-                    <button
-                      onClick={() => {
-                        setMobileNotiSheetOpen(false);
-                        setActiveTab('status');
-                      }}
-                      className="w-full py-3 bg-mangosteen text-white font-bold text-xs rounded-xl shadow-md flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-all"
-                    >
-                      <Search className="w-4 h-4" />
-                      <span>{isTh ? 'ไปที่หน้าตรวจสอบสถานะ' : 'Go to Status Check'}</span>
-                    </button>
+                        if (!saved || !saved.studentId) {
+                          return (
+                            <div className="p-6 text-center text-slate-400 space-y-2">
+                              <Bell className="w-8 h-8 text-slate-300 mx-auto" />
+                              <div className="text-xs font-bold text-slate-700 dark:text-slate-200">ยังไม่มีการแจ้งเตือนใหม่</div>
+                              <p className="text-[11px] text-slate-400">เมื่อคุณยื่นคำร้องสำรองที่นั่งแล้ว ผลการพิจารณาคำร้องจะแจ้งเตือนให้ทราบที่นี่</p>
+                              <button
+                                onClick={() => {
+                                  setMobileNotiSheetOpen(false);
+                                  setActiveTab('reserve');
+                                }}
+                                className="mt-2 px-4 py-2 bg-mangosteen text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer"
+                              >
+                                ยื่นคำร้องสำรองที่นั่ง
+                              </button>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="space-y-3">
+                            <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-200/80 dark:border-slate-700 text-left space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="font-extrabold text-xs text-slate-800 dark:text-white">คำร้องล่าสุดของคุณ</span>
+                                <span className="font-mono text-[10px] text-slate-500 font-bold bg-slate-200/80 dark:bg-slate-700 px-2 py-0.5 rounded-md">
+                                  {saved.studentId}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                {isTh ? 'ระบบกำลังติดตามสถานะคำร้องของคุณจากฐานข้อมูลคณะ' : 'Tracking your submission status in the system.'}
+                              </p>
+                              {saved.courses && (
+                                <div className="space-y-1 pt-1 border-t border-slate-200/60 dark:border-slate-700">
+                                  {saved.courses.map((c: any, idx: number) => (
+                                    <div key={idx} className="flex justify-between items-center text-[10px] font-mono">
+                                      <span className="font-bold text-mangosteen truncate max-w-[170px]">{c.courseCode} ({c.section || 'Sec 01'})</span>
+                                      <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded shrink-0">
+                                        {c.status || 'รอดำเนินการ'}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            <button
+                              onClick={() => {
+                                setMobileNotiSheetOpen(false);
+                                setSelectedStudentId(saved.studentId);
+                                setActiveTab('status');
+                              }}
+                              className="w-full py-2.5 bg-mangosteen text-white font-bold text-xs rounded-xl shadow-sm flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-all"
+                            >
+                              <Search className="w-4 h-4" />
+                              <span>{isTh ? 'ตรวจสอบสถานะคำร้องแบบละเอียด' : 'Check Detailed Status'}</span>
+                            </button>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <div className="p-6 text-center text-slate-400 space-y-2">
+                        <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto text-slate-400">
+                          <Bell className="w-6 h-6" />
+                        </div>
+                        <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                          {isTh ? 'ยังไม่มีการแจ้งเตือนใหม่' : 'No New Notifications'}
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed max-w-xs mx-auto">
+                          {isTh 
+                            ? 'เมื่อคุณส่งแบบฟอร์มขอสำรองที่นั่งแล้ว ความคืบหน้าและผลการอนุมัติรายวิชาจะแสดงแจ้งเตือนให้ทราบที่นี่ทันที' 
+                            : 'When you submit a course seat reservation, progress and approval updates will appear here.'}
+                        </p>
+                        <button
+                          onClick={() => {
+                            setMobileNotiSheetOpen(false);
+                            setActiveTab('reserve');
+                          }}
+                          className="mt-3 w-full py-2.5 bg-mangosteen text-white font-bold text-xs rounded-xl shadow-sm flex items-center justify-center gap-1.5 cursor-pointer active:scale-98 transition-all"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>{isTh ? 'ไปยื่นคำร้องสำรองที่นั่ง' : 'Go to Reservation Form'}</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
