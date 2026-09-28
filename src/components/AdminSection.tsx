@@ -946,6 +946,8 @@ function sendSafeEmail(toEmail, subject, textBody, htmlBody) {
       return { success: true, message: 'MailApp' };
     } catch (mailErr) {
       return { success: false, message: mailErr.message };
+    }
+  }
 }
 
 // ส่งข้อความแจ้งเตือนแอดมินผ่าน LINE / Discord / Webhook
