@@ -455,6 +455,11 @@ export default function App() {
       return;
     }
 
+    if (Notification.permission === 'granted') {
+      setNotificationPermission('granted');
+      return;
+    }
+
     try {
       const permission = await Notification.requestPermission();
       setNotificationPermission(permission);
@@ -1491,7 +1496,6 @@ export default function App() {
                   isInitiallyLoggedIn={isAdminLoggedIn}
                   onLoginSuccess={() => {
                     setIsAdminLoggedIn(true);
-                    requestBrowserNotificationPermission();
                   }}
                   onLogout={() => {
                     setIsAdminLoggedIn(false);
