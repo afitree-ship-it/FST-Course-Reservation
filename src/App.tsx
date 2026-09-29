@@ -81,12 +81,27 @@ export default function App() {
   // Key to force reset FormSection back to step 1 (Student ID input)
   const [formResetKey, setFormResetKey] = useState(0);
 
+  // Navigation helper that pushes into browser history for mobile back button support
+  const navigateToTab = (newTab: 'reserve' | 'status' | 'admin', pushHistory = true) => {
+    setLatestSubmission(null);
+    if (newTab === activeTab && !latestSubmission) return;
+    setActiveTab(newTab);
+    if (pushHistory) {
+      try {
+        window.history.pushState({ tab: newTab, formStep: 1 }, '', `#${newTab}`);
+      } catch (e) {
+        // ignore
+      }
+    }
+  };
+
   const handleResetToHome = () => {
     setLatestSubmission(null);
     setSelectedStudentId('');
     setActiveTab('reserve');
     setFormResetKey((prev) => prev + 1);
     try {
+      window.history.pushState({ tab: 'reserve', formStep: 1 }, '', '#reserve');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch {
       window.scrollTo(0, 0);
@@ -95,6 +110,60 @@ export default function App() {
 
   // Mobile language selector dropdown state
   const [mobileLangDropdownOpen, setMobileLangDropdownOpen] = useState(false);
+
+  const toggleMobileLangDropdown = () => {
+    setMobileLangDropdownOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        try {
+          window.history.pushState({ tab: activeTab, modal: 'lang' }, '');
+        } catch (e) {}
+      }
+      return next;
+    });
+  };
+
+  // Centralized Mobile Back Button & Navigation Manager (HTML5 History API)
+  useEffect(() => {
+    // 1. Initialize base history state if none exists
+    const currentHash = window.location.hash.replace('#', '');
+    const initialTab = (currentHash === 'status' || currentHash === 'admin') ? currentHash : activeTab;
+    if (!window.history.state) {
+      window.history.replaceState({ tab: initialTab, formStep: 1 }, '', `#${initialTab}`);
+    }
+
+    const handlePopState = (e: PopStateEvent) => {
+      // Priority 1: If mobile language dropdown is open, close it
+      if (mobileLangDropdownOpen) {
+        setMobileLangDropdownOpen(false);
+        return;
+      }
+
+      // Priority 2: If submission success receipt view is open, return back to form view
+      if (latestSubmission) {
+        setLatestSubmission(null);
+        return;
+      }
+
+      // Priority 3: Sync tab state with history
+      const state = e.state;
+      if (state && state.tab) {
+        setActiveTab(state.tab);
+      } else {
+        const hash = window.location.hash.replace('#', '');
+        if (hash === 'status' || hash === 'admin' || hash === 'reserve') {
+          setActiveTab(hash as 'reserve' | 'status' | 'admin');
+        } else {
+          setActiveTab('reserve');
+        }
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [activeTab, mobileLangDropdownOpen, latestSubmission]);
 
   const [darkMode, setDarkMode] = useState(() => {
     return localStorage.getItem('darkMode') === 'true';
@@ -239,13 +308,13 @@ export default function App() {
   // Switcher to Status Check with student ID automatically loaded & searched
   const handleViewStatusAfterSubmit = (studentId: string) => {
     setSelectedStudentId(studentId);
-    setLatestSubmission(null); // Clear success screen
-    setActiveTab('status');
+    navigateToTab('status');
   };
 
   const handleFormSubmitSuccess = (studentId: string, request: ReservationRequest) => {
     setLatestSubmission({ studentId, request });
     try {
+      window.history.pushState({ tab: 'reserve', view: 'receipt' }, '', '#receipt');
       localStorage.setItem('my_recent_submission', JSON.stringify({
         studentId,
         requestId: request.id,
@@ -915,10 +984,7 @@ export default function App() {
                 {t('tabReserve')}
               </button>
               <button
-                onClick={() => {
-                  setLatestSubmission(null);
-                  setActiveTab('status');
-                }}
+                onClick={() => navigateToTab('status')}
                 className={`py-2 px-3 sm:py-2 sm:px-4 text-xs font-semibold font-sans rounded-xl transition-all duration-300 flex items-center gap-2 cursor-pointer relative group ${
                   activeTab === 'status'
                     ? 'bg-white text-mangosteen shadow-sm border border-slate-200/50'
@@ -935,7 +1001,7 @@ export default function App() {
             <div className="relative md:hidden shrink-0" id="mobile-lang-dropdown-wrapper">
               <button
                 type="button"
-                onClick={() => setMobileLangDropdownOpen(!mobileLangDropdownOpen)}
+                onClick={toggleMobileLangDropdown}
                 className="flex items-center gap-1 px-2.5 py-1 bg-slate-100/90 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-full border border-slate-200/80 dark:border-slate-700 text-[11px] font-bold transition-all active:scale-95 cursor-pointer shadow-2xs select-none"
                 title={isTh ? "เลือกภาษา / Select Language" : "Select Language"}
                 id="mobile-lang-toggle"
@@ -1110,10 +1176,7 @@ export default function App() {
             {/* Subtly Separated staff login trigger (Desktop Only) */}
             <div className="hidden md:block">
               <button
-                onClick={() => {
-                  setLatestSubmission(null);
-                  setActiveTab('admin');
-                }}
+                onClick={() => navigateToTab('admin')}
                 className={`px-4 py-2 rounded-2xl text-xs font-bold font-sans flex items-center gap-2 transition-all duration-300 cursor-pointer border ${
                   activeTab === 'admin'
                     ? 'bg-mangosteen text-white border-mangosteen shadow-md shadow-mangosteen/20'
@@ -1657,10 +1720,7 @@ export default function App() {
 
           {/* 2. Status Tab */}
           <button
-            onClick={() => {
-              setLatestSubmission(null);
-              setActiveTab('status');
-            }}
+            onClick={() => navigateToTab('status')}
             className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
               activeTab === 'status'
                 ? 'text-white font-bold'
@@ -1672,7 +1732,7 @@ export default function App() {
             <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 ${
               activeTab === 'status' ? 'bg-white/20 scale-105 shadow-inner' : ''
             }`}>
-              <Search className={`w-5 h-5 ${activeTab === 'status' ? 'stroke-[2.2] text-white' : 'stroke-[1.8] text-white/80'}`} />
+              <Search className={`w-5 h-5 drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)] ${activeTab === 'status' ? 'stroke-[2.2] text-white' : 'stroke-[1.8] text-white/80'}`} />
             </div>
             <span className="text-[10.5px] tracking-tight mt-0.5 leading-tight">{t('tabStatus')}</span>
             {activeTab === 'status' && (
@@ -1686,10 +1746,7 @@ export default function App() {
 
           {/* 3. Staff / Admin Tab */}
           <button
-            onClick={() => {
-              setLatestSubmission(null);
-              setActiveTab('admin');
-            }}
+            onClick={() => navigateToTab('admin')}
             className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
               activeTab === 'admin'
                 ? 'text-white font-bold'

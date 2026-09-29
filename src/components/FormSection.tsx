@@ -215,19 +215,21 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
   useEffect(() => {
     if (step === 2) {
       if (window.history.state?.formStep !== 2) {
-        window.history.pushState({ formStep: 2 }, '');
+        try {
+          window.history.pushState({ tab: 'reserve', formStep: 2 }, '', '#step2');
+        } catch (e) {}
       }
 
-      const handlePopState = () => {
-        setStep(1);
+      const handlePopState = (e: PopStateEvent) => {
+        // When popped back to step 1 (or any state that isn't formStep 2)
+        if (!e.state || e.state.formStep !== 2) {
+          setStep(1);
+        }
       };
 
       window.addEventListener('popstate', handlePopState);
       return () => {
         window.removeEventListener('popstate', handlePopState);
-        if (window.history.state?.formStep === 2) {
-          window.history.back();
-        }
       };
     }
   }, [step]);

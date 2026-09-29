@@ -123,6 +123,24 @@ export default function AdminSection({
 
   const showPasswordManager = showSystemSettings && activeSettingsTab === 'password';
   const [newAdminPassword, setNewAdminPassword] = useState('');
+
+  // Mobile back button closes system settings modal if open
+  useEffect(() => {
+    if (showSystemSettings) {
+      try {
+        window.history.pushState({ modal: 'systemSettings' }, '');
+      } catch (e) {}
+
+      const handlePopState = () => {
+        setShowSystemSettings(false);
+      };
+
+      window.addEventListener('popstate', handlePopState);
+      return () => {
+        window.removeEventListener('popstate', handlePopState);
+      };
+    }
+  }, [showSystemSettings]);
   const [newAdminName, setNewAdminName] = useState('');
   const [savedPasswords, setSavedPasswords] = useState<{hash: string, name: string, addedAt: string}[]>([]);
 
