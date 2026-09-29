@@ -434,6 +434,7 @@ export default function App() {
   // Ref to track known request IDs and first-fetch baseline
   const knownRequestIdsRef = useRef<Set<string>>(new Set());
   const isFirstFetchRef = useRef(true);
+  const isPollingRef = useRef(false);
 
   // --- BROWSER NATIVE NOTIFICATIONS ---
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
@@ -539,6 +540,8 @@ export default function App() {
 
   // Poll for requests from the database (either LocalStorage or live GAS Sheet)
   const pollRequests = async () => {
+    if (isPollingRef.current) return;
+    isPollingRef.current = true;
     try {
       // When logged in as admin, force fresh data from Google Sheets to detect new requests instantly
       const response = await getAllRequests(isAdminLoggedIn);
@@ -620,25 +623,35 @@ export default function App() {
         setAllRequestsState(fetchedRequests);
 
         if (!isAdminLoggedIn) {
-          // If not logged in as admin, keep the baseline fully synchronized so we don't spam on login
-          const ids = new Set(fetchedRequests.map(r => r.id));
-          knownRequestIdsRef.current = ids;
+          // If not logged in as admin, track all IDs silently so we don't alert on login
+          fetchedRequests.forEach(r => {
+            if (r.id) knownRequestIdsRef.current.add(r.id);
+          });
           isFirstFetchRef.current = true;
           return;
         }
 
         if (isFirstFetchRef.current) {
-          // Establish the initial baseline of known requests
-          const ids = new Set(fetchedRequests.map(r => r.id));
-          knownRequestIdsRef.current = ids;
+          // Establish the initial baseline silently - never trigger notification on initial load
+          fetchedRequests.forEach(r => {
+            if (r.id) knownRequestIdsRef.current.add(r.id);
+          });
           isFirstFetchRef.current = false;
         } else {
-          // Identify newly submitted requests
-          const newReqs = fetchedRequests.filter(r => !knownRequestIdsRef.current.has(r.id));
+          // Identify newly submitted requests:
+          // Must have status 'รอดำเนินการ' (Pending) and an ID not yet seen!
+          const newReqs = fetchedRequests.filter(r => 
+            r.id && 
+            r.status === 'รอดำเนินการ' && 
+            !knownRequestIdsRef.current.has(r.id)
+          );
           
+          // Always register all fetched IDs into known IDs so they can never be marked new again
+          fetchedRequests.forEach(r => {
+            if (r.id) knownRequestIdsRef.current.add(r.id);
+          });
+
           if (newReqs.length > 0) {
-            // Update the baseline of known request IDs
-            newReqs.forEach(r => knownRequestIdsRef.current.add(r.id));
 
             // Create notification pop-up
             const count = newReqs.length;
@@ -729,6 +742,8 @@ export default function App() {
       }
     } catch (err) {
       console.error('Error polling requests:', err);
+    } finally {
+      isPollingRef.current = false;
     }
   };
 
@@ -744,7 +759,7 @@ export default function App() {
 
     const interval = setInterval(() => {
       pollRequestsRef.current();
-    }, 6000);
+    }, 12000);
 
     return () => clearInterval(interval);
   }, []);

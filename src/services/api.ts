@@ -296,21 +296,41 @@ export async function getAllRequests(forceRefresh = false): Promise<{ success: b
     return { success: true, data: cachedRequests };
   }
 
+  // Deduplicate in-flight network requests
+  if (activeFetchPromise) {
+    return activeFetchPromise;
+  }
+
   if (isApiConfigured()) {
-    try {
-      const response = await fetchWithRetry(`${getApiUrl()}?action=getAllRequests&t=${Date.now()}`, {
-        method: 'GET'
-      });
-      const result = await response.json();
-      if (result.success) {
-        cachedRequests = result.data;
-        lastFetchTime = Date.now();
-        return { success: true, data: result.data };
+    activeFetchPromise = (async () => {
+      try {
+        const response = await fetchWithRetry(`${getApiUrl()}?action=getAllRequests&t=${Date.now()}`, {
+          method: 'GET'
+        });
+        const result = await response.json();
+        if (result.success && Array.isArray(result.data)) {
+          cachedRequests = result.data;
+          lastFetchTime = Date.now();
+          return { success: true, data: result.data };
+        }
+      } catch (err) {
+        console.warn('Network issue fetching from Google Sheets:', err);
+      } finally {
+        activeFetchPromise = null;
       }
-    } catch (err) {}
+
+      // If network fetch failed but we have previously cached live data, retain it
+      if (cachedRequests && cachedRequests.length > 0) {
+        return { success: true, data: cachedRequests };
+      }
+
+      return { success: false, data: cachedRequests || [], error: 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้' };
+    })();
+
+    return activeFetchPromise;
   }
   
-  // กรณีไม่ได้เชื่อม API, ดึงจาก Local Storage
+  // กรณีไม่ได้เชื่อม API เท่านั้น (Demo Mode), จึงดึงจาก Local Storage
   const requests: ReservationRequest[] = JSON.parse(localStorage.getItem('local_requests') || '[]');
   return { success: true, data: requests };
 }
