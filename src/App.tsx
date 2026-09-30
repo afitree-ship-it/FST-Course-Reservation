@@ -35,6 +35,7 @@ import FormSection from './components/FormSection';
 import StatusCheckSection from './components/StatusCheckSection';
 import AdminSection from './components/AdminSection';
 import ToastContainer, { ToastMessage, ToastType } from './components/Toast';
+import PwaInstallPrompt from './components/PwaInstallPrompt';
 import { isApiConfigured, isGoogleSheetUrlInstead, getAllRequests, submitRequest, getRemoteSettings, saveRemoteSetting } from './services/api';
 import { ReservationRequest, RequestStatus } from './types';
 import { useTranslation } from './contexts/LanguageContext';
@@ -53,23 +54,31 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<'reserve' | 'status' | 'admin'>(() => {
     try {
-      const savedTab = localStorage.getItem('active_tab') as 'reserve' | 'status' | 'admin';
-      if (savedTab === 'admin' && !sessionStorage.getItem('logged_in_admin_name')) {
-        return 'reserve';
-      }
-      return savedTab || 'reserve';
+      const hash = window.location.hash.replace('#', '');
+      if (hash === 'status') return 'status';
+      if (hash === 'admin' && sessionStorage.getItem('logged_in_admin_name')) return 'admin';
+      // เข้าใช้งานเว็บไซต์ครั้งใหม่ จะเริ่มต้นที่หน้าแรก (สำรองที่นั่ง) เสมอ
+      return 'reserve';
     } catch (e) {
       return 'reserve';
     }
   });
 
   useEffect(() => {
-    try {
-      localStorage.setItem('active_tab', activeTab);
-    } catch (e) {
-      // ignore
+    // ทุกครั้งที่เข้าเว็บใหม่ หรือไม่มี hash เจาะจง ให้เริ่มต้นที่หน้าแรกและรีเซ็ตไป Step 1 เสมอ
+    const hash = window.location.hash.replace('#', '');
+    if (!hash || hash === 'reserve' || hash === 'step1' || hash === 'step2') {
+      setActiveTab('reserve');
+      setLatestSubmission(null);
+      setSelectedStudentId('');
+      setFormResetKey(prev => prev + 1);
+      try {
+        if (hash === 'step2' || hash === 'step1') {
+          window.history.replaceState({ tab: 'reserve', formStep: 1 }, '', window.location.pathname);
+        }
+      } catch (e) {}
     }
-  }, [activeTab]);
+  }, []);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   
   // Transition states for post-submission success view
@@ -1793,6 +1802,9 @@ export default function App() {
           </button>
         </div>
       </nav>
+
+      {/* PWA Install Mini Prompt at the bottom */}
+      <PwaInstallPrompt />
     </div>
   );
 }

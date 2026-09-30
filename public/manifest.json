@@ -1,0 +1,31 @@
+{
+  "name": "ระบบสำรองที่นั่งวิชาเรียน คณะวิทยาศาสตร์และเทคโนโลยี",
+  "short_name": "สำรองที่นั่ง FST",
+  "description": "ระบบยื่นคำร้องขอสำรองที่นั่งรายวิชา คณะวิทยาศาสตร์และเทคโนโลยี มหาวิทยาลัยฟาฏอนี",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#7A1F2B",
+  "icons": [
+    {
+      "src": "/pwa-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/pwa-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

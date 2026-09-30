@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="fstGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8E2232"/>
+      <stop offset="100%" stop-color="#5C131D"/>
+    </linearGradient>
+  </defs>
+  <rect width="100" height="100" rx="22" fill="url(#fstGrad)"/>
+  <path d="M20,38 L50,26 L80,38 L50,50 Z" fill="#10B981"/>
+  <path d="M32,42 C32,56 68,56 68,42" fill="none" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round"/>
+  <line x1="72" y1="38" x2="72" y2="58" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="72" cy="59" r="2" fill="#ffffff"/>
+  <text x="50" y="82" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="16" letter-spacing="0.5">FST</text>
+</svg>
