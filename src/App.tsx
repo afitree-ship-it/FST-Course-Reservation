@@ -1555,27 +1555,11 @@ export default function App() {
       </main>
 
       {/* Footer bar hosting responsive links */}
-      <footer className="bg-white border-t border-slate-100 py-6 pb-24 md:pb-6 text-center text-xs text-slate-400 font-sans">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-3">
+      <footer className="bg-white border-t border-slate-100 py-6 pb-28 md:pb-6 text-center text-xs text-slate-400 font-sans">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <p>
             {t('copyright')}
           </p>
-          
-          {/* Subtle mobile admin trigger links */}
-          <div className="sm:hidden flex items-center justify-center gap-1 text-[11px] text-slate-400">
-            <span>{t('forAdmin')}</span>
-            <button
-              onClick={() => {
-                setLatestSubmission(null);
-                setActiveTab('admin');
-              }}
-              className="text-mangosteen font-semibold hover:underline bg-mangosteen/5 py-1 px-2.5 rounded-full inline-flex items-center gap-1 transition-colors cursor-pointer"
-              id="footer-staff-trigger"
-            >
-              <Lock className="w-3 h-3" />
-              {t('adminLogin')}
-            </button>
-          </div>
         </div>
       </footer>
 
