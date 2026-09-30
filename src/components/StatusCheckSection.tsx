@@ -239,22 +239,22 @@ const getStatusBadge = (status: RequestStatus) => {
       id="status-check-container"
     >
       {/* Search Header card */}
-      <div className="bg-white/85 backdrop-blur-2xl rounded-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.15),_0_15px_30px_-15px_rgba(0,0,0,0.1)] p-4 sm:p-6 md:p-8 border border-white/90 flex flex-col gap-3.5 sm:gap-5 transition-all duration-300">
-        <div className="text-center md:text-left">
-          <div className="flex items-center space-x-2.5 mb-2">
-            <div className="w-1.5 h-6 bg-mangosteen rounded-full"></div>
-            <h2 className="text-xl font-extrabold tracking-tight text-mangosteen font-sans underline decoration-2 underline-offset-8">
-              {t('statusTitle')}
-            </h2>
+      <div className="bg-white/90 backdrop-blur-2xl rounded-3xl shadow-[0_20px_50px_-12px_rgba(0,0,0,0.08)] p-5 sm:p-7 md:p-8 border border-white/90 flex flex-col gap-4 sm:gap-6 transition-all duration-300">
+        <div className="text-center space-y-2">
+          <div className="w-12 h-12 rounded-2xl bg-mangosteen/10 text-mangosteen flex items-center justify-center mx-auto shadow-2xs mb-2">
+            <Search className="w-6 h-6 text-mangosteen" />
           </div>
-          <p className="text-slate-500 text-xs font-sans">
+          <h2 className="text-xl sm:text-2xl font-black tracking-tight text-slate-800 font-sans">
+            {t('statusTitle')}
+          </h2>
+          <p className="text-slate-500 text-xs sm:text-sm font-sans max-w-md mx-auto leading-relaxed">
             {t('statusDesc')}
           </p>
         </div>
 
         <form onSubmit={handleSearchSubmit} className="flex flex-col sm:flex-row gap-3" id="student-search-form">
           <div className="relative flex-1">
-            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
               <Search className="w-4 h-4" />
             </div>
             <input
@@ -265,17 +265,19 @@ const getStatusBadge = (status: RequestStatus) => {
               placeholder={t("statusInputPlaceholder")}
               value={studentId}
               onChange={(e) => setStudentId(e.target.value.replace(/\D/g, ''))}
-              className="w-full pl-10 pr-14 py-3 rounded-xl border-2 border-slate-200 bg-slate-50 hover:bg-white text-sm font-sans tracking-wide transition-all focus:outline-hidden focus:border-mangosteen focus:ring-4 focus:ring-mangosteen/20"
+              className="w-full pl-11 pr-14 py-3.5 rounded-2xl border-2 border-slate-200/90 bg-slate-50/70 hover:bg-white text-sm sm:text-base font-mono font-bold tracking-wider transition-all focus:outline-hidden focus:border-mangosteen focus:ring-4 focus:ring-mangosteen/15 focus:bg-white text-slate-800"
               id="search-student-id"
             />
-            <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-xs font-semibold text-slate-400">
+            <div className={`absolute inset-y-0 right-0 pr-4 flex items-center pointer-events-none text-xs font-mono font-semibold transition-colors ${
+              studentId.length === 9 ? 'text-emerald-600 font-bold' : 'text-slate-400'
+            }`}>
               {studentId.length}/9
             </div>
           </div>
           <button
             type="submit"
             disabled={loading || !studentId.trim() || studentId.trim().length !== 9}
-            className="px-6 py-3 bg-mangosteen hover:bg-mangosteen-hover active:scale-[0.98] text-white rounded-xl text-sm font-bold tracking-wide font-sans shadow-md flex items-center justify-center gap-2 shrink-0 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-6 py-3.5 bg-gradient-to-r from-[#7A1F2B] via-[#8E2232] to-[#7A1F2B] hover:brightness-110 active:scale-[0.98] text-white rounded-2xl text-sm font-bold tracking-wide font-sans shadow-lg shadow-mangosteen/25 flex items-center justify-center gap-2 shrink-0 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
             id="btn-trigger-search"
           >
             {loading ? (
@@ -283,7 +285,7 @@ const getStatusBadge = (status: RequestStatus) => {
             ) : (
               <Search className="w-4 h-4" />
             )}
-            {t('statusSearchButton')}
+            <span>{t('statusSearchButton')}</span>
           </button>
         </form>
       </div>
