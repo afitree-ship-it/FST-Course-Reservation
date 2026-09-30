@@ -1538,106 +1538,87 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
               </div>
 
               {/* Section 3: ช่องทางสำหรับติดต่อกลับเพื่อยืนยันหรือตรวจสอบข้อมูล */}
-              <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-5 sm:p-7 space-y-5 shadow-xs">
-                <div className="flex items-center justify-between border-b border-slate-200/70 pb-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-mangosteen text-white flex items-center justify-center shadow-xs">
-                      <Upload className="w-4 h-4" />
+              <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-3.5 sm:p-5 space-y-2.5 shadow-xs">
+                <div className="flex items-center justify-between border-b border-slate-200/70 pb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-mangosteen text-white flex items-center justify-center shadow-xs">
+                      <Upload className="w-3.5 h-3.5" />
                     </div>
                     <div>
-                      <h3 className="font-bold text-sm sm:text-base text-slate-800 font-sans tracking-wide">
+                      <h3 className="font-bold text-xs sm:text-sm text-slate-800 font-sans">
                         {isTh ? 'ช่องทางติดต่อกลับ (แนบรูปโปรไฟล์ Facebook)' : 'Contact Proof (Facebook Profile Screenshot)'}
                       </h3>
-                      <p className="text-slate-400 text-xs font-sans">
-                        {isTh ? 'แนบรูปภาพ 1 รูป เพื่อให้เจ้าหน้าที่ตรวจสอบและติดต่อกลับ' : 'Upload 1 screenshot so staff can verify and reach you'}
-                      </p>
                     </div>
                   </div>
                   {isProofAutoRestored && (
-                    <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-3xs">
+                    <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-3xs">
                       <span>✓</span>
-                      <span>{isTh ? 'จดจำข้อมูลเดิม' : 'Auto-remembered'}</span>
+                      <span>{isTh ? 'จดจำเดิม' : 'Auto'}</span>
                     </span>
                   )}
                 </div>
 
-                {isProofAutoRestored && (
-                  <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-3 rounded-xl flex items-center gap-2.5 text-xs font-sans shadow-2xs">
-                    <span className="text-base">⚡</span>
-                    <span>
-                      {isTh
-                        ? 'ระบบจดจำรูปภาพติดต่อเดิมของคุณให้แล้ว ไม่จำเป็นต้องอัปโหลดใหม่ (สามารถกดเปลี่ยนหรือลบได้ตลอดเวลา)'
-                        : 'Your contact proof is automatically restored from previous record. You can change or remove it anytime.'}
-                    </span>
-                  </div>
-                )}
-
-                {/* Main Upload Box */}
+                {/* Main Upload Box (Compact for Mobile) */}
                 {facebookProofFile ? (
-                  /* STATE: มีรูปภาพอัปโหลดแล้ว */
-                  <div className="bg-emerald-50/80 border-2 border-emerald-400/90 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
-                    <div className="flex items-center justify-between flex-wrap gap-2 pb-2.5 border-b border-emerald-200/70">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="w-5 h-5 text-emerald-600" />
-                        <span className="text-sm font-bold text-emerald-900 font-sans">
-                          {isTh ? '✓ อัปโหลดรูปภาพเรียบร้อยแล้ว (1 ไฟล์)' : '✓ Image Uploaded Successfully (1 File)'}
+                  /* STATE: มีรูปภาพอัปโหลดแล้ว (ขนาดกะทัดรัด ไม่กินพื้นที่หน้าจอมือถือ) */
+                  <div className="bg-emerald-50/90 border border-emerald-300 rounded-xl p-2.5 sm:p-3 shadow-2xs space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span className="text-xs sm:text-sm font-bold text-emerald-900 font-sans truncate">
+                          {isTh ? 'อัปโหลดรูปภาพแล้ว (1 ไฟล์)' : 'Image Uploaded (1 File)'}
                         </span>
                       </div>
-                      <span className="text-xs bg-emerald-100 text-emerald-800 font-bold px-2.5 py-0.5 rounded-full font-mono">
-                        {isTh ? 'พร้อมส่งข้อมูล' : 'Ready'}
+                      <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full font-mono shrink-0">
+                        {isTh ? 'พร้อมส่ง' : 'Ready'}
                       </span>
                     </div>
 
-                    <div className="flex flex-col sm:flex-row items-center gap-4 pt-1">
-                      <div className="relative group shrink-0">
-                        <img
-                          src={getDirectImageUrl(facebookProofFile.dataUrl)}
-                          alt="Uploaded Profile Proof"
-                          className="w-32 h-32 sm:w-36 sm:h-36 object-cover rounded-xl shadow-sm border-2 border-white ring-1 ring-emerald-300 bg-white"
-                        />
-                      </div>
-
-                      <div className="flex-1 space-y-2 text-center sm:text-left min-w-0 w-full">
-                        <div>
-                          <p className="text-xs font-semibold text-slate-500 font-sans">{isTh ? 'ชื่อไฟล์ภาพ:' : 'File name:'}</p>
-                          <p className="text-sm font-mono font-bold text-slate-800 truncate" title={facebookProofFile.name}>
-                            {facebookProofFile.name}
-                          </p>
-                        </div>
-                        <p className="text-xs text-emerald-700 font-sans">
-                          {isTh ? 'รูปนี้จะถูกแนบส่งไปยังเจ้าหน้าที่พร้อมกับคำร้องของคุณ' : 'This screenshot will be attached with your seat request.'}
+                    <div className="flex items-center gap-2.5 bg-white p-2 rounded-lg border border-emerald-200/80">
+                      <img
+                        src={getDirectImageUrl(facebookProofFile.dataUrl)}
+                        alt="Uploaded Profile Proof"
+                        className="w-12 h-12 sm:w-14 sm:h-14 object-cover rounded-md border border-slate-200 bg-slate-50 shrink-0"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-mono font-bold text-slate-800 truncate" title={facebookProofFile.name}>
+                          {facebookProofFile.name}
                         </p>
-
-                        <div className="flex items-center justify-center sm:justify-start gap-2 pt-1">
-                          <button
-                            type="button"
-                            onClick={() => document.getElementById('fb-image-upload')?.click()}
-                            className="px-3.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 hover:text-mangosteen border border-slate-200 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
-                          >
-                            <RefreshCw className="w-3.5 h-3.5" />
-                            <span>{isTh ? 'เปลี่ยนรูปใหม่' : 'Change Photo'}</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={clearFile}
-                            className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>{isTh ? 'ลบออก' : 'Remove'}</span>
-                          </button>
-                        </div>
+                        <p className="text-[10px] text-emerald-700 font-sans">
+                          {isTh ? 'แนบส่งพร้อมคำร้อง' : 'Attached with request'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => document.getElementById('fb-image-upload')?.click()}
+                          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 font-sans"
+                          title={isTh ? 'เปลี่ยนรูป' : 'Change'}
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          <span className="hidden sm:inline">{isTh ? 'เปลี่ยนรูป' : 'Change'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={clearFile}
+                          className="p-1.5 sm:px-2.5 sm:py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 font-sans"
+                          title={isTh ? 'ลบออก' : 'Remove'}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">{isTh ? 'ลบ' : 'Remove'}</span>
+                        </button>
                       </div>
                     </div>
                   </div>
                 ) : (
-                  /* STATE: ยังไม่ได้อัปโหลดรูป */
-                  <div className="space-y-2">
+                  /* STATE: ยังไม่ได้อัปโหลดรูป (กล่องแนวนอนกะทัดรัด แตะเลือกรูปได้ทันที) */
+                  <div className="space-y-1.5">
                     <div
                       onDragOver={handleDragOver}
                       onDragLeave={handleDragLeave}
                       onDrop={handleDrop}
                       onClick={() => document.getElementById('fb-image-upload')?.click()}
-                      className={`border-2 border-dashed rounded-2xl p-6 sm:p-8 transition-all flex flex-col items-center justify-center min-h-[170px] cursor-pointer group shadow-2xs ${
+                      className={`border-2 border-dashed rounded-xl p-3 sm:p-4 transition-all flex items-center justify-between gap-3 cursor-pointer group shadow-2xs ${
                         isDragOver
                           ? 'border-mangosteen bg-mangosteen/5 scale-[1.01]'
                           : touched.facebookProofFile && validationErrors.facebookProofFile
@@ -1645,17 +1626,23 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                             : 'border-slate-300 hover:border-mangosteen bg-white hover:bg-mangosteen/5'
                       }`}
                     >
-                      <div className="w-12 h-12 rounded-2xl bg-mangosteen/10 text-mangosteen flex items-center justify-center mb-3 group-hover:scale-110 group-hover:bg-mangosteen group-hover:text-white transition-all shadow-xs">
-                        <Upload className="w-6 h-6" />
+                      <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                        <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-mangosteen/10 text-mangosteen flex items-center justify-center shrink-0 group-hover:scale-105 group-hover:bg-mangosteen group-hover:text-white transition-all shadow-xs">
+                          <Upload className="w-4 h-4 sm:w-5 sm:h-5" />
+                        </div>
+                        <div className="min-w-0 text-left">
+                          <p className="text-xs sm:text-sm font-bold text-slate-800 group-hover:text-mangosteen transition-colors font-sans truncate">
+                            {isTh ? 'แตะเพื่อเลือกรูปโปรไฟล์ Facebook' : 'Tap to upload Facebook profile photo'}
+                          </p>
+                          <p className="text-[11px] text-slate-400 font-sans truncate">
+                            {isTh ? '1 รูปภาพ • รองรับทุกไฟล์ (JPG, PNG, HEIC ฯลฯ)' : '1 photo • All formats (JPG, PNG, HEIC)'}
+                          </p>
+                        </div>
                       </div>
-                      <p className="text-sm sm:text-base font-bold text-slate-800 group-hover:text-mangosteen transition-colors font-sans text-center">
-                        {isTh ? 'แตะที่นี่เพื่อเลือกรูปภาพ หรือ ลากไฟล์รูปมาวาง' : 'Tap here to choose photo or drag & drop'}
-                      </p>
-                      <p className="text-xs text-slate-400 font-sans mt-1 text-center">
-                        {isTh 
-                          ? 'แนบรูปหน้าโปรไฟล์ Facebook (1 ไฟล์ • รองรับรูปภาพทุกสกุลไฟล์ เช่น JPG, PNG, WEBP, HEIC)' 
-                          : 'Upload 1 screenshot of Facebook profile (Supports all image formats)'}
-                      </p>
+
+                      <span className="shrink-0 text-xs font-bold text-mangosteen bg-mangosteen/10 group-hover:bg-mangosteen group-hover:text-white px-2.5 py-1.5 rounded-lg transition-colors font-sans">
+                        {isTh ? 'เลือกรูป' : 'Browse'}
+                      </span>
                     </div>
 
                     {touched.facebookProofFile && validationErrors.facebookProofFile && (
@@ -1674,9 +1661,9 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                 />
 
                 {/* Alternative link entry if needed */}
-                <div className="pt-1">
+                <div className="pt-0.5">
                   {proofType === 'link' ? (
-                    <div className="space-y-1.5 p-3.5 bg-white rounded-xl border border-slate-200 shadow-2xs">
+                    <div className="space-y-1.5 p-2.5 sm:p-3 bg-white rounded-xl border border-slate-200 shadow-2xs">
                       <div className="flex items-center justify-between">
                         <label className="block text-xs font-semibold text-slate-700 font-sans">
                           {isTh ? 'ระบุลิงก์โปรไฟล์ Facebook แทน' : 'Paste Facebook Profile Link'}
