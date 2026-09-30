@@ -700,6 +700,12 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
 
     if (!isValidForm) {
       showToast(t('toastFillError'), 'warning');
+      setTimeout(() => {
+        const firstErrorEl = document.querySelector('.border-rose-300, .text-rose-500');
+        if (firstErrorEl) {
+          firstErrorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 100);
       return;
     }
 
@@ -817,148 +823,168 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
         )}
       </AnimatePresence>
 
-      <div className="bg-white/85 backdrop-blur-2xl rounded-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.15),_0_15px_30px_-15px_rgba(0,0,0,0.1)] overflow-hidden border border-white/90 transition-all duration-300">
-        {step !== 1 && (
-          <div className="p-6 md:p-8 border-b border-slate-100 bg-slate-50/50">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-              <div>
-                <div className="flex items-center space-x-2.5 mb-2">
-                  <div className="w-1.5 h-6 bg-mangosteen rounded-full"></div>
-                  <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight text-mangosteen font-sans">{t('formTitle')}</h2>
-                </div>
-                <p className="text-slate-600 text-xs sm:text-sm font-sans tracking-wide">
-                  {t('formSubtitle')}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
+      <div className={`relative transition-all duration-300 ${step === 1 ? 'max-w-xl mx-auto' : 'w-full'}`}>
+        {/* Soft Ambient Brand Glow Behind the Card */}
+        <div className="absolute -inset-1.5 bg-gradient-to-r from-mangosteen/15 via-rose-300/20 to-mangosteen/15 rounded-3xl sm:rounded-[2rem] blur-xl opacity-75 -z-10" />
 
-        <form onSubmit={step === 1 ? handleCheckStudentId : handleSubmit} className={`${step === 1 ? 'p-5 sm:p-8 space-y-4 sm:space-y-6' : 'p-6 md:p-8 space-y-8'}`} id="scitech-reserve-form">
-          {!systemOpenStatus.isOpen && (
-            <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 sm:p-5 text-rose-800 shadow-xs">
-              <div className="flex items-start space-x-3">
-                <div className="p-2 bg-rose-100 rounded-xl text-rose-600 shrink-0 mt-0.5">
-                  <Lock className="w-5 h-5" />
-                </div>
-                <div className="space-y-1">
-                  <h4 className="font-bold text-sm sm:text-base text-rose-900 font-sans">
-                    {isTh ? 'ขณะนี้ระบบปิดรับคำร้องสำรองที่นั่งวิชาเรียน' : 'System Closed for Seat Reservation'}
-                  </h4>
-                  <p className="text-xs sm:text-sm text-rose-700 leading-relaxed font-sans">
-                    {systemOpenStatus.message || (isTh ? 'อยู่นอกกำหนดเวลาการรับคำร้อง หรือเจ้าหน้าที่ปิดการรับคำร้องชั่วคราว' : 'Currently outside the scheduled reservation period or temporarily closed by administrator.')}
+        <div className="bg-white/85 backdrop-blur-2xl rounded-2xl sm:rounded-3xl shadow-[0_20px_50px_-15px_rgba(122,31,43,0.12),_0_10px_25px_-10px_rgba(0,0,0,0.04)] overflow-hidden border border-white/90 transition-all duration-300">
+          {step !== 1 && (
+            <div className="p-5 sm:p-7 md:p-8 border-b border-slate-100/90 bg-gradient-to-r from-slate-50/80 via-white/50 to-slate-50/80 backdrop-blur-md">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center space-x-2.5 mb-1.5">
+                    <div className="w-1.5 h-6 bg-gradient-to-b from-[#7A1F2B] to-[#9E2A3B] rounded-full shadow-xs"></div>
+                    <h2 className="text-xl sm:text-2xl font-black tracking-tight text-slate-800 font-sans">{t('formTitle')}</h2>
+                  </div>
+                  <p className="text-slate-500 text-xs sm:text-sm font-sans tracking-wide">
+                    {t('formSubtitle')}
                   </p>
-                  {systemOpenStatus.mode === 'scheduled' && systemOpenStatus.startDate && (
-                    <div className="mt-2 text-xs font-semibold bg-rose-100/90 inline-flex items-center space-x-1.5 px-3 py-1 rounded-lg text-rose-800 font-sans">
-                      <Calendar className="w-3.5 h-3.5" />
-                      <span>{isTh ? 'กำหนดการรับคำร้อง:' : 'Schedule:'} {new Date(systemOpenStatus.startDate).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })} - {systemOpenStatus.endDate ? new Date(systemOpenStatus.endDate).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }) : 'เปิดต่อเนื่อง'}</span>
-                    </div>
-                  )}
+                </div>
+
+                {/* ID badge & change ID action button */}
+                <div className="flex items-center gap-2 self-start md:self-center shrink-0">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-700 text-xs font-bold font-mono shadow-2xs">
+                    <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>ID: {studentId}</span>
+                  </div>
+                  <button 
+                    type="button" 
+                    onClick={goBackToStep1}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/90 hover:bg-white text-slate-600 hover:text-mangosteen border border-slate-200/80 hover:border-mangosteen/30 text-xs font-semibold font-sans transition-all shadow-2xs cursor-pointer active:scale-95"
+                    title={isTh ? 'เปลี่ยนรหัสนักศึกษา' : 'Change Student ID'}
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    <span>{isTh ? 'เปลี่ยนรหัส' : 'Change ID'}</span>
+                  </button>
                 </div>
               </div>
             </div>
           )}
 
-          {step === 1 ? (
-            <div className="space-y-4 sm:space-y-6">
-              <div className="text-center">
-                <h2 className="text-lg sm:text-xl font-extrabold tracking-tight text-mangosteen font-sans mb-1">{t('formTitle')}</h2>
-                <h3 className="text-sm sm:text-base font-bold text-slate-700 font-sans min-h-[1.5rem] flex items-center justify-center">
-                  <ScrambleText text={isTh ? 'กรอกรหัสนักศึกษาเพื่อเริ่มต้น' : 'Enter Student ID to Start'} duration={2800} />
-                </h3>
-                <p className="text-slate-500 text-xs sm:text-sm mt-0.5">{isTh ? 'ระบบจะตรวจสอบข้อมูลส่วนตัวของคุณจากฐานข้อมูล' : 'We will check your profile in our database'}</p>
-              </div>
-
-              <div className="max-w-xs mx-auto">
-                <label className="block text-xs sm:text-sm font-semibold text-slate-600 mb-1 sm:mb-1.5 font-sans text-center">
-                  {t('studentIdLabel')} <span className="text-rose-500">*</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="\d*"
-                    maxLength={9}
-                    value={studentId}
-                    onChange={e => setStudentId(e.target.value.replace(/\D/g, ''))}
-                    onBlur={() => handleBlur('studentId')}
-                    placeholder="xxxxxxxxx"
-                    className={`w-full px-4 py-2.5 sm:py-3 rounded-xl border-2 text-center text-md sm:text-lg font-bold font-sans tracking-widest transition-all focus:outline-hidden focus:ring-4 ${
-                      touched.studentId && validationErrors.studentId
-                        ? 'border-rose-300 focus:ring-rose-200 focus:border-rose-400 bg-rose-50/20 text-rose-700'
-                        : 'border-slate-200 focus:border-mangosteen focus:ring-mangosteen/20 text-slate-700'
-                    }`}
-                    id="input-studentId-step1"
-                  />
-                  <div className="text-right text-[11px] font-semibold text-slate-400 mt-1">
-                    {studentId.length}/9 หลัก
+          <form onSubmit={step === 1 ? handleCheckStudentId : handleSubmit} className={`${step === 1 ? 'p-6 sm:p-10 space-y-6 sm:space-y-8' : 'p-5 sm:p-8 space-y-8'}`} id="scitech-reserve-form">
+            {!systemOpenStatus.isOpen && (
+              <div className="bg-rose-50/90 border border-rose-200/80 rounded-2xl p-4 sm:p-5 text-rose-800 shadow-xs">
+                <div className="flex items-start space-x-3">
+                  <div className="p-2 bg-rose-100 rounded-xl text-rose-600 shrink-0 mt-0.5 shadow-2xs">
+                    <Lock className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="font-bold text-sm sm:text-base text-rose-900 font-sans">
+                      {isTh ? 'ขณะนี้ระบบปิดรับคำร้องสำรองที่นั่งวิชาเรียน' : 'System Closed for Seat Reservation'}
+                    </h4>
+                    <p className="text-xs sm:text-sm text-rose-700 leading-relaxed font-sans">
+                      {systemOpenStatus.message || (isTh ? 'อยู่นอกกำหนดเวลาการรับคำร้อง หรือเจ้าหน้าที่ปิดการรับคำร้องชั่วคราว' : 'Currently outside the scheduled reservation period or temporarily closed by administrator.')}
+                    </p>
+                    {systemOpenStatus.mode === 'scheduled' && systemOpenStatus.startDate && (
+                      <div className="mt-2 text-xs font-semibold bg-rose-100/90 inline-flex items-center space-x-1.5 px-3 py-1 rounded-lg text-rose-800 font-sans">
+                        <Calendar className="w-3.5 h-3.5" />
+                        <span>{isTh ? 'กำหนดการรับคำร้อง:' : 'Schedule:'} {new Date(systemOpenStatus.startDate).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })} - {systemOpenStatus.endDate ? new Date(systemOpenStatus.endDate).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }) : 'เปิดต่อเนื่อง'}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
-                {touched.studentId && validationErrors.studentId && (
-                  <p className="mt-1.5 text-xs text-rose-500 font-sans font-medium text-center">{validationErrors.studentId}</p>
-                )}
               </div>
+            )}
 
-              <div className="pt-2 sm:pt-4 flex justify-center">
-                <button
-                  type="submit"
-                  disabled={checkingStudentId || !studentId.trim() || studentId.trim().length !== 9}
-                  className="w-full max-w-xs py-2.5 sm:py-3 px-6 bg-mangosteen hover:bg-mangosteen-light text-white font-bold font-sans rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer text-sm sm:text-base"
-                >
-                  {checkingStudentId ? (
-                    <RefreshCw className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <>
-                      {isTh ? 'ถัดไป' : 'Next'}
-                      <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5" />
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* Section 1: ข้อมูลนักศึกษา */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-4">
-                  <div className="flex items-center gap-2">
-                    <User className="w-4 h-4 text-mangosteen" />
-                    <h3 className="font-bold text-sm text-slate-800 font-sans tracking-wide">{t('sectionApplicant')}</h3>
+            {step === 1 ? (
+              <div className="relative space-y-6 sm:space-y-8 py-2 sm:py-4">
+                {/* Subtle Ambient Glow inside Card */}
+                <div className="absolute -top-12 -right-12 w-40 h-40 bg-mangosteen/10 rounded-full blur-2xl pointer-events-none" />
+                <div className="absolute -bottom-12 -left-12 w-40 h-40 bg-mangosteen/10 rounded-full blur-2xl pointer-events-none" />
+
+                <div className="text-center space-y-3 relative z-10">
+                  {/* Brand Pill */}
+                  <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-mangosteen/5 border border-mangosteen/15 text-mangosteen text-xs font-semibold shadow-xs">
+                    <Sparkles className="w-3.5 h-3.5 text-mangosteen" />
+                    <span>{isTh ? 'คณะวิทยาศาสตร์และเทคโนโลยี • มหาวิทยาลัยฟาฏอนี' : 'Faculty of Science & Technology • Fatoni University'}</span>
                   </div>
-                  <button 
-                    type="button" 
-                    onClick={() => {
-                      setFullName('');
-                      setFaculty('');
-                      setDepartment('');
-                      setYear('');
-                      setPhone('');
-                      setCourses([{ courseCode: '', courseName: '', section: '', instructor: '' }]);
-                      setFacebookProofLink('');
-                      setFacebookProofFile(null);
-                      setNotifyContact('');
-                      setHasProfile(false);
-                      setTouched({});
-                      setStep(1);
-                    }}
-                    className="text-xs text-slate-500 hover:text-mangosteen font-semibold transition-colors flex items-center gap-1 cursor-pointer bg-slate-50 hover:bg-slate-100 px-2 py-1 rounded-md"
+
+                  <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-800 font-sans">
+                    {t('formTitle')}
+                  </h2>
+                  
+                  <h3 className="text-sm sm:text-base font-bold text-mangosteen font-sans min-h-[1.5rem] flex items-center justify-center">
+                    <ScrambleText text={isTh ? 'กรอกรหัสนักศึกษาเพื่อเริ่มต้น' : 'Enter Student ID to Start'} duration={2800} />
+                  </h3>
+                  
+                  <p className="text-slate-500 text-xs sm:text-sm max-w-sm mx-auto font-sans leading-relaxed">
+                    {isTh ? 'ระบบจะค้นหาและเชื่อมโยงข้อมูลประวัติเดิมของคุณอัตโนมัติ' : 'We will automatically retrieve your student records if available'}
+                  </p>
+                </div>
+
+                <div className="max-w-xs mx-auto relative z-10 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-700 font-sans px-1">
+                    <span>{t('studentIdLabel')} <span className="text-rose-500">*</span></span>
+                    <span className={`text-[11px] font-mono font-semibold ${studentId.length === 9 ? 'text-emerald-600 font-bold' : 'text-slate-400'}`}>
+                      {studentId.length}/9 หลัก
+                    </span>
+                  </div>
+
+                  <div className="relative">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="\d*"
+                      maxLength={9}
+                      value={studentId}
+                      onChange={e => setStudentId(e.target.value.replace(/\D/g, ''))}
+                      onBlur={() => handleBlur('studentId')}
+                      placeholder="xxxxxxxxx"
+                      className={`w-full px-4 py-3.5 sm:py-4 rounded-2xl border-2 text-center text-lg sm:text-xl font-bold font-mono tracking-[0.25em] sm:tracking-[0.35em] transition-all bg-white/90 hover:bg-white focus:bg-white focus:outline-hidden focus:ring-4 shadow-inner ${
+                        touched.studentId && validationErrors.studentId
+                          ? 'border-rose-300 focus:ring-rose-200 focus:border-rose-400 bg-rose-50/20 text-rose-700'
+                          : 'border-slate-200/90 focus:border-mangosteen focus:ring-mangosteen/15 text-slate-800'
+                      }`}
+                      id="input-studentId-step1"
+                    />
+                  </div>
+                  {touched.studentId && validationErrors.studentId && (
+                    <p className="mt-1 text-xs text-rose-500 font-sans font-medium text-center">{validationErrors.studentId}</p>
+                  )}
+                </div>
+
+                <div className="pt-2 flex justify-center relative z-10">
+                  <button
+                    type="submit"
+                    disabled={checkingStudentId || !studentId.trim() || studentId.trim().length !== 9}
+                    className="w-full max-w-xs py-3.5 px-6 bg-gradient-to-r from-[#7A1F2B] via-[#8E2232] to-[#7A1F2B] hover:brightness-110 active:scale-[0.98] text-white font-bold font-sans rounded-2xl shadow-lg shadow-mangosteen/25 transition-all disabled:opacity-40 disabled:pointer-events-none flex items-center justify-center gap-2.5 cursor-pointer text-sm sm:text-base tracking-wide"
                   >
-                    <RefreshCw className="w-3 h-3" />
-                    {isTh ? 'เปลี่ยนรหัสนักศึกษา' : 'Change ID'}
+                    {checkingStudentId ? (
+                      <>
+                        <RefreshCw className="w-5 h-5 animate-spin" />
+                        <span>{isTh ? 'กำลังค้นหาประวัติ...' : 'Searching Profile...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>{isTh ? 'เข้าสู่แบบฟอร์ม' : 'Continue to Form'}</span>
+                        <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5" />
+                      </>
+                    )}
                   </button>
                 </div>
-
-                {hasProfile && (
-                  <div className="bg-emerald-50 text-emerald-700 p-3 rounded-lg flex items-start gap-2 text-sm font-sans mb-4 border border-emerald-200/50">
-                    <CheckCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                    <div>
-                      <strong>{isTh ? 'พบประวัติข้อมูลของคุณ' : 'Profile found!'}</strong>
-                      <p className="opacity-90 text-xs mt-0.5">
-                        {isTh ? 'เราได้กรอกข้อมูลส่วนตัวและอีเมลให้คุณแล้ว คุณสามารถแก้ไขได้หรือข้ามไปเลือกรายวิชาได้เลย' : 'We have pre-filled your personal info & email. You can edit it or skip directly to selecting courses.'}
-                      </p>
+              </div>
+            ) : (
+              <>
+                {/* Section 1: ข้อมูลนักศึกษา */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-4">
+                    <div className="flex items-center gap-2">
+                      <User className="w-4 h-4 text-mangosteen" />
+                      <h3 className="font-bold text-sm text-slate-800 font-sans tracking-wide">{t('sectionApplicant')}</h3>
                     </div>
                   </div>
-                )}
+
+                  {hasProfile && (
+                    <div className="bg-gradient-to-r from-emerald-50 to-teal-50/70 text-emerald-800 p-3.5 rounded-xl flex items-start gap-2.5 text-xs sm:text-sm font-sans border border-emerald-200/70 shadow-2xs mb-4">
+                      <CheckCircle className="w-4 h-4 mt-0.5 text-emerald-600 shrink-0" />
+                      <div>
+                        <strong className="font-bold">{isTh ? '✨ พบประวัติข้อมูลเดิมของคุณ' : '✨ Profile Found!'}</strong>
+                        <p className="opacity-90 text-xs mt-0.5 text-emerald-700">
+                          {isTh ? 'เราได้กรอกข้อมูลส่วนตัวและอีเมลให้คุณแล้ว คุณสามารถแก้ไขได้หรือข้ามไปเลือกรายวิชาได้เลย' : 'We have pre-filled your personal info & email. You can edit it or skip directly to selecting courses.'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* ชื่อ-นามสกุล */}
@@ -1502,12 +1528,12 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                 <button
                   type="button"
                   onClick={addCourseField}
-                  className="w-full py-4 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 text-sm font-bold rounded-xl shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2 font-sans hover:shadow active:scale-95"
+                  className="w-full py-4 bg-white/70 hover:bg-white text-mangosteen border-2 border-dashed border-mangosteen/30 hover:border-mangosteen text-sm font-bold rounded-2xl shadow-xs transition-all cursor-pointer flex items-center justify-center gap-2.5 font-sans active:scale-[0.99]"
                 >
-                  <div className="bg-emerald-100 p-1 rounded-md text-emerald-800">
-                    <Plus className="w-5 h-5" />
+                  <div className="bg-mangosteen/10 p-1.5 rounded-xl text-mangosteen">
+                    <Plus className="w-4 h-4" />
                   </div>
-                  {isTh ? 'เพิ่มรายวิชาเรียนที่ต้องการสำรองอีก' : 'Add another course details'}
+                  <span>{isTh ? 'เพิ่มรายวิชาเรียนที่ต้องการสำรองอีก' : 'Add another course details'}</span>
                 </button>
               </div>
 
@@ -1551,32 +1577,32 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                 </div>
 
                 {/* Selector: อัปโหลด VS สลับลิงก์ */}
-                <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-lg">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-100/90 backdrop-blur-md p-1.5 rounded-2xl border border-slate-200/60 shadow-inner">
                   <button
                     type="button"
                     onClick={() => setProofType('file')}
-                    className={`py-2 px-3 text-xs font-medium font-sans text-center rounded-md flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    className={`py-2.5 px-3 text-xs sm:text-sm font-semibold font-sans text-center rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
                       proofType === 'file'
-                        ? 'bg-white text-mangosteen shadow-xs font-semibold'
-                        : 'text-slate-500 hover:text-slate-800'
+                        ? 'bg-white text-mangosteen shadow-xs font-bold border border-slate-200/60'
+                        : 'text-slate-500 hover:text-slate-800 hover:bg-white/40'
                     }`}
                     id="btn-proof-file"
                   >
-                    <Upload className="w-3.5 h-3.5" />
-                    {isTh ? 'สะดวกแนบรูปหน้าโปรไฟล์ Facebook' : 'Upload Facebook Profile Screenshot'}
+                    <Upload className="w-4 h-4" />
+                    <span>{isTh ? 'สะดวกแนบรูปหน้าโปรไฟล์ Facebook' : 'Upload Facebook Profile Screenshot'}</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setProofType('link')}
-                    className={`py-2 px-3 text-xs font-medium font-sans text-center rounded-md flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    className={`py-2.5 px-3 text-xs sm:text-sm font-semibold font-sans text-center rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
                       proofType === 'link'
-                        ? 'bg-white text-mangosteen shadow-xs font-semibold'
-                        : 'text-slate-500 hover:text-slate-800'
+                        ? 'bg-white text-mangosteen shadow-xs font-bold border border-slate-200/60'
+                        : 'text-slate-500 hover:text-slate-800 hover:bg-white/40'
                     }`}
                     id="btn-proof-link"
                   >
-                    <Globe className="w-3.5 h-3.5" />
-                    {isTh ? 'สะดวกพิมพ์ลิงก์ของโปรไฟล์แทน' : 'Provide Link to Facebook Profile'}
+                    <Globe className="w-4 h-4" />
+                    <span>{isTh ? 'สะดวกพิมพ์ลิงก์ของโปรไฟล์แทน' : 'Provide Link to Facebook Profile'}</span>
                   </button>
                 </div>
 
@@ -1586,10 +1612,10 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                       onDragOver={handleDragOver}
                       onDragLeave={handleDragLeave}
                       onDrop={handleDrop}
-                      className={`border-2 border-dashed rounded-xl p-6 transition-all flex flex-col items-center justify-center min-h-[160px] cursor-pointer ${
+                      className={`border-2 border-dashed rounded-2xl p-6 transition-all flex flex-col items-center justify-center min-h-[170px] cursor-pointer ${
                         isDragOver
                           ? 'border-mangosteen bg-mangosteen/5 scale-[1.01]'
-                          : 'border-slate-300 hover:border-slate-400 bg-slate-50/50'
+                          : 'border-slate-300/80 hover:border-mangosteen/50 bg-white/50 hover:bg-white/80'
                       }`}
                       onClick={() => document.getElementById('fb-image-upload')?.click()}
                     >
@@ -1714,7 +1740,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                     type="button"
                     disabled={isSubmitting}
                     onClick={goBackToStep1}
-                    className="w-full sm:w-1/3 py-4 px-6 rounded-xl font-sans font-bold border-2 border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-all cursor-pointer flex items-center justify-center gap-2"
+                    className="w-full sm:w-1/3 py-3.5 sm:py-4 px-6 rounded-2xl font-sans font-bold border-2 border-slate-200/90 text-slate-600 hover:text-slate-800 bg-white/70 hover:bg-white transition-all cursor-pointer flex items-center justify-center gap-2 shadow-xs active:scale-[0.99] text-sm"
                     id="btn-back-to-step1"
                   >
                     <ArrowLeft className="w-4 h-4" />
@@ -1723,7 +1749,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                   <button
                      type="submit"
                     disabled={isSubmitting}
-                    className={`w-full sm:w-2/3 py-4 px-6 rounded-xl font-sans font-bold text-white tracking-wide shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer bg-mangosteen hover:bg-mangosteen-hover active:scale-[0.99] shadow-mangosteen/25 ${
+                    className={`w-full sm:w-2/3 py-3.5 sm:py-4 px-6 rounded-2xl font-sans font-bold text-white tracking-wide shadow-xl shadow-mangosteen/30 flex items-center justify-center gap-2.5 transition-all cursor-pointer bg-gradient-to-r from-[#7A1F2B] via-[#8E2232] to-[#7A1F2B] hover:brightness-110 active:scale-[0.99] text-sm sm:text-base ${
                       isSubmitting ? 'bg-slate-400 cursor-not-allowed shadow-none opacity-50' : ''
                     }`}
                     id="btn-submit-request"
