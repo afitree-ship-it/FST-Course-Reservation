@@ -840,7 +840,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
           </div>
         )}
 
-        <form onSubmit={step === 1 ? handleCheckStudentId : handleSubmit} className={`${step === 1 ? 'p-5 sm:p-8 space-y-4 sm:space-y-6 pb-8' : 'p-6 md:p-8 space-y-8 pb-12 sm:pb-8'}`} id="scitech-reserve-form">
+        <form onSubmit={step === 1 ? handleCheckStudentId : handleSubmit} className={`${step === 1 ? 'p-5 sm:p-8 space-y-4 sm:space-y-6' : 'p-6 md:p-8 space-y-8'}`} id="scitech-reserve-form">
           {!systemOpenStatus.isOpen && (
             <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 sm:p-5 text-rose-800 shadow-xs">
               <div className="flex items-start space-x-3">
@@ -1518,7 +1518,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
               </div>
 
               {/* Section 3: ช่องทางสำหรับติดต่อกลับเพื่อยืนยันหรือตรวจสอบข้อมูล */}
-              <div className="space-y-4 scroll-mt-24" id="proof-attachment-section">
+              <div className="space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-4">
                   <div className="flex items-center gap-2">
                     <Globe className="w-4 h-4 text-mangosteen" />
@@ -1557,11 +1557,11 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                 </div>
 
                 {/* Selector: อัปโหลด VS สลับลิงก์ */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-100 p-1.5 rounded-xl">
+                <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-lg">
                   <button
                     type="button"
                     onClick={() => setProofType('file')}
-                    className={`py-2.5 px-3 text-xs font-medium font-sans text-center rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    className={`py-2 px-3 text-xs font-medium font-sans text-center rounded-md flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                       proofType === 'file'
                         ? 'bg-white text-mangosteen shadow-xs font-semibold'
                         : 'text-slate-500 hover:text-slate-800'
@@ -1574,7 +1574,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                   <button
                     type="button"
                     onClick={() => setProofType('link')}
-                    className={`py-2.5 px-3 text-xs font-medium font-sans text-center rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    className={`py-2 px-3 text-xs font-medium font-sans text-center rounded-md flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                       proofType === 'link'
                         ? 'bg-white text-mangosteen shadow-xs font-semibold'
                         : 'text-slate-500 hover:text-slate-800'

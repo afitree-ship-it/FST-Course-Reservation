@@ -1392,7 +1392,7 @@ export default function App() {
       </header>
 
       {/* Main Container Stage */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-8 sm:px-6 lg:px-8 pb-36 sm:pb-32 md:pb-12 flex flex-col justify-start relative z-10">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-8 sm:px-6 lg:px-8 pb-28 md:pb-12 flex flex-col justify-start relative z-10">
         
         <AnimatePresence mode="wait">
           
@@ -1555,7 +1555,7 @@ export default function App() {
       </main>
 
       {/* Footer bar hosting responsive links */}
-      <footer className="bg-white border-t border-slate-100 py-6 pb-36 sm:pb-28 md:pb-6 text-center text-xs text-slate-400 font-sans">
+      <footer className="bg-white border-t border-slate-100 py-6 pb-24 md:pb-6 text-center text-xs text-slate-400 font-sans">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-3">
           <p>
             {t('copyright')}
@@ -1713,7 +1713,7 @@ export default function App() {
         <div className="relative pointer-events-auto rounded-full overflow-hidden border border-white/60 dark:border-white/20 shadow-[0_16px_36px_-6px_rgba(0,0,0,0.12),0_6px_20px_rgba(0,0,0,0.06)] px-3 py-1.5 flex items-center justify-around ring-1 ring-black/5">
           {/* Glass FX Background Layer as requested */}
           <div className="glass-fx absolute inset-0 z-0 is-on svelte-ihjnnh pointer-events-none" aria-hidden="true">
-            <div className="absolute inset-0 backdrop-blur-2xl"></div>
+            <div className="absolute inset-0 backdrop-blur-xl"></div>
             <div className="absolute inset-0" style={{ background: "rgba(255, 255, 255, 0.35)" }}></div>
             <div className="absolute inset-0" style={{ boxShadow: "inset 0 -1px 1px 0 rgba(255,255,255,0.5), inset 0 1px 1px 0 rgba(255,255,255,0.4)" }}></div>
           </div>
