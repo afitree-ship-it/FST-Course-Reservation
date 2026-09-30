@@ -1372,7 +1372,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                           value={course.instructor}
                           onChange={e => handleCourseChange(index, 'instructor', e.target.value)}
                           onBlur={() => handleBlur(`instructor_${index}`)}
-                          placeholder={isTh ? 'เช่น ผศ.ดร.อับดุลฮาลิม มะมิง' : 'e.g., Asst. Prof. Dr. Abdulhalim Maming'}
+                          placeholder={isTh ? 'เช่น ผศ.ดร.อนุวัตร วอลี' : 'e.g., Asst. Prof. Dr. Anuwat Worlee'}
                           className={`w-full px-4 py-3 rounded-xl border-2 bg-slate-50 hover:bg-white text-sm font-medium font-sans transition-all focus:outline-hidden focus:ring-4 ${
                             touched[`instructor_${index}`] && validationErrors[`instructor_${index}`]
                               ? 'border-rose-300 focus:ring-rose-200 focus:border-rose-400 bg-rose-50/20 text-rose-700'
