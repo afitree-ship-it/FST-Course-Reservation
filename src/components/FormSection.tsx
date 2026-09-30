@@ -975,7 +975,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                         value={fullName}
                         onChange={e => setFullName(autoFormatThaiNameOrTitle(e.target.value))}
                         onBlur={() => handleBlur('fullName')}
-                        placeholder={isTh ? 'เช่น นายสุขใจ เรียนดี' : 'e.g., Muhammad Zakariya'}
+                        placeholder={isTh ? 'เช่น นายอับดุลเลาะห์ หรือ น.ส.ฟาตีมะห์' : 'e.g., Mr. Muhammad or Ms. Fatimah'}
                         className={`w-full px-4 py-3 rounded-xl border-2 bg-slate-50 hover:bg-white text-sm sm:text-base font-medium font-sans transition-all focus:outline-hidden focus:ring-4 ${
                           touched.fullName && validationErrors.fullName
                             ? 'border-rose-300 focus:ring-rose-200 focus:border-rose-400 bg-rose-50/20 text-rose-700'
@@ -1028,7 +1028,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                         value={notifyContact}
                         onChange={e => setNotifyContact(e.target.value)}
                         onBlur={() => handleBlur('notifyContact')}
-                        placeholder={isTh ? 'เช่น student@ftu.ac.th (เพื่อรับผลการอนุมัติทางอีเมล)' : 'e.g. student@ftu.ac.th'}
+                        placeholder={isTh ? 'เช่น student@ftu.ac.th' : 'e.g., student@ftu.ac.th'}
                         className={`w-full pl-10 pr-4 py-3 rounded-xl border-2 text-sm sm:text-base font-medium font-sans transition-all focus:outline-hidden focus:ring-4 bg-slate-50 hover:bg-white ${
                           touched.notifyContact && validationErrors.notifyContact
                             ? 'border-rose-300 focus:ring-rose-200 focus:border-rose-400 bg-rose-50/20 text-rose-700'
@@ -1248,7 +1248,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                       value={phone}
                       onChange={e => setPhone(e.target.value.replace(/\D/g, ''))}
                       onBlur={() => handleBlur('phone')}
-                      placeholder={isTh ? '08xxxxxxxx' : 'e.g., 08xxxxxxxx'}
+                      placeholder="08x-xxx-xxxx"
                       className={`w-full px-4 py-3 rounded-xl border-2 text-sm sm:text-base font-medium font-sans tracking-wide transition-all focus:outline-hidden focus:ring-4 bg-slate-50 hover:bg-white ${
                         touched.phone && validationErrors.phone
                           ? 'border-rose-300 focus:ring-rose-200 focus:border-rose-400 bg-rose-50/20 text-rose-700'
@@ -1347,7 +1347,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                           value={course.section}
                           onChange={e => handleCourseChange(index, 'section', e.target.value)}
                           onBlur={() => handleBlur(`section_${index}`)}
-                          placeholder={isTh ? 'เช่น กลุ่ม 01' : 'e.g., Section 1'}
+                          placeholder={isTh ? 'เช่น 01 หรือ 02' : 'e.g., 01 or 02'}
                           className={`w-full px-4 py-3 rounded-xl border-2 bg-slate-50 hover:bg-white text-sm font-medium font-sans transition-all focus:outline-hidden focus:ring-4 ${
                             touched[`section_${index}`] && validationErrors[`section_${index}`]
                               ? 'border-rose-300 focus:ring-rose-200 focus:border-rose-400 bg-rose-50/20 text-rose-700'
@@ -1372,7 +1372,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                           value={course.instructor}
                           onChange={e => handleCourseChange(index, 'instructor', e.target.value)}
                           onBlur={() => handleBlur(`instructor_${index}`)}
-                          placeholder={isTh ? 'เช่น ผศ.ดร.ใจดี มุ่งมั่น' : 'e.g., Asst. Prof. Dr. Muhammad Zakariya'}
+                          placeholder={isTh ? 'เช่น ผศ.ดร.อับดุลฮาลิม มะมิง' : 'e.g., Asst. Prof. Dr. Abdulhalim Maming'}
                           className={`w-full px-4 py-3 rounded-xl border-2 bg-slate-50 hover:bg-white text-sm font-medium font-sans transition-all focus:outline-hidden focus:ring-4 ${
                             touched[`instructor_${index}`] && validationErrors[`instructor_${index}`]
                               ? 'border-rose-300 focus:ring-rose-200 focus:border-rose-400 bg-rose-50/20 text-rose-700'
@@ -1462,7 +1462,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                                     value={cs.fullName}
                                     onChange={e => handleCoStudentChange(index, csIdx, 'fullName', autoFormatThaiNameOrTitle(e.target.value))}
                                     onBlur={() => handleBlur(`coStudent_name_${index}_${csIdx}`)}
-                                    placeholder={isTh ? 'ชื่อ-นามสกุล เพื่อน' : "Friend's Full Name"}
+                                    placeholder={isTh ? 'เช่น นาย/น.ส. ชื่อ นามสกุล' : "e.g., Mr./Ms. Full Name"}
                                     className={`w-full px-3 py-2 rounded-lg border text-xs font-sans font-medium transition-all focus:outline-hidden focus:ring-2 ${
                                       touched[`coStudent_name_${index}_${csIdx}`] && validationErrors[`coStudent_name_${index}_${csIdx}`]
                                         ? 'border-rose-300 bg-rose-50/30 text-rose-700 focus:ring-rose-200'
