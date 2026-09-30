@@ -21,20 +21,14 @@
       window.addEventListener('beforeinstallprompt', function(e) {
         e.preventDefault();
         window.deferredInstallPrompt = e;
-        window.dispatchEvent(new Event('pwa-prompt-available'));
+        window.dispatchEvent(new CustomEvent('pwa-prompt-available', { detail: e }));
       });
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function() {});
+      }
     </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch((err) => {
-            console.log('SW registration note:', err);
-          });
-        });
-      }
-    </script>
   </body>
 </html>
 

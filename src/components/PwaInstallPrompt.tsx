@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Share, Monitor, Smartphone, X, CheckCircle } from 'lucide-react';
+import { Download, Share, Monitor, Smartphone, X, RefreshCw } from 'lucide-react';
 import { useTranslation } from '../contexts/LanguageContext';
 
 export default function PwaInstallPrompt() {
@@ -8,9 +8,10 @@ export default function PwaInstallPrompt() {
   const [showInstructions, setShowInstructions] = useState(false);
   const [deviceType, setDeviceType] = useState<'ios' | 'android' | 'desktop'>('desktop');
   const [isStandalone, setIsStandalone] = useState(false);
+  const [isInstalling, setIsInstalling] = useState(false);
 
   useEffect(() => {
-    // 1. Check if already running in standalone / installed mode
+    // 1. Check if already running in standalone mode
     const standalone = 
       window.matchMedia('(display-mode: standalone)').matches || 
       (window.navigator as any).standalone === true;
@@ -30,16 +31,15 @@ export default function PwaInstallPrompt() {
       setDeviceType('desktop');
     }
 
-    // 3. Check if early prompt was already captured in window
+    // 3. Check early prompt stored on window
     if ((window as any).deferredInstallPrompt) {
       setDeferredPrompt((window as any).deferredInstallPrompt);
     }
 
-    // 4. Listen for prompt events
-    const handlePromptAvailable = () => {
-      if ((window as any).deferredInstallPrompt) {
-        setDeferredPrompt((window as any).deferredInstallPrompt);
-      }
+    // 4. Event listeners
+    const handlePromptAvailable = (e: any) => {
+      const p = e.detail || (window as any).deferredInstallPrompt;
+      if (p) setDeferredPrompt(p);
     };
 
     const handleBeforeInstall = (e: Event) => {
@@ -66,10 +66,10 @@ export default function PwaInstallPrompt() {
   }, []);
 
   const handleInstallClick = async () => {
-    const prompt = deferredPrompt || (window as any).deferredInstallPrompt;
+    // 1. Try immediate native prompt if already captured
+    let prompt = deferredPrompt || (window as any).deferredInstallPrompt;
 
-    // A. Native Install Prompt (Android / Chrome / Edge)
-    if (prompt) {
+    if (prompt && typeof prompt.prompt === 'function') {
       try {
         await prompt.prompt();
         const choice = await prompt.userChoice;
@@ -78,13 +78,42 @@ export default function PwaInstallPrompt() {
         }
         setDeferredPrompt(null);
         (window as any).deferredInstallPrompt = null;
+        setShowInstructions(false);
         return;
       } catch (err) {
-        console.error('Install prompt error:', err);
+        console.error('Direct install prompt trigger error:', err);
       }
     }
 
-    // B. iOS Safari Native Share Sheet
+    // 2. If prompt hasn't arrived yet, wait briefly for browser event
+    setIsInstalling(true);
+    const readyPrompt = await new Promise<any>((resolve) => {
+      const handler = (e: any) => {
+        window.removeEventListener('pwa-prompt-available', handler);
+        window.removeEventListener('beforeinstallprompt', handler);
+        resolve(e.detail || (window as any).deferredInstallPrompt || e);
+      };
+      window.addEventListener('pwa-prompt-available', handler, { once: true });
+      window.addEventListener('beforeinstallprompt', handler, { once: true });
+      setTimeout(() => resolve(null), 1200);
+    });
+    setIsInstalling(false);
+
+    if (readyPrompt && typeof readyPrompt.prompt === 'function') {
+      try {
+        await readyPrompt.prompt();
+        const choice = await readyPrompt.userChoice;
+        if (choice && choice.outcome === 'accepted') {
+          setIsStandalone(true);
+        }
+        setDeferredPrompt(null);
+        (window as any).deferredInstallPrompt = null;
+        setShowInstructions(false);
+        return;
+      } catch (e) {}
+    }
+
+    // 3. iOS Safari Native Share Sheet
     if (deviceType === 'ios' && typeof navigator.share === 'function') {
       try {
         await navigator.share({
@@ -94,12 +123,12 @@ export default function PwaInstallPrompt() {
         });
         return;
       } catch (err) {
-        // Fallback to instruction tooltip if cancelled or unsupported
+        // user dismissed share sheet
       }
     }
 
-    // C. Instruction Tooltip (Desktop or when prompt is not yet ready)
-    setShowInstructions(prev => !prev);
+    // 4. Fallback instruction only if native prompt is not available
+    setShowInstructions(true);
   };
 
   if (isStandalone) return null;
@@ -128,16 +157,23 @@ export default function PwaInstallPrompt() {
 
         <button
           type="button"
+          disabled={isInstalling}
           onClick={handleInstallClick}
-          className="px-2.5 py-1 bg-gradient-to-r from-[#7A1F2B] via-[#8E2232] to-[#7A1F2B] hover:brightness-110 active:scale-95 text-white text-[11px] font-bold rounded-lg shadow-xs transition-all flex items-center gap-1 cursor-pointer font-sans shrink-0"
+          className="px-2.5 py-1 bg-gradient-to-r from-[#7A1F2B] via-[#8E2232] to-[#7A1F2B] hover:brightness-110 active:scale-95 text-white text-[11px] font-bold rounded-lg shadow-xs transition-all flex items-center gap-1 cursor-pointer font-sans shrink-0 disabled:opacity-60"
           id="btn-pwa-install"
         >
-          {deviceType === 'ios' ? <Share className="w-3 h-3" /> : <Download className="w-3 h-3" />}
-          <span>{isTh ? 'ติดตั้ง' : 'Install'}</span>
+          {isInstalling ? (
+            <RefreshCw className="w-3 h-3 animate-spin" />
+          ) : deviceType === 'ios' ? (
+            <Share className="w-3 h-3" />
+          ) : (
+            <Download className="w-3 h-3" />
+          )}
+          <span>{isInstalling ? (isTh ? 'กำลังเตรียม...' : 'Preparing...') : (isTh ? 'ติดตั้ง' : 'Install')}</span>
         </button>
       </div>
 
-      {/* Guide Tooltip if browser requires manual action */}
+      {/* Guide Tooltip only when browser doesn't support direct prompt */}
       {showInstructions && (
         <div className="mt-2 p-3 bg-slate-900/95 backdrop-blur-md text-white rounded-xl text-xs font-sans shadow-xl border border-white/10 space-y-2 text-left w-full max-w-xs duration-150 animate-in fade-in">
           <div className="flex items-center justify-between pb-1.5 border-b border-white/10 font-bold text-slate-200">
