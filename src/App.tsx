@@ -1710,28 +1710,37 @@ export default function App() {
         aria-label="Mobile Bottom Navigation"
         id="mobile-bottom-navigation-dock"
       >
-        <div className="pointer-events-auto bg-[#7A1F2B] dark:bg-[#7A1F2B] border border-white/25 dark:border-white/20 rounded-full shadow-[0_16px_36px_-6px_rgba(122,31,43,0.45),0_6px_20px_rgba(0,0,0,0.2),inset_0_1px_1.5px_rgba(255,255,255,0.3)] px-3 py-1.5 flex items-center justify-around ring-1 ring-black/10">
+        <div className="relative pointer-events-auto rounded-full overflow-hidden border border-white/60 dark:border-white/20 shadow-[0_16px_36px_-6px_rgba(0,0,0,0.12),0_6px_20px_rgba(0,0,0,0.06)] px-3 py-1.5 flex items-center justify-around ring-1 ring-black/5">
+          {/* Glass FX Background Layer as requested */}
+          <div className="glass-fx absolute inset-0 z-0 is-on svelte-ihjnnh pointer-events-none" aria-hidden="true">
+            <div className="absolute inset-0 backdrop-blur-xl"></div>
+            <div className="absolute inset-0" style={{ background: "rgba(255, 255, 255, 0.35)" }}></div>
+            <div className="absolute inset-0" style={{ boxShadow: "inset 0 -1px 1px 0 rgba(255,255,255,0.5), inset 0 1px 1px 0 rgba(255,255,255,0.4)" }}></div>
+          </div>
+
           {/* 1. Reserve Tab */}
           <button
             onClick={handleResetToHome}
-            className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
+            className={`relative z-10 flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
               activeTab === 'reserve' && !latestSubmission
-                ? 'text-white font-bold'
-                : 'text-white/75 hover:text-white'
+                ? 'text-mangosteen font-bold'
+                : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
             aria-label={t('tabReserve')}
             id="mobile-tab-reserve"
           >
             <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 ${
-              activeTab === 'reserve' && !latestSubmission ? 'bg-white/20 scale-105 shadow-inner' : ''
+              activeTab === 'reserve' && !latestSubmission 
+                ? 'bg-mangosteen text-white shadow-md shadow-mangosteen/30 scale-105' 
+                : 'text-slate-600 dark:text-slate-400'
             }`}>
-              <FileText className={`w-5 h-5 ${activeTab === 'reserve' && !latestSubmission ? 'stroke-[2.2] text-white' : 'stroke-[1.8] text-white/80'}`} />
+              <FileText className={`w-5 h-5 ${activeTab === 'reserve' && !latestSubmission ? 'stroke-[2.2]' : 'stroke-[1.8]'}`} />
             </div>
             <span className="text-[10.5px] tracking-tight mt-0.5 leading-tight">{t('tabReserve')}</span>
             {activeTab === 'reserve' && !latestSubmission && (
               <motion.div
                 layoutId="bottom-nav-indicator"
-                className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]"
+                className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-mangosteen shadow-[0_0_8px_rgba(122,31,43,0.6)]"
                 transition={{ type: "spring", stiffness: 500, damping: 30 }}
               />
             )}
@@ -1740,24 +1749,26 @@ export default function App() {
           {/* 2. Status Tab */}
           <button
             onClick={() => navigateToTab('status')}
-            className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
+            className={`relative z-10 flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
               activeTab === 'status'
-                ? 'text-white font-bold'
-                : 'text-white/75 hover:text-white'
+                ? 'text-mangosteen font-bold'
+                : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
             aria-label={t('tabStatus')}
             id="mobile-tab-status"
           >
             <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 ${
-              activeTab === 'status' ? 'bg-white/20 scale-105 shadow-inner' : ''
+              activeTab === 'status' 
+                ? 'bg-mangosteen text-white shadow-md shadow-mangosteen/30 scale-105' 
+                : 'text-slate-600 dark:text-slate-400'
             }`}>
-              <Search className={`w-5 h-5 drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)] ${activeTab === 'status' ? 'stroke-[2.2] text-white' : 'stroke-[1.8] text-white/80'}`} />
+              <Search className={`w-5 h-5 ${activeTab === 'status' ? 'stroke-[2.2]' : 'stroke-[1.8]'}`} />
             </div>
             <span className="text-[10.5px] tracking-tight mt-0.5 leading-tight">{t('tabStatus')}</span>
             {activeTab === 'status' && (
               <motion.div
                 layoutId="bottom-nav-indicator"
-                className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]"
+                className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-mangosteen shadow-[0_0_8px_rgba(122,31,43,0.6)]"
                 transition={{ type: "spring", stiffness: 500, damping: 30 }}
               />
             )}
@@ -1766,21 +1777,23 @@ export default function App() {
           {/* 3. Staff / Admin Tab */}
           <button
             onClick={() => navigateToTab('admin')}
-            className={`relative flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
+            className={`relative z-10 flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 active:scale-95 cursor-pointer ${
               activeTab === 'admin'
-                ? 'text-white font-bold'
-                : 'text-white/75 hover:text-white'
+                ? 'text-mangosteen font-bold'
+                : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
             aria-label={t('tabAdmin')}
             id="mobile-tab-admin"
           >
             <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 ${
-              activeTab === 'admin' ? 'bg-white/20 scale-105 shadow-inner' : ''
+              activeTab === 'admin' 
+                ? 'bg-mangosteen text-white shadow-md shadow-mangosteen/30 scale-105' 
+                : 'text-slate-600 dark:text-slate-400'
             }`}>
               {isAdminLoggedIn ? (
-                <User className={`w-5 h-5 ${activeTab === 'admin' ? 'stroke-[2.2] text-white' : 'stroke-[1.8] text-white/80'}`} />
+                <User className={`w-5 h-5 ${activeTab === 'admin' ? 'stroke-[2.2]' : 'stroke-[1.8]'}`} />
               ) : (
-                <Lock className={`w-5 h-5 ${activeTab === 'admin' ? 'stroke-[2.2] text-white' : 'stroke-[1.8] text-white/80'}`} />
+                <Lock className={`w-5 h-5 ${activeTab === 'admin' ? 'stroke-[2.2]' : 'stroke-[1.8]'}`} />
               )}
             </div>
             <span className="text-[10.5px] tracking-tight mt-0.5 leading-tight">
@@ -1789,7 +1802,7 @@ export default function App() {
             {activeTab === 'admin' && (
               <motion.div
                 layoutId="bottom-nav-indicator"
-                className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]"
+                className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-mangosteen shadow-[0_0_8px_rgba(122,31,43,0.6)]"
                 transition={{ type: "spring", stiffness: 500, damping: 30 }}
               />
             )}
