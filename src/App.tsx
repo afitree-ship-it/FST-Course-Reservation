@@ -1564,31 +1564,14 @@ export default function App() {
       </main>
 
       {/* Footer bar hosting responsive links */}
-      <footer className="bg-white border-t border-slate-100 py-6 pb-28 md:pb-6 text-center text-xs text-slate-400 font-sans">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-2">
+      <footer className="bg-white border-t border-slate-100 py-6 pb-28 md:pb-8 text-center text-xs text-slate-400 font-sans">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-2.5">
           <p>
             {t('copyright')}
           </p>
-          <div className="flex items-center justify-center gap-3 text-[11px] text-slate-400">
-            <button
-              type="button"
-              onClick={() => {
-                try {
-                  sessionStorage.removeItem('pwa_prompt_closed');
-                } catch (e) {}
-                const el = document.getElementById('btn-pwa-install');
-                if (el) {
-                  el.click();
-                } else {
-                  window.location.reload();
-                }
-              }}
-              className="hover:text-mangosteen transition-colors cursor-pointer inline-flex items-center gap-1 text-slate-500 hover:underline"
-            >
-              <span>📲</span>
-              <span>{isTh ? 'ติดตั้งแอปพลิเคชัน (PWA)' : 'Install Web App (PWA)'}</span>
-            </button>
-          </div>
+
+          {/* Locked PWA install prompt in footer (behind floating nav bar) */}
+          <PwaInstallPrompt />
         </div>
       </footer>
 
@@ -1822,9 +1805,6 @@ export default function App() {
           </button>
         </div>
       </nav>
-
-      {/* PWA Install Mini Prompt at the bottom */}
-      <PwaInstallPrompt />
     </div>
   );
 }
