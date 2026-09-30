@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Share, Monitor, Smartphone, X } from 'lucide-react';
+import { Download, Share, Monitor, Smartphone, X, CheckCircle } from 'lucide-react';
 import { useTranslation } from '../contexts/LanguageContext';
 
 export default function PwaInstallPrompt() {
@@ -10,7 +10,7 @@ export default function PwaInstallPrompt() {
   const [isStandalone, setIsStandalone] = useState(false);
 
   useEffect(() => {
-    // 1. Check if already running as installed standalone app
+    // 1. Check if already running in standalone / installed mode
     const standalone = 
       window.matchMedia('(display-mode: standalone)').matches || 
       (window.navigator as any).standalone === true;
@@ -30,35 +30,75 @@ export default function PwaInstallPrompt() {
       setDeviceType('desktop');
     }
 
-    // 3. Listen for native browser install prompt (Chrome/Edge/Android)
+    // 3. Check if early prompt was already captured in window
+    if ((window as any).deferredInstallPrompt) {
+      setDeferredPrompt((window as any).deferredInstallPrompt);
+    }
+
+    // 4. Listen for prompt events
+    const handlePromptAvailable = () => {
+      if ((window as any).deferredInstallPrompt) {
+        setDeferredPrompt((window as any).deferredInstallPrompt);
+      }
+    };
+
     const handleBeforeInstall = (e: Event) => {
       e.preventDefault();
+      (window as any).deferredInstallPrompt = e;
       setDeferredPrompt(e);
     };
 
+    const handleAppInstalled = () => {
+      setIsStandalone(true);
+      setDeferredPrompt(null);
+      (window as any).deferredInstallPrompt = null;
+    };
+
+    window.addEventListener('pwa-prompt-available', handlePromptAvailable);
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('appinstalled', handleAppInstalled);
 
     return () => {
+      window.removeEventListener('pwa-prompt-available', handlePromptAvailable);
       window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
 
   const handleInstallClick = async () => {
-    if (deferredPrompt) {
+    const prompt = deferredPrompt || (window as any).deferredInstallPrompt;
+
+    // A. Native Install Prompt (Android / Chrome / Edge)
+    if (prompt) {
       try {
-        deferredPrompt.prompt();
-        const choice = await deferredPrompt.userChoice;
-        if (choice.outcome === 'accepted') {
+        await prompt.prompt();
+        const choice = await prompt.userChoice;
+        if (choice && choice.outcome === 'accepted') {
           setIsStandalone(true);
         }
         setDeferredPrompt(null);
+        (window as any).deferredInstallPrompt = null;
         return;
-      } catch (e) {
-        // Fallback to instruction tooltip
+      } catch (err) {
+        console.error('Install prompt error:', err);
       }
     }
 
-    // If native prompt is not available, toggle platform-specific guidance
+    // B. iOS Safari Native Share Sheet
+    if (deviceType === 'ios' && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({
+          title: 'สำรองที่นั่ง FST',
+          text: 'ระบบยื่นคำร้องขอสำรองที่นั่งรายวิชา คณะวิทยาศาสตร์และเทคโนโลยี มหาวิทยาลัยฟาฏอนี',
+          url: window.location.href,
+        });
+        return;
+      } catch (err) {
+        // Fallback to instruction tooltip if cancelled or unsupported
+      }
+    }
+
+    // C. Instruction Tooltip (Desktop or when prompt is not yet ready)
     setShowInstructions(prev => !prev);
   };
 
@@ -120,7 +160,7 @@ export default function PwaInstallPrompt() {
             <div className="space-y-1.5 text-[10.5px] text-slate-300">
               <p className="flex items-start gap-1.5">
                 <span className="font-bold text-white bg-white/20 w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 text-[9px]">1</span>
-                <span>{isTh ? 'แตะปุ่ม' : 'Tap'} <strong className="text-sky-300">แชร์ (Share)</strong> {isTh ? 'ที่แถบด้านล่างของ Safari' : 'at the bottom of Safari'}</span>
+                <span>{isTh ? 'แตะปุ่ม' : 'Tap'} <strong className="text-sky-300">แชร์ (Share)</strong> {isTh ? 'ที่แถบด้านล่างของ Safari' : 'at bottom of Safari'}</span>
               </p>
               <p className="flex items-start gap-1.5">
                 <span className="font-bold text-white bg-white/20 w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 text-[9px]">2</span>
