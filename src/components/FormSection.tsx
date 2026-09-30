@@ -593,6 +593,12 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     
     if (!studentId.trim() || !isStudentIdValid(studentId)) {
       showToast(isTh ? 'กรุณากรอกรหัสนักศึกษา 9 หลักให้ถูกต้อง' : 'Please enter a valid 9-digit student ID', 'warning');
+      const step1Input = document.getElementById('input-studentId-step1');
+      if (step1Input) {
+        step1Input.focus();
+        step1Input.classList.add('ring-4', 'ring-rose-400', 'ring-offset-2', 'transition-all');
+        setTimeout(() => step1Input.classList.remove('ring-4', 'ring-rose-400', 'ring-offset-2'), 2500);
+      }
       return;
     }
 
@@ -664,6 +670,70 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     }
   };
 
+  const scrollToAndHighlightField = (fieldKey: string) => {
+    setTimeout(() => {
+      let targetEl: HTMLElement | null = null;
+
+      if (fieldKey === 'notifyContact') {
+        targetEl = document.getElementById('input-email') || document.getElementById('input-notifyContact');
+      } else if (fieldKey === 'faculty') {
+        targetEl = document.getElementById('faculty-buttons-grid');
+      } else if (fieldKey === 'department') {
+        targetEl = document.getElementById('input-department-trigger');
+      } else if (fieldKey === 'year') {
+        targetEl = document.getElementById('input-year-grid') || document.getElementById('btn-year-1');
+      } else if (fieldKey === 'facebookProofFile') {
+        targetEl = document.getElementById('dropzone-proof-file') || document.getElementById('fb-image-upload');
+      } else if (fieldKey === 'facebookProofLink') {
+        targetEl = document.getElementById('input-facebookProofLink');
+      } else if (fieldKey === 'consent') {
+        targetEl = document.getElementById('check-consent-label') || document.getElementById('checkbox-consent');
+      } else {
+        targetEl = document.getElementById(`input-${fieldKey}`);
+      }
+
+      if (!targetEl) {
+        targetEl = document.querySelector(`[id*="${fieldKey}"]`) as HTMLElement | null;
+      }
+      if (!targetEl) {
+        targetEl = document.querySelector('.border-rose-300, .text-rose-500, [class*="border-rose"]') as HTMLElement | null;
+      }
+
+      if (targetEl) {
+        const rect = targetEl.getBoundingClientRect();
+        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+        const offset = 120; // 120px offset for sticky header / mobile nav
+        const targetY = Math.max(0, rect.top + scrollTop - offset);
+
+        window.scrollTo({
+          top: targetY,
+          behavior: 'smooth'
+        });
+
+        // Focus the element or first focusable child
+        setTimeout(() => {
+          if (targetEl) {
+            const focusable = targetEl.matches('input, select, textarea, button')
+              ? targetEl
+              : (targetEl.querySelector('input:not([type="hidden"]), select, textarea, button') as HTMLElement | null);
+
+            if (focusable && typeof focusable.focus === 'function') {
+              try {
+                focusable.focus({ preventScroll: true });
+              } catch (err) {}
+            }
+
+            // Visual attention pulse ring
+            targetEl.classList.add('ring-4', 'ring-rose-400', 'ring-offset-2', 'transition-all', 'duration-300');
+            setTimeout(() => {
+              targetEl?.classList.remove('ring-4', 'ring-rose-400', 'ring-offset-2');
+            }, 2500);
+          }
+        }, 300);
+      }
+    }, 60);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -675,6 +745,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     const submitTouched: Record<string, boolean> = {
       fullName: true,
       studentId: true,
+      faculty: true,
       department: true,
       year: true,
       notifyContact: true,
@@ -697,14 +768,45 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     });
     setTouched(submitTouched);
 
-    if (!isValidForm) {
+    const currentErrors = getFormErrors();
+    const hasErrors = Object.keys(currentErrors).length > 0;
+
+    if (hasErrors) {
       showToast(t('toastFillError'), 'warning');
-      setTimeout(() => {
-        const firstErrorEl = document.querySelector('.border-rose-300, .text-rose-500');
-        if (firstErrorEl) {
-          firstErrorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+      // เรียงลำดับช่องข้อมูลจากบนลงล่าง เพื่อเลื่อนไปช่องแรกที่ผิดพลาดทันที
+      const fieldOrder: string[] = [
+        'fullName',
+        'studentId',
+        'notifyContact',
+        'faculty',
+        'department',
+        'year',
+        'phone',
+      ];
+      courses.forEach((c, idx) => {
+        fieldOrder.push(`courseCode_${idx}`);
+        fieldOrder.push(`courseName_${idx}`);
+        fieldOrder.push(`section_${idx}`);
+        fieldOrder.push(`instructor_${idx}`);
+        if (c.coStudents) {
+          c.coStudents.forEach((_, csIdx) => {
+            fieldOrder.push(`coStudent_id_${idx}_${csIdx}`);
+            fieldOrder.push(`coStudent_name_${idx}_${csIdx}`);
+          });
         }
-      }, 100);
+      });
+      if (proofType === 'file') {
+        fieldOrder.push('facebookProofFile');
+      } else {
+        fieldOrder.push('facebookProofLink');
+      }
+      fieldOrder.push('consent');
+
+      const firstErrorField = fieldOrder.find(key => !!currentErrors[key]) || Object.keys(currentErrors)[0];
+      if (firstErrorField) {
+        scrollToAndHighlightField(firstErrorField);
+      }
       return;
     }
 
@@ -1231,7 +1333,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                     <label className="block text-sm font-semibold text-slate-700 mb-1.5 font-sans">
                       {t('academicYearLabel')} <span className="text-rose-500">*</span>
                     </label>
-                    <div className="grid grid-cols-5 gap-2">
+                    <div className="grid grid-cols-5 gap-2" id="input-year-grid">
                       {YEARS.map(yr => (
                         <button
                           key={yr}
@@ -1319,6 +1421,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                         </label>
                         <input
                           type="text"
+                          id={`input-courseCode_${index}`}
                           value={course.courseCode}
                           onChange={e => handleCourseChange(index, 'courseCode', e.target.value.toUpperCase())}
                           onBlur={() => handleBlur(`courseCode_${index}`)}
@@ -1341,6 +1444,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                         </label>
                         <input
                           type="text"
+                          id={`input-courseName_${index}`}
                           value={course.courseName}
                           onChange={e => handleCourseChange(index, 'courseName', e.target.value)}
                           onBlur={() => handleBlur(`courseName_${index}`)}
@@ -1363,6 +1467,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                         </label>
                         <input
                           type="text"
+                          id={`input-section_${index}`}
                           value={course.section}
                           onChange={e => handleCourseChange(index, 'section', e.target.value)}
                           onBlur={() => handleBlur(`section_${index}`)}
@@ -1385,6 +1490,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                         </label>
                         <input
                           type="text"
+                          id={`input-instructor_${index}`}
                           autoCapitalize="off"
                           autoCorrect="off"
                           spellCheck="false"
@@ -1450,10 +1556,11 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                                 </button>
                               </div>
 
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 <div>
                                   <input
                                     type="text"
+                                    id={`input-coStudent_id_${index}_${csIdx}`}
                                     value={cs.studentId}
                                     maxLength={9}
                                     onChange={e => handleCoStudentChange(index, csIdx, 'studentId', e.target.value.replace(/\D/g, ''))}
@@ -1475,6 +1582,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                                 <div>
                                   <input
                                     type="text"
+                                    id={`input-coStudent_name_${index}_${csIdx}`}
                                     autoCapitalize="off"
                                     autoCorrect="off"
                                     spellCheck="false"
@@ -1607,6 +1715,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                   /* STATE: ยังไม่ได้อัปโหลดรูป (กล่องแนวนอนกะทัดรัด แตะเลือกรูปได้ทันที) */
                   <div className="space-y-1.5">
                     <div
+                      id="dropzone-proof-file"
                       onDragOver={handleDragOver}
                       onDragLeave={handleDragLeave}
                       onDrop={handleDrop}
