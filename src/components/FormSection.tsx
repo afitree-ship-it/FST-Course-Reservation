@@ -16,7 +16,6 @@ import { CloudUpload,
   ArrowRight,
   ArrowLeft,
   GraduationCap,
-  Sparkles,
   RefreshCw,
   X,
   ChevronDown,
@@ -893,12 +892,6 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                 <div className="absolute -bottom-12 -left-12 w-40 h-40 bg-mangosteen/10 rounded-full blur-2xl pointer-events-none" />
 
                 <div className="text-center space-y-3 relative z-10">
-                  {/* Brand Pill */}
-                  <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-mangosteen/5 border border-mangosteen/15 text-mangosteen text-xs font-semibold shadow-xs">
-                    <Sparkles className="w-3.5 h-3.5 text-mangosteen" />
-                    <span>{isTh ? 'คณะวิทยาศาสตร์และเทคโนโลยี • มหาวิทยาลัยฟาฏอนี' : 'Faculty of Science & Technology • Fatoni University'}</span>
-                  </div>
-
                   <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-800 font-sans">
                     {t('formTitle')}
                   </h2>
