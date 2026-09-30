@@ -122,12 +122,6 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       getStatusByStudentId(studentId.trim());
     }
   }, [studentId]);
-  // Prefetch data when student ID reaches 9 digits to make it feel instant
-  useEffect(() => {
-    if (studentId.trim().length === 9 && isStudentIdValid(studentId)) {
-      getStatusByStudentId(studentId.trim());
-    }
-  }, [studentId]);
 
   // โหลดอีเมลเดิมที่เคยกรอกไว้เพื่อความสะดวก
   useEffect(() => {

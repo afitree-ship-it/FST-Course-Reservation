@@ -363,17 +363,7 @@ export async function getStatusByStudentId(studentId: string, forceRefresh = fal
   const id = String(studentId).trim();
   const now = Date.now();
   
-  // 1. Check global cache
-  if (!forceRefresh && cachedRequests && (now - lastFetchTime) < 15000) {
-    const filtered = cachedRequests.filter(r => 
-      String(r.studentId).trim() === id ||
-      r.courses?.some(c => c.coStudents?.some(cs => String(cs.studentId).trim() === id)) ||
-      r.coStudents?.some(cs => String(cs.studentId).trim() === id)
-    );
-    return { success: true, data: filtered };
-  }
-
-  // 2. Check local specific cache
+  // 1. Check local specific cache first (60s validity)
   if (!forceRefresh && studentIdCache[id] && (now - studentIdCache[id].time) < 60000) {
     if (studentIdCache[id].promise) {
       return studentIdCache[id].promise!;
@@ -381,23 +371,47 @@ export async function getStatusByStudentId(studentId: string, forceRefresh = fal
     return { success: true, data: studentIdCache[id].data };
   }
 
+  // 2. Check global cache if available
+  if (!forceRefresh && cachedRequests && (now - lastFetchTime) < 60000) {
+    const filtered = cachedRequests.filter(r => 
+      String(r.studentId).trim() === id ||
+      r.courses?.some(c => c.coStudents?.some(cs => String(cs.studentId).trim() === id)) ||
+      r.coStudents?.some(cs => String(cs.studentId).trim() === id)
+    );
+    studentIdCache[id] = { time: now, data: filtered, promise: undefined };
+    return { success: true, data: filtered };
+  }
+
   if (isApiConfigured()) {
     const fetchPromise = (async () => {
       try {
-        // 1. First attempt: Direct targeted lookup from Google Apps Script (fast & lightweight)
+        // 1. First attempt: Direct targeted lookup from Google Apps Script (fast & lightweight ~1-2s)
         try {
           const directRes = await fetchWithRetry(`${getApiUrl()}?action=getStatusByStudentId&studentId=${encodeURIComponent(id)}&t=${Date.now()}`, { method: 'GET' }, 2, 1000);
           const directData = await directRes.json();
-          if (directData.success && Array.isArray(directData.data) && directData.data.length > 0) {
+          // When Google Apps Script responds successfully with an array (even if empty, data: []),
+          // this is the definitive result for this student ID. Do NOT do a heavy full-table scan!
+          if (directData && directData.success && Array.isArray(directData.data)) {
             studentIdCache[id] = { time: Date.now(), data: directData.data, promise: undefined };
             return { success: true, data: directData.data };
           }
         } catch (directErr) {
-          // fallback to full scan
+          console.warn('Direct student lookup failed, attempting fallback:', directErr);
         }
 
-        // 2. Fallback: Full scan via getAllRequests (handles local cache and legacy backends)
-        const allReqsResponse = await getAllRequests(true);
+        // 2. Fallback: Only if direct call failed or threw error. Check in-memory cache first
+        if (cachedRequests && cachedRequests.length > 0) {
+          const localMatch = cachedRequests.filter(r => 
+            String(r.studentId).trim() === id ||
+            r.courses?.some(c => c.coStudents?.some(cs => String(cs.studentId).trim() === id)) ||
+            r.coStudents?.some(cs => String(cs.studentId).trim() === id)
+          );
+          studentIdCache[id] = { time: Date.now(), data: localMatch, promise: undefined };
+          return { success: true, data: localMatch };
+        }
+
+        // 3. Fallback: Full scan via getAllRequests without forceRefresh if possible
+        const allReqsResponse = await getAllRequests(false);
         if (allReqsResponse.success && allReqsResponse.data) {
           const localMatch = allReqsResponse.data.filter(r => 
             String(r.studentId).trim() === id ||
