@@ -1780,6 +1780,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
           )}
         </form>
       </div>
-    </motion.div>
-  );
+    </div>
+  </motion.div>
+);
 }
