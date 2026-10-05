@@ -9,6 +9,7 @@ export default function PwaInstallPrompt() {
   const [deviceType, setDeviceType] = useState<'ios' | 'android' | 'desktop'>('desktop');
   const [isStandalone, setIsStandalone] = useState(false);
   const [isInstalling, setIsInstalling] = useState(false);
+  const [inAppIos, setInAppIos] = useState(false);
 
   useEffect(() => {
     // 1. Check if already running in standalone mode
@@ -85,6 +86,21 @@ export default function PwaInstallPrompt() {
       }
     }
 
+    // In-app browsers (LINE, Facebook, Instagram...) never fire beforeinstallprompt.
+    // On Android, hand the page over to Chrome, where the native install dialog works.
+    const ua = navigator.userAgent;
+    const inApp = /Line\/|FBAN|FBAV|Instagram|; wv\)|MicroMessenger|Messenger/i.test(ua);
+    if (inApp && deviceType === 'android') {
+      const { host, pathname, search } = window.location;
+      window.location.href = `intent://${host}${pathname}${search}#Intent;scheme=https;package=com.android.chrome;end`;
+      return;
+    }
+    if (inApp && deviceType === 'ios') {
+      setInAppIos(true);
+      setShowInstructions(true);
+      return;
+    }
+
     // 2. If prompt hasn't arrived yet, wait briefly for browser event
     setIsInstalling(true);
     const readyPrompt = await new Promise<any>((resolve) => {
@@ -95,7 +111,7 @@ export default function PwaInstallPrompt() {
       };
       window.addEventListener('pwa-prompt-available', handler, { once: true });
       window.addEventListener('beforeinstallprompt', handler, { once: true });
-      setTimeout(() => resolve(null), 1200);
+      setTimeout(() => resolve(null), 2500);
     });
     setIsInstalling(false);
 
@@ -191,6 +207,14 @@ export default function PwaInstallPrompt() {
               <X className="w-3 h-3" />
             </button>
           </div>
+
+          {deviceType === 'ios' && inAppIos && (
+            <p className="text-[10.5px] text-amber-300">
+              {isTh
+                ? 'ขณะนี้เปิดอยู่ในเบราว์เซอร์ของแอปอื่น กรุณากดเมนู ⋯ แล้วเลือก "เปิดใน Safari" ก่อน จากนั้นกดติดตั้งอีกครั้ง'
+                : 'You are in an in-app browser. Tap ⋯ and choose "Open in Safari", then try again.'}
+            </p>
+          )}
 
           {deviceType === 'ios' && (
             <div className="space-y-1.5 text-[10.5px] text-slate-300">
