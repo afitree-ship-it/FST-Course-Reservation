@@ -1,6 +1,71 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Share, Monitor, Smartphone, X, RefreshCw } from 'lucide-react';
+import { Download, Share, Monitor, Smartphone, X, RefreshCw, Copy, Check } from 'lucide-react';
 import { useTranslation } from '../contexts/LanguageContext';
+
+type Step = { th: string; en: string };
+type Guide = { note?: Step; steps: Step[] };
+
+const isInAppBrowser = (ua: string, device: string) =>
+  /Line\/|FBAN|FBAV|FB_IAB|Instagram|MicroMessenger|Messenger|TikTok|Snapchat|Twitter|; wv\)/i.test(ua) ||
+  (device === 'ios' && !/Safari\//.test(ua));
+
+function getGuide(ua: string, device: 'ios' | 'android' | 'desktop'): Guide {
+  const t = (th: string, en: string): Step => ({ th, en });
+
+  if (device === 'ios') {
+    const addToHome = t('เลื่อนลงแล้วเลือก "เพิ่มไปยังหน้าจอโฮม (Add to Home Screen)" แล้วกด "เพิ่ม"', 'Scroll and tap "Add to Home Screen", then "Add"');
+    if (isInAppBrowser(ua, device)) {
+      return {
+        note: t('ตอนนี้เปิดอยู่ในเบราว์เซอร์ของแอปอื่น (เช่น Messenger/LINE) ติดตั้งไม่ได้ ให้เปิดใน Safari ก่อน', 'You are in an in-app browser (e.g. Messenger/LINE), which cannot install apps. Open Safari first.'),
+        steps: [
+          t('แตะเมนู ⋯ หรือไอคอนเข็มทิศ ที่มุมจอ แล้วเลือก "เปิดใน Safari (Open in Safari)"', 'Tap the ⋯ menu or compass icon and choose "Open in Safari"'),
+          t('ใน Safari แตะปุ่ม แชร์ (Share)', 'In Safari, tap the Share button'),
+          addToHome,
+        ],
+      };
+    }
+    if (/CriOS/.test(ua)) {
+      return { steps: [t('แตะไอคอน แชร์ (Share) ที่มุมขวาบนข้างช่องที่อยู่เว็บ', 'Tap the Share icon next to the address bar'), addToHome] };
+    }
+    if (/FxiOS|EdgiOS|OPiOS/.test(ua)) {
+      return { steps: [t('แตะเมนู ⋯ แล้วเลือก "แชร์ (Share)"', 'Tap the ⋯ menu, then "Share"'), addToHome] };
+    }
+    return { steps: [t('แตะปุ่ม แชร์ (Share) ที่แถบด้านล่าง (iPad อยู่ด้านบน) ของ Safari', 'Tap the Share button at the bottom of Safari (top on iPad)'), addToHome] };
+  }
+
+  if (device === 'android') {
+    if (isInAppBrowser(ua, device)) {
+      return {
+        note: t('ตอนนี้เปิดอยู่ในเบราว์เซอร์ของแอปอื่น (เช่น Messenger/LINE) ติดตั้งไม่ได้ ให้เปิดใน Chrome ก่อน', 'You are in an in-app browser (e.g. Messenger/LINE), which cannot install apps. Open Chrome first.'),
+        steps: [
+          t('แตะเมนู ⋮ หรือ ⋯ ที่มุมจอ แล้วเลือก "เปิดในเบราว์เซอร์ (Open in browser/Chrome)"', 'Tap the ⋮ or ⋯ menu and choose "Open in browser/Chrome"'),
+          t('กดปุ่ม "ติดตั้ง" อีกครั้งในเบราว์เซอร์ที่เปิดขึ้น', 'Tap "Install" again in the browser that opens'),
+        ],
+      };
+    }
+    if (/SamsungBrowser/i.test(ua)) {
+      return { steps: [t('แตะเมนู ≡ (เส้น 3 ขีด) ที่มุมขวาล่างของ Samsung Internet', 'Tap the ≡ menu at the bottom-right of Samsung Internet'), t('เลือก "เพิ่มหน้าไปยัง (Add page to)" แล้วเลือก "หน้าจอหลัก (Home screen)"', 'Choose "Add page to", then "Home screen"')] };
+    }
+    if (/Firefox/i.test(ua)) {
+      return { steps: [t('แตะเมนู ⋮ ของ Firefox', 'Tap the ⋮ menu in Firefox'), t('เลือก "ติดตั้ง (Install)" หรือ "เพิ่มไปยังหน้าจอหลัก"', 'Choose "Install" or "Add to Home screen"')] };
+    }
+    if (/EdgA/.test(ua)) {
+      return { steps: [t('แตะเมนู ≡ ที่แถบด้านล่างของ Edge', 'Tap the ≡ menu at the bottom of Edge'), t('เลือก "เพิ่มลงในโทรศัพท์ (Add to phone)"', 'Choose "Add to phone"')] };
+    }
+    if (/OPR\//.test(ua)) {
+      return { steps: [t('แตะเมนู ⋮ ของ Opera', 'Tap the ⋮ menu in Opera'), t('เลือก "หน้าจอหลัก (Home screen)" หรือ "ติดตั้ง"', 'Choose "Home screen" or "Install"')] };
+    }
+    return { steps: [t('แตะเมนู จุด 3 จุด (⋮) ที่มุมขวาบนของเบราว์เซอร์', 'Tap the ⋮ menu at the top-right of the browser'), t('เลือก "ติดตั้งแอป (Install app)" หรือ "เพิ่มลงในหน้าจอหลัก"', 'Choose "Install app" or "Add to Home screen"')] };
+  }
+
+  if (/Firefox/i.test(ua)) {
+    return { note: t('Firefox บนคอมพิวเตอร์ไม่รองรับการติดตั้งแอป ให้เปิดด้วย Chrome หรือ Edge', 'Desktop Firefox cannot install web apps. Use Chrome or Edge.'), steps: [] };
+  }
+  if (/Safari/.test(ua) && !/Chrome|Chromium|Edg|OPR/.test(ua)) {
+    return { steps: [t('ที่เมนูด้านบนเลือก "ไฟล์ (File)"', 'Open the "File" menu'), t('เลือก "เพิ่มไปยัง Dock (Add to Dock)"', 'Choose "Add to Dock"')] };
+  }
+  return { steps: [t('มองหาไอคอนติดตั้ง (⊕) ที่ขวาสุดของช่องที่อยู่เว็บ', 'Look for the install icon (⊕) at the right of the address bar'), t('หรือกดเมนู (⋮) แล้วเลือก "ติดตั้งสำรองที่นั่ง FST"', 'Or open the ⋮ menu and choose "Install FST Reserve"')] };
+}
 
 export default function PwaInstallPrompt() {
   const { isTh } = useTranslation();
@@ -9,8 +74,18 @@ export default function PwaInstallPrompt() {
   const [deviceType, setDeviceType] = useState<'ios' | 'android' | 'desktop'>('desktop');
   const [isStandalone, setIsStandalone] = useState(false);
   const [isInstalling, setIsInstalling] = useState(false);
-  const [inAppIos, setInAppIos] = useState(false);
-  const isSamsung = /SamsungBrowser/i.test(navigator.userAgent);
+  const [copied, setCopied] = useState(false);
+  const guide = getGuide(navigator.userAgent, deviceType);
+
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href.split('#')[0]);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      window.prompt(isTh ? 'คัดลอกลิงก์นี้' : 'Copy this link', window.location.href.split('#')[0]);
+    }
+  };
 
   useEffect(() => {
     // 1. Check if already running in standalone mode
@@ -89,15 +164,15 @@ export default function PwaInstallPrompt() {
 
     // In-app browsers (LINE, Facebook, Instagram...) never fire beforeinstallprompt.
     // On Android, hand the page over to Chrome, where the native install dialog works.
-    const ua = navigator.userAgent;
-    const inApp = /Line\/|FBAN|FBAV|Instagram|; wv\)|MicroMessenger|Messenger/i.test(ua);
+    const inApp = isInAppBrowser(navigator.userAgent, deviceType);
     if (inApp && deviceType === 'android') {
+      // Show the manual guide too, in case the app blocks the intent link.
+      setShowInstructions(true);
       const { host, pathname, search } = window.location;
       window.location.href = `intent://${host}${pathname}${search}#Intent;scheme=https;package=com.android.chrome;end`;
       return;
     }
     if (inApp && deviceType === 'ios') {
-      setInAppIos(true);
       setShowInstructions(true);
       return;
     }
@@ -209,65 +284,27 @@ export default function PwaInstallPrompt() {
             </button>
           </div>
 
-          {deviceType === 'ios' && inAppIos && (
-            <p className="text-[10.5px] text-amber-300">
-              {isTh
-                ? 'ขณะนี้เปิดอยู่ในเบราว์เซอร์ของแอปอื่น กรุณากดเมนู ⋯ แล้วเลือก "เปิดใน Safari" ก่อน จากนั้นกดติดตั้งอีกครั้ง'
-                : 'You are in an in-app browser. Tap ⋯ and choose "Open in Safari", then try again.'}
-            </p>
+          {guide.note && (
+            <p className="text-[10.5px] text-amber-300">{isTh ? guide.note.th : guide.note.en}</p>
           )}
 
-          {deviceType === 'ios' && (
-            <div className="space-y-1.5 text-[10.5px] text-slate-300">
-              <p className="flex items-start gap-1.5">
-                <span className="font-bold text-white bg-white/20 w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 text-[9px]">1</span>
-                <span>{isTh ? 'แตะปุ่ม' : 'Tap'} <strong className="text-sky-300">แชร์ (Share)</strong> {isTh ? 'ที่แถบด้านล่างของ Safari' : 'at bottom of Safari'}</span>
+          <div className="space-y-1.5 text-[10.5px] text-slate-300">
+            {guide.steps.map((s, i) => (
+              <p key={i} className="flex items-start gap-1.5">
+                <span className="font-bold text-white bg-white/20 w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 text-[9px]">{i + 1}</span>
+                <span>{isTh ? s.th : s.en}</span>
               </p>
-              <p className="flex items-start gap-1.5">
-                <span className="font-bold text-white bg-white/20 w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 text-[9px]">2</span>
-                <span>{isTh ? "เลื่อนลงแล้วเลือก" : "Scroll and tap"} <strong className="text-white bg-white/25 px-1 py-0.5 rounded">เพิ่มไปยังหน้าจอโฮม (Add to Home Screen)</strong></span>
-              </p>
-            </div>
-          )}
+            ))}
+          </div>
 
-          {deviceType === 'android' && isSamsung && (
-            <div className="space-y-1.5 text-[10.5px] text-slate-300">
-              <p className="flex items-start gap-1.5">
-                <span className="font-bold text-white bg-white/20 w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 text-[9px]">1</span>
-                <span>{isTh ? 'แตะปุ่มเมนู' : 'Tap the'} <strong className="text-emerald-300">เส้น 3 ขีด (≡)</strong> {isTh ? 'ที่มุมขวาล่างของ Samsung Internet' : 'menu at bottom-right of Samsung Internet'}</span>
-              </p>
-              <p className="flex items-start gap-1.5">
-                <span className="font-bold text-white bg-white/20 w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 text-[9px]">2</span>
-                <span>{isTh ? 'เลือก' : 'Select'} <strong className="text-white bg-white/25 px-1 py-0.5 rounded">เพิ่มหน้าไปยัง (Add page to)</strong> {isTh ? 'แล้วเลือก' : 'then'} <strong className="text-white bg-white/25 px-1 py-0.5 rounded">หน้าจอหลัก (Home screen)</strong></span>
-              </p>
-            </div>
-          )}
-
-          {deviceType === 'android' && !isSamsung && (
-            <div className="space-y-1.5 text-[10.5px] text-slate-300">
-              <p className="flex items-start gap-1.5">
-                <span className="font-bold text-white bg-white/20 w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 text-[9px]">1</span>
-                <span>{isTh ? 'แตะปุ่มเมนู' : 'Tap'} <strong className="text-emerald-300">จุด 3 จุด (⋮)</strong> {isTh ? 'ที่มุมขวาบนของเบราว์เซอร์' : 'at top-right'}</span>
-              </p>
-              <p className="flex items-start gap-1.5">
-                <span className="font-bold text-white bg-white/20 w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 text-[9px]">2</span>
-                <span>{isTh ? "เลือก" : "Select"} <strong className="text-white bg-white/25 px-1 py-0.5 rounded">ติดตั้งแอป (Install App)</strong> {isTh ? 'หรือ เพิ่มลงในหน้าจอหลัก' : 'or Add to Home Screen'}</span>
-              </p>
-            </div>
-          )}
-
-          {deviceType === 'desktop' && (
-            <div className="space-y-1.5 text-[10.5px] text-slate-300">
-              <p className="flex items-start gap-1.5">
-                <span className="font-bold text-white bg-white/20 w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 text-[9px]">1</span>
-                <span>{isTh ? 'มองหาไอคอน' : 'Look for the'} <strong className="text-purple-300">ติดตั้งแอป (⊕)</strong> {isTh ? 'ที่แถบขวาสุดของช่องใส่ URL เบราว์เซอร์' : 'icon in address bar'}</span>
-              </p>
-              <p className="flex items-start gap-1.5">
-                <span className="font-bold text-white bg-white/20 w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 text-[9px]">2</span>
-                <span>{isTh ? "หรือกดเมนู (⋮) > เลือก 'ติดตั้งสำรองที่นั่ง FST'" : "Or click menu (⋮) > 'Install FST Reserve'"}</span>
-              </p>
-            </div>
-          )}
+          <button
+            type="button"
+            onClick={handleCopyLink}
+            className="w-full flex items-center justify-center gap-1 py-1 rounded-lg bg-white/15 hover:bg-white/25 text-[10.5px] font-bold text-white"
+          >
+            {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+            <span>{copied ? (isTh ? 'คัดลอกลิงก์แล้ว' : 'Link copied') : (isTh ? 'คัดลอกลิงก์เพื่อไปเปิดในเบราว์เซอร์อื่น' : 'Copy link to open in another browser')}</span>
+          </button>
         </div>
       )}
     </div>
