@@ -10,6 +10,7 @@ export default function PwaInstallPrompt() {
   const [isStandalone, setIsStandalone] = useState(false);
   const [isInstalling, setIsInstalling] = useState(false);
   const [inAppIos, setInAppIos] = useState(false);
+  const isSamsung = /SamsungBrowser/i.test(navigator.userAgent);
 
   useEffect(() => {
     // 1. Check if already running in standalone mode
@@ -229,7 +230,20 @@ export default function PwaInstallPrompt() {
             </div>
           )}
 
-          {deviceType === 'android' && (
+          {deviceType === 'android' && isSamsung && (
+            <div className="space-y-1.5 text-[10.5px] text-slate-300">
+              <p className="flex items-start gap-1.5">
+                <span className="font-bold text-white bg-white/20 w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 text-[9px]">1</span>
+                <span>{isTh ? 'แตะปุ่มเมนู' : 'Tap the'} <strong className="text-emerald-300">เส้น 3 ขีด (≡)</strong> {isTh ? 'ที่มุมขวาล่างของ Samsung Internet' : 'menu at bottom-right of Samsung Internet'}</span>
+              </p>
+              <p className="flex items-start gap-1.5">
+                <span className="font-bold text-white bg-white/20 w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 text-[9px]">2</span>
+                <span>{isTh ? 'เลือก' : 'Select'} <strong className="text-white bg-white/25 px-1 py-0.5 rounded">เพิ่มหน้าไปยัง (Add page to)</strong> {isTh ? 'แล้วเลือก' : 'then'} <strong className="text-white bg-white/25 px-1 py-0.5 rounded">หน้าจอหลัก (Home screen)</strong></span>
+              </p>
+            </div>
+          )}
+
+          {deviceType === 'android' && !isSamsung && (
             <div className="space-y-1.5 text-[10.5px] text-slate-300">
               <p className="flex items-start gap-1.5">
                 <span className="font-bold text-white bg-white/20 w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 text-[9px]">1</span>
