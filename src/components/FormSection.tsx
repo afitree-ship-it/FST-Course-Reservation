@@ -21,13 +21,36 @@ import { CloudUpload,
   ChevronDown,
   Plus,
   Trash2,
-  Mail
+  Mail,
+  Eye,
+  ExternalLink
 } from 'lucide-react';
 import { YEARS, ReservationRequest, CoStudent, CourseInput } from '../types';
 import { submitRequest, getStatusByStudentId, getCachedRequestsByStudentId, getRemoteSettings } from '../services/api';
 import { useTranslation } from '../contexts/LanguageContext';
 import { Calendar, Bell, Lock, ShieldAlert, Users, UserPlus } from 'lucide-react';
 import ScrambleText from './ScrambleText';
+
+// Helper to extract Google Drive file ID from various Drive URL formats
+const getDriveId = (url?: string): string | null => {
+  if (!url) return null;
+  const match = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) ||
+                url.match(/\/d\/([a-zA-Z0-9_-]+)/) ||
+                url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : null;
+};
+
+// Helper to get direct image URL for display
+const getDirectImageUrl = (url?: string): string => {
+  if (!url) return '';
+  if (url.startsWith('data:image/') || url.startsWith('blob:')) return url;
+  const driveId = getDriveId(url);
+  if (driveId) {
+    // lh3.googleusercontent.com allows direct cross-origin image embedding
+    return `https://lh3.googleusercontent.com/d/${driveId}=w600`;
+  }
+  return url;
+};
 
 const FACULTIES_DATA = {
   'คณะวิทยาศาสตร์และเทคโนโลยี': {
@@ -109,6 +132,31 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
   const [facebookProofLink, setFacebookProofLink] = useState('');
   const [facebookProofFile, setFacebookProofFile] = useState<{ name: string; type: string; dataUrl: string } | null>(null);
   const [isProofAutoRestored, setIsProofAutoRestored] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [thumbnailError, setThumbnailError] = useState(false);
+  const [proofImgSrc, setProofImgSrc] = useState<string>('');
+
+  // Sync proof image thumbnail source whenever facebookProofFile changes
+  useEffect(() => {
+    if (facebookProofFile?.dataUrl) {
+      setProofImgSrc(getDirectImageUrl(facebookProofFile.dataUrl));
+      setThumbnailError(false);
+    } else {
+      setProofImgSrc('');
+      setThumbnailError(false);
+    }
+  }, [facebookProofFile?.dataUrl]);
+
+  // Handle ESC key to close modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isPreviewOpen) {
+        setIsPreviewOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isPreviewOpen]);
   const [phone, setPhone] = useState('');
   const [consent, setConsent] = useState(true);
 
@@ -512,16 +560,6 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     }
   };
 
-  const getDirectImageUrl = (url?: string): string => {
-    if (!url) return '';
-    if (url.startsWith('data:image/') || url.startsWith('blob:')) return url;
-    const driveMatch = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/id=([a-zA-Z0-9_-]+)/);
-    if (driveMatch && driveMatch[1]) {
-      return `https://drive.google.com/thumbnail?id=${driveMatch[1]}&sz=w800`;
-    }
-    return url;
-  };
-
   const clearFile = () => {
     setFacebookProofFile(null);
     setIsProofAutoRestored(false);
@@ -569,12 +607,12 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
         setFacebookProofFile(remoteData.facebookProofFile);
         setIsProofAutoRestored(true);
         return true;
-      } else if (remoteData.proofType === 'file' && remoteData.facebookProofLink) {
+      } else if ((remoteData.proofType === 'file' || remoteData.facebookProofLink?.includes('drive.google.com')) && remoteData.facebookProofLink) {
         // GAS saves drive URL in facebookProofLink
         const driveUrl = remoteData.facebookProofLink;
         setProofType('file');
         setFacebookProofFile({
-          name: isTh ? 'รูปโปรไฟล์ Facebook จากคำร้องเดิม' : 'Previous Facebook Profile Proof',
+          name: remoteData.facebookProofFile?.name || (isTh ? 'รูปโปรไฟล์ Facebook จากคำร้องเดิม' : 'Previous Facebook Profile Proof'),
           type: 'image/jpeg',
           dataUrl: driveUrl
         });
@@ -1676,24 +1714,81 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                     </div>
 
                     <div className="flex items-center gap-2.5 bg-white p-2 rounded-lg border border-emerald-200/80">
-                      <img
-                        src={getDirectImageUrl(facebookProofFile.dataUrl)}
-                        alt="Uploaded Profile Proof"
-                        className="w-12 h-12 sm:w-14 sm:h-14 object-cover rounded-md border border-slate-200 bg-slate-50 shrink-0"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-mono font-bold text-slate-800 truncate" title={facebookProofFile.name}>
+                      {/* Image Thumbnail / Fallback Badge */}
+                      {thumbnailError || !proofImgSrc ? (
+                        <div
+                          onClick={() => setIsPreviewOpen(true)}
+                          role="button"
+                          tabIndex={0}
+                          className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 flex flex-col items-center justify-center cursor-pointer transition-all shrink-0 shadow-2xs group active:scale-95"
+                          title={isTh ? 'กดเพื่อดูภาพพรีวิว' : 'Click to preview image'}
+                        >
+                          <Eye className="w-5 h-5 text-emerald-700 group-hover:scale-110 transition-transform" />
+                          <span className="text-[9px] font-bold font-sans mt-0.5 text-emerald-900">
+                            {isTh ? 'ดูรูป' : 'View'}
+                          </span>
+                        </div>
+                      ) : (
+                        <div
+                          onClick={() => setIsPreviewOpen(true)}
+                          role="button"
+                          tabIndex={0}
+                          className="relative w-12 h-12 sm:w-14 sm:h-14 rounded-lg overflow-hidden border border-emerald-300/80 bg-slate-100 shrink-0 cursor-pointer group shadow-2xs hover:ring-2 hover:ring-emerald-400 transition-all"
+                          title={isTh ? 'คลิกเพื่อดูภาพขยาย' : 'Click to preview image'}
+                        >
+                          <img
+                            src={proofImgSrc}
+                            alt="Facebook Profile Proof"
+                            onError={() => {
+                              const driveId = getDriveId(facebookProofFile.dataUrl);
+                              if (driveId && !proofImgSrc.includes('thumbnail?id=')) {
+                                setProofImgSrc(`https://drive.google.com/thumbnail?id=${driveId}&sz=w600`);
+                              } else {
+                                setThumbnailError(true);
+                              }
+                            }}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                          />
+                          <div className="absolute inset-0 bg-slate-900/35 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                            <Eye className="w-4 h-4 drop-shadow" />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* File Details (Clickable to preview) */}
+                      <div
+                        className="flex-1 min-w-0 cursor-pointer group/title"
+                        onClick={() => setIsPreviewOpen(true)}
+                        title={isTh ? 'คลิกเพื่อดูภาพตัวอย่าง' : 'Click to preview image'}
+                      >
+                        <p className="text-xs font-mono font-bold text-slate-800 truncate group-hover/title:text-emerald-700 transition-colors" title={facebookProofFile.name}>
                           {facebookProofFile.name}
                         </p>
-                        <p className="text-[10px] text-emerald-700 font-sans">
-                          {isTh ? 'แนบส่งพร้อมคำร้อง' : 'Attached with request'}
+                        <p className="text-[10px] text-emerald-700 font-sans flex items-center gap-1">
+                          <span>{isTh ? 'แนบส่งพร้อมคำร้อง' : 'Attached with request'}</span>
+                          <span className="text-slate-300">•</span>
+                          <span className="text-emerald-800 font-bold underline inline-flex items-center gap-0.5">
+                            <Eye className="w-2.5 h-2.5 inline" />
+                            {isTh ? 'แตะดูรูป' : 'Preview'}
+                          </span>
                         </p>
                       </div>
+
+                      {/* Action Buttons */}
                       <div className="flex items-center gap-1 shrink-0">
                         <button
                           type="button"
+                          onClick={() => setIsPreviewOpen(true)}
+                          className="px-2 sm:px-2.5 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 font-sans shadow-2xs active:scale-95"
+                          title={isTh ? 'กดดูพรีวิวรูปภาพ' : 'Preview image'}
+                        >
+                          <Eye className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>{isTh ? 'ดูรูป' : 'Preview'}</span>
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => document.getElementById('fb-image-upload')?.click()}
-                          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 font-sans"
+                          className="px-2 sm:px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 font-sans active:scale-95"
                           title={isTh ? 'เปลี่ยนรูป' : 'Change'}
                         >
                           <RefreshCw className="w-3 h-3" />
@@ -1702,7 +1797,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                         <button
                           type="button"
                           onClick={clearFile}
-                          className="p-1.5 sm:px-2.5 sm:py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 font-sans"
+                          className="p-1.5 sm:px-2 sm:py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 font-sans active:scale-95"
                           title={isTh ? 'ลบออก' : 'Remove'}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -1888,6 +1983,143 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
         </form>
       </div>
     </div>
+
+    {/* 🖼️ Image Lightbox Modal */}
+    <AnimatePresence>
+      {isPreviewOpen && facebookProofFile && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-5 bg-slate-950/80 backdrop-blur-md cursor-pointer animate-in fade-in duration-200"
+          onClick={() => setIsPreviewOpen(false)}
+          id="proof-image-lightbox-modal"
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 15 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 15 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden border border-slate-200 cursor-default flex flex-col max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="px-4 py-3 sm:px-5 sm:py-3.5 bg-slate-50 border-b border-slate-200 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                  <Eye className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <h4 className="font-bold text-xs sm:text-sm text-slate-800 font-sans truncate">
+                    {facebookProofFile.name || (isTh ? 'รูปโปรไฟล์ Facebook' : 'Facebook Profile Proof')}
+                  </h4>
+                  <p className="text-[10px] text-slate-400 font-sans truncate">
+                    {isTh ? 'ภาพหลักฐานช่องทางติดต่อกลับสำหรับเจ้าหน้าที่' : 'Contact verification photo'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                {(() => {
+                  const driveId = getDriveId(facebookProofFile.dataUrl);
+                  if (driveId) {
+                    return (
+                      <a
+                        href={`https://drive.google.com/file/d/${driveId}/view`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2.5 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-lg text-xs font-bold font-sans inline-flex items-center gap-1 transition-colors"
+                        title={isTh ? 'เปิดใน Google Drive' : 'Open in Google Drive'}
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">{isTh ? 'เปิดใน Drive' : 'Drive'}</span>
+                      </a>
+                    );
+                  }
+                  if (facebookProofFile.dataUrl && facebookProofFile.dataUrl.startsWith('http')) {
+                    return (
+                      <a
+                        href={facebookProofFile.dataUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold font-sans inline-flex items-center gap-1 transition-colors"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">{isTh ? 'เปิดภาพ' : 'Open'}</span>
+                      </a>
+                    );
+                  }
+                  return null;
+                })()}
+
+                <button
+                  type="button"
+                  onClick={() => setIsPreviewOpen(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 rounded-lg font-sans text-xs transition-colors cursor-pointer"
+                  title={isTh ? 'ปิดหน้าต่าง' : 'Close'}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-3 sm:p-4 bg-slate-950 flex-1 flex flex-col justify-center items-center relative overflow-hidden min-h-[300px]">
+              {(() => {
+                const driveId = getDriveId(facebookProofFile.dataUrl);
+
+                // Case 1: Google Drive Link (Embed interactive viewer iframe)
+                if (driveId) {
+                  return (
+                    <div className="w-full h-full flex flex-col items-center justify-center space-y-3">
+                      <iframe
+                        src={`https://drive.google.com/file/d/${driveId}/preview`}
+                        className="w-full h-[55vh] rounded-xl border-0 bg-slate-900 shadow-inner"
+                        allow="autoplay"
+                        title="Google Drive Image Preview"
+                      />
+                      <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                        <a
+                          href={`https://drive.google.com/file/d/${driveId}/view`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-4 py-2 bg-mangosteen hover:bg-mangosteen-dark text-white rounded-xl text-xs font-bold shadow-md transition-all inline-flex items-center gap-1.5 active:scale-95 font-sans"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                          <span>{isTh ? 'เปิดดูรูปต้นฉบับใน Google Drive' : 'Open original in Google Drive'}</span>
+                        </a>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Case 2: Data URL (Base64) or Direct URL
+                return (
+                  <div className="w-full flex flex-col items-center justify-center">
+                    <img
+                      src={facebookProofFile.dataUrl}
+                      alt="Profile Proof Full Preview"
+                      className="max-h-[65vh] max-w-full object-contain rounded-xl shadow-lg"
+                    />
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-4 py-2.5 sm:px-5 sm:py-3 bg-white border-t border-slate-100 flex items-center justify-between text-xs font-sans text-slate-500">
+              <span className="truncate">
+                {isTh ? 'รูปนี้จะถูกส่งเป็นหลักฐานให้เจ้าหน้าที่ตรวจสอบ' : 'This photo will be verified by staff'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsPreviewOpen(false)}
+                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs transition-colors shrink-0 ml-2 cursor-pointer font-sans"
+              >
+                {isTh ? 'ปิดหน้าต่าง' : 'Close'}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
   </motion.div>
 );
 }
