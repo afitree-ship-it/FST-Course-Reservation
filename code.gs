@@ -689,6 +689,8 @@ function handleSubmitRequest(data) {
   if (!/^\d{9}$/.test(sidCheck)) return jsonOut({ success: false, error: 'รหัสนักศึกษาไม่ถูกต้อง' });
   if (!data.fullName || String(data.fullName).length > 200) return jsonOut({ success: false, error: 'ชื่อ-นามสกุลไม่ถูกต้อง' });
   if (data.courses && data.courses.length > 20) return jsonOut({ success: false, error: 'จำนวนรายวิชามากเกินไป' });
+  var badSection = (data.courses || []).some(function (c) { return !/^\d{1,4}$/.test(String(c.section || '').trim()); });
+  if (badSection) return jsonOut({ success: false, error: 'กลุ่มเรียนต้องเป็นตัวเลขเท่านั้น' });
   if (data.facebookProofLink && !/^https?:\/\//i.test(String(data.facebookProofLink))) {
     return jsonOut({ success: false, error: 'ลิงก์หลักฐานต้องขึ้นต้นด้วย http:// หรือ https://' });
   }

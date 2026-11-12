@@ -394,6 +394,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       if (!course.courseCode.trim()) errors[`courseCode_${index}`] = t('errCourseCode');
       if (!course.courseName.trim()) errors[`courseName_${index}`] = t('errCourseName');
       if (!course.section.trim()) errors[`section_${index}`] = t('errSec');
+      else if (!/^\d+$/.test(course.section.trim())) errors[`section_${index}`] = isTh ? 'กรอกกลุ่มเป็นตัวเลขเท่านั้น เช่น 01' : 'Section must be numbers only, e.g. 01';
       if (!course.instructor.trim()) errors[`instructor_${index}`] = t('errInstructor');
 
       if (course.coStudents && course.coStudents.length > 0) {
@@ -1585,9 +1586,12 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                         </label>
                         <input
                           type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          maxLength={4}
                           id={`input-section_${index}`}
                           value={course.section}
-                          onChange={e => handleCourseChange(index, 'section', e.target.value)}
+                          onChange={e => handleCourseChange(index, 'section', e.target.value.replace(/\D/g, ''))}
                           onBlur={() => handleBlur(`section_${index}`)}
                           placeholder={isTh ? 'เช่น 01 หรือ 02' : 'e.g., 01 or 02'}
                           className={`w-full px-4 py-3 rounded-xl border-2 bg-slate-50 hover:bg-white text-sm font-medium font-sans transition-all focus:outline-hidden focus:ring-4 ${
