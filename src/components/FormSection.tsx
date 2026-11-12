@@ -30,6 +30,7 @@ import { submitRequest, getStatusByStudentId, getCachedRequestsByStudentId, getR
 import { useTranslation } from '../contexts/LanguageContext';
 import { Calendar, Bell, Lock, ShieldAlert, Users, UserPlus } from 'lucide-react';
 import ScrambleText from './ScrambleText';
+import DriveImage from './DriveImage';
 
 // Helper to extract Google Drive file ID from various Drive URL formats
 const getDriveId = (url?: string): string | null => {
@@ -2148,12 +2149,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                 if (driveId) {
                   return (
                     <div className="w-full h-full flex flex-col items-center justify-center space-y-3">
-                      <iframe
-                        src={`https://drive.google.com/file/d/${driveId}/preview`}
-                        className="w-full h-[55vh] rounded-xl border-0 bg-slate-900 shadow-inner"
-                        allow="autoplay"
-                        title="Google Drive Image Preview"
-                      />
+                      <DriveImage driveId={driveId} alt="Profile Proof Full Preview" className="max-h-[65vh] max-w-full object-contain rounded-xl shadow-lg" isTh={isTh}/>
                       <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
                         <a
                           href={`https://drive.google.com/file/d/${driveId}/view`}

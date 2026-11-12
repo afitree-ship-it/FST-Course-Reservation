@@ -40,6 +40,7 @@ import {
 import { ReservationRequest, RequestStatus, AuditLog } from '../types';
 import { compressImage } from '../imageUtils';
 import { adminLogin, addAdminPassword, getSavedAdminPasswords, removeAdminPassword, getAllRequests, updateStatus, updateCourseStatus, saveApiUrl, getApiUrl, isApiConfigured, getLoggedInAdminName, adminLogout, hashString, syncAdminPasswordsWithGoogleSheets, getRemoteSettings, saveRemoteSetting, saveRemoteSettings, getAuditLogs, getEmailQuota } from '../services/api';
+import DriveImage from './DriveImage';
 import { BarChart2, PieChart, Calendar, Shield, Bell, FileText, Download } from 'lucide-react';
 
 interface AdminSectionProps {
@@ -1543,9 +1544,13 @@ function handleSubmitRequest(data) {
       var folder = DriveApp.getFolderById(FOLDER_ID);
       var file = folder.createFile(imageBlob);
       
+      // เปิดสิทธิ์ให้ดูรูปได้ด้วยลิงก์ ถ้าโดเมนมหาวิทยาลัยห้ามแชร์สาธารณะ ให้ถอยมาแชร์ภายในโดเมน (@ftu.ac.th)
       try {
         file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-      } catch (shareErr) {}
+      } catch (shareErr) {
+        Logger.log('ANYONE_WITH_LINK not allowed: ' + shareErr);
+        try { file.setSharing(DriveApp.Access.DOMAIN_WITH_LINK, DriveApp.Permission.VIEW); } catch (e2) { Logger.log('DOMAIN_WITH_LINK failed: ' + e2); }
+      }
       
       proofLink = file.getUrl(); 
     } catch (error) {
@@ -4098,12 +4103,7 @@ function handleRecordAuditLog(data) {
                   if (driveId) {
                     return (
                       <div className="w-full h-full flex flex-col items-center justify-center space-y-3">
-                        <iframe
-                          src={`https://drive.google.com/file/d/${driveId}/preview`}
-                          className="w-full h-[58vh] rounded-lg border-0 bg-slate-900 shadow-inner"
-                          allow="autoplay"
-                          title="Google Drive Image Preview"
-                        />
+                        <DriveImage driveId={driveId} alt="ภาพหลักฐาน Facebook" className="max-h-[65vh] max-w-full object-contain rounded-md shadow-lg" />
                         <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
                           <a
                             href={`https://drive.google.com/file/d/${driveId}/view`}

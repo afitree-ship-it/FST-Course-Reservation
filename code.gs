@@ -744,9 +744,13 @@ function handleSubmitRequest(data) {
       var folder = DriveApp.getFolderById(FOLDER_ID);
       var file = folder.createFile(imageBlob);
       
+      // เปิดสิทธิ์ให้ดูรูปได้ด้วยลิงก์ ถ้าโดเมนมหาวิทยาลัยห้ามแชร์สาธารณะ ให้ถอยมาแชร์ภายในโดเมน (@ftu.ac.th)
       try {
         file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-      } catch (shareErr) {}
+      } catch (shareErr) {
+        Logger.log('ANYONE_WITH_LINK not allowed: ' + shareErr);
+        try { file.setSharing(DriveApp.Access.DOMAIN_WITH_LINK, DriveApp.Permission.VIEW); } catch (e2) { Logger.log('DOMAIN_WITH_LINK failed: ' + e2); }
+      }
       
       proofLink = file.getUrl(); 
     } catch (error) {
