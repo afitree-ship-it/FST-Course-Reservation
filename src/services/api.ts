@@ -645,3 +645,20 @@ export async function updateStudentInfo(studentId: string, updates: any): Promis
 export async function getEmailQuota(): Promise<ApiResult> {
   return adminCall('checkEmailQuota', {}, true);
 }
+
+const proofImageCache: Record<string, string> = {};
+
+/** Admin-only: load a proof image through Apps Script when Drive won't serve it to this browser. */
+export async function getProofImage(fileId: string): Promise<{ success: boolean; dataUrl?: string; error?: string }> {
+  if (proofImageCache[fileId]) return { success: true, dataUrl: proofImageCache[fileId] };
+  try {
+    const result = await adminCall('getProofImage', { fileId });
+    if (result.success && result.dataUrl) {
+      proofImageCache[fileId] = result.dataUrl;
+      return { success: true, dataUrl: result.dataUrl };
+    }
+    return { success: false, error: result.error === 'UNAUTHORIZED' ? 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่' : result.error };
+  } catch {
+    return { success: false, error: 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ' };
+  }
+}

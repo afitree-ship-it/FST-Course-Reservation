@@ -1472,6 +1472,7 @@ function doPost(e) {
     if (action === 'getAdmins') return jsonOut({ success: true, data: readAdmins() });
     if (action === 'getSettings') return jsonOut({ success: true, data: readAllSettings() });
     if (action === 'getAuditLogs') return jsonOut({ success: true, data: readAuditLogs() });
+    if (action === 'getProofImage') return handleGetProofImage(postData);
     if (action === 'checkEmailQuota') {
       return jsonOut({ success: true, remainingDailyQuota: MailApp.getRemainingDailyQuota(), sentFromUser: Session.getEffectiveUser().getEmail(), timestamp: new Date().toISOString() });
     }
@@ -1718,6 +1719,31 @@ function ensureProofCleanupTrigger() {
     props.setProperty('CLEANUP_TRIGGER_OK', 'true');
   } catch (e) {
     Logger.log('Cannot install cleanup trigger: ' + e);
+  }
+}
+
+// ส่งรูปหลักฐานให้แอดมินผ่าน Apps Script (สคริปต์รันในนามเจ้าของโฟลเดอร์ จึงเปิดไฟล์ได้เสมอ)
+// ใช้เมื่อเบราว์เซอร์ของแอดมินเปิดรูปจาก Drive ตรง ๆ ไม่ได้ เช่น ล็อกอิน Google คนละบัญชี
+// หรือโดเมนมหาวิทยาลัยไม่อนุญาตให้แชร์ไฟล์แบบสาธารณะ
+function handleGetProofImage(data) {
+  var fileId = String(data.fileId || '');
+  if (!/^[a-zA-Z0-9_-]{10,}$/.test(fileId)) return jsonOut({ success: false, error: 'รหัสไฟล์ไม่ถูกต้อง' });
+  try {
+    var file = DriveApp.getFileById(fileId);
+    if (file.isTrashed()) return jsonOut({ success: false, error: 'ไฟล์นี้ถูกลบแล้ว' });
+    // อนุญาตเฉพาะไฟล์ในโฟลเดอร์รูปหลักฐานเท่านั้น
+    var inFolder = false;
+    var parents = file.getParents();
+    while (parents.hasNext()) { if (parents.next().getId() === PROOF_FOLDER_ID) { inFolder = true; break; } }
+    if (!inFolder) return jsonOut({ success: false, error: 'ไม่อนุญาตให้เปิดไฟล์นี้' });
+    var blob = file.getBlob();
+    var type = blob.getContentType() || 'image/jpeg';
+    if (type.indexOf('image/') !== 0) return jsonOut({ success: false, error: 'ไฟล์นี้ไม่ใช่รูปภาพ' });
+    var bytes = blob.getBytes();
+    if (bytes.length > 15 * 1024 * 1024) return jsonOut({ success: false, error: 'ไฟล์ใหญ่เกินไป' });
+    return jsonOut({ success: true, dataUrl: 'data:' + type + ';base64,' + Utilities.base64Encode(bytes) });
+  } catch (e) {
+    return jsonOut({ success: false, error: 'ไม่พบไฟล์ใน Google Drive (อาจถูกลบไปแล้ว หรือไม่ได้อยู่ในโฟลเดอร์หลักฐาน)' });
   }
 }
 
@@ -4299,7 +4325,7 @@ function handleRecordAuditLog(data) {
                   if (driveId) {
                     return (
                       <div className="w-full h-full flex flex-col items-center justify-center space-y-3">
-                        <DriveImage driveId={driveId} alt="ภาพหลักฐาน Facebook" className="max-h-[65vh] max-w-full object-contain rounded-md shadow-lg" />
+                        <DriveImage driveId={driveId} alt="ภาพหลักฐาน Facebook" className="max-h-[65vh] max-w-full object-contain rounded-md shadow-lg" viaServer />
                         <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
                           <a
                             href={`https://drive.google.com/file/d/${driveId}/view`}

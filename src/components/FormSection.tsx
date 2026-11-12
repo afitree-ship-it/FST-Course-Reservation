@@ -649,7 +649,9 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       const savedRaw = id ? localStorage.getItem('saved_proof_' + id) : null;
       if (savedRaw) {
         const parsed = JSON.parse(savedRaw);
-        if (parsed.proofType === 'file' && parsed.facebookProofFile?.dataUrl) {
+        // ใช้เฉพาะรูปที่เก็บเป็นไฟล์จริงในเครื่อง (data:...) ไม่ใช้ลิงก์ Google Drive
+        // เพราะเบราว์เซอร์ของนักศึกษามักเปิดรูปจาก Drive ไม่ได้ (ขึ้น "ไม่สามารถแสดงรูป")
+        if (parsed.proofType === 'file' && String(parsed.facebookProofFile?.dataUrl || '').startsWith('data:')) {
           setProofType('file');
           setFacebookProofFile(parsed.facebookProofFile);
           setIsProofAutoRestored(true);
@@ -667,28 +669,18 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
 
     // 2. Check remote record from past requests
     if (remoteData) {
-      if (remoteData.proofType === 'link' && remoteData.facebookProofLink) {
+      if (remoteData.proofType === 'link' && remoteData.facebookProofLink && !remoteData.facebookProofLink.includes('drive.google.com')) {
         setProofType('link');
         setFacebookProofLink(remoteData.facebookProofLink);
         setIsProofAutoRestored(true);
         return true;
-      } else if (remoteData.facebookProofFile && remoteData.facebookProofFile.dataUrl) {
+      } else if (remoteData.facebookProofFile && String(remoteData.facebookProofFile.dataUrl || '').startsWith('data:')) {
         setProofType('file');
         setFacebookProofFile(remoteData.facebookProofFile);
         setIsProofAutoRestored(true);
         return true;
-      } else if ((remoteData.proofType === 'file' || remoteData.facebookProofLink?.includes('drive.google.com')) && remoteData.facebookProofLink) {
-        // GAS saves drive URL in facebookProofLink
-        const driveUrl = remoteData.facebookProofLink;
-        setProofType('file');
-        setFacebookProofFile({
-          name: remoteData.facebookProofFile?.name || (isTh ? 'รูปโปรไฟล์ Facebook จากคำร้องเดิม' : 'Previous Facebook Profile Proof'),
-          type: 'image/jpeg',
-          dataUrl: driveUrl
-        });
-        setIsProofAutoRestored(true);
-        return true;
       }
+      // รูปที่อยู่ใน Google Drive แล้วไม่ดึงกลับมาใส่ฟอร์ม ให้นักศึกษาอัปโหลดใหม่ (แสดงตัวอย่างได้แน่นอน)
     }
 
     setIsProofAutoRestored(false);
