@@ -1016,7 +1016,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                 {isTh ? 'กำลังอัปโหลดคำร้องของคุณ' : 'Submitting Your Request'}
               </h3>
               <p className="text-slate-500 font-sans text-sm mb-6">
-                {isTh ? 'กรุณารอสักครู่ ระบบกำลังส่งข้อมูลไปยังฐานข้อมูล (เสร็จสิ้นใน 1 วินาที)...' : 'Please wait, transmitting data to server (approx. 1 second)...'}
+                {isTh ? 'กรุณารอสักครู่ ระบบกำลังบันทึกคำร้อง (ใช้เวลาไม่กี่วินาที) กรุณาอย่าปิดหน้านี้' : 'Saving your request, this takes a few seconds. Please keep this page open.'}
               </p>
               
               <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden relative">

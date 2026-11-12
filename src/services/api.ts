@@ -298,10 +298,21 @@ export async function submitReservation(data: Partial<ReservationRequest>): Prom
   if (isApiConfigured()) {
     try {
       // clientRequestId lets the backend ignore a retried duplicate of the same submission
-      const result = await gasPost({ action: 'submitRequest', clientRequestId: newClientRequestId(), ...data }, 2);
+      // deferNotify: Apps Script บันทึกคำร้องแล้วตอบกลับทันที ส่วนอีเมล/แจ้งเตือนแอดมินไปทำใน submitFollowUp
+      const result = await gasPost({ action: 'submitRequest', clientRequestId: newClientRequestId(), deferNotify: true, ...data }, 2);
 
       if (result.success && result.data) {
         invalidateRequestsCache();
+
+        if (result.followUp && result.data.id) {
+          // ส่งอีเมลยืนยัน + แจ้งเตือนแอดมินเบื้องหลัง ไม่ต้องรอ (keepalive = ยังส่งต่อแม้ปิดหน้าเว็บ)
+          fetch(getApiUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'submitFollowUp', id: result.data.id }),
+            keepalive: true
+          }).catch(() => {});
+        }
 
         const returnedData: ReservationRequest = {
           ...data,

@@ -1434,6 +1434,7 @@ function doPost(e) {
     // ---- Public ----
     if (action === 'submitRequest') return handleSubmitRequest(postData);
     if (action === 'adminLogin') return handleAdminLogin(postData);
+    if (action === 'submitFollowUp') return handleSubmitFollowUp(postData);
     // สร้างแอดมินคนแรกได้เฉพาะตอนที่ชีต Admins ยังว่างเท่านั้น
     if (action === 'addAdmin' && countAdmins() === 0) return handleAddAdmin(postData);
 
@@ -1536,7 +1537,7 @@ function handleSubmitRequest(data) {
       coStudentsText += item.studentId + " - " + item.fullName + " (วิชา: " + item.courseCode + ")\\n";
     }
   } else {
-    coStudentsText = "- ไม่มีเพื่อนร่วมกลุ่ม (No co-applicants) -";
+    coStudentsText = "ไม่มีเพื่อนร่วมกลุ่ม (No co-applicants)"; // ห้ามขึ้นต้นด้วย "-" ชีตจะมองเป็นสูตรแล้วขึ้น #ERROR!
   }
 
   var proofLink = data.facebookProofLink || '';
@@ -1617,6 +1618,35 @@ function handleSubmitRequest(data) {
     year: data.year, phone: data.phone, status: 'รอดำเนินการ', createdAt: now, proofType: data.proofType, 
     facebookProofLink: proofLink, courses: courses
   };
+
+  // อีเมลยืนยัน + แจ้งเตือนแอดมิน ใช้เวลาหลายวินาที (ส่งอีเมล ~2-4 วิ)
+  // หน้าเว็บรุ่นใหม่ส่ง deferNotify มา => ตอบกลับนักศึกษาทันที แล้วหน้าเว็บจะเรียก submitFollowUp ต่อเบื้องหลัง
+  var notifyCtx = {
+    data: { fullName: data.fullName, studentId: data.studentId, department: data.department, faculty: data.faculty, year: data.year, phone: data.phone },
+    id: id, contactEmail: contactEmail, courses: courses, coStudentsList: coStudentsList,
+    coStudentsText: coStudentsText, formattedDate: formattedDate, totalSeats: totalSeats
+  };
+  var deferred = false;
+  if (data.deferNotify) {
+    try {
+      cache.put('post_' + id, JSON.stringify(notifyCtx), 3600);
+      deferred = true;
+    } catch (e) { deferred = false; }
+  }
+  if (!deferred) runSubmitNotifications(notifyCtx);
+
+  var payload = JSON.stringify({ success: true, data: newReq, followUp: deferred });
+  if (idemKey) { try { cache.put(idemKey, payload, 900); } catch (e) {} }
+  return ContentService.createTextOutput(payload).setMimeType(ContentService.MimeType.JSON);
+}
+
+function runSubmitNotifications(ctx) {
+  var data = ctx.data, id = ctx.id, contactEmail = ctx.contactEmail, courses = ctx.courses,
+      coStudentsList = ctx.coStudentsList, coStudentsText = ctx.coStudentsText,
+      formattedDate = ctx.formattedDate, totalSeats = ctx.totalSeats;
+  var sheet = requestsSheet();
+  var newRowIndex = findRowById(sheet, id);
+  if (newRowIndex < 0) return;
 
   // --- ส่งอีเมลยืนยันการรับคำร้อง ---
   if (contactEmail && contactEmail.indexOf('@') > -1) {
@@ -1728,9 +1758,17 @@ function handleSubmitRequest(data) {
     Logger.log("Admin notification error: " + alertErr.toString());
   }
 
-  var payload = JSON.stringify({ success: true, data: newReq });
-  if (idemKey) { try { cache.put(idemKey, payload, 900); } catch (e) {} }
-  return ContentService.createTextOutput(payload).setMimeType(ContentService.MimeType.JSON);
+}
+
+// เรียกจากหน้าเว็บหลังส่งคำร้องสำเร็จ (ทำงานเบื้องหลัง นักศึกษาไม่ต้องรอ) ทำงานได้ครั้งเดียวต่อคำร้อง
+function handleSubmitFollowUp(data) {
+  var key = 'post_' + String(data.id || '');
+  var cache = CacheService.getScriptCache();
+  var raw = cache.get(key);
+  if (!raw) return jsonOut({ success: true, skipped: true });
+  cache.remove(key);
+  runSubmitNotifications(JSON.parse(raw));
+  return jsonOut({ success: true });
 }
 
 // เขียนกลับเฉพาะคอลัมน์ที่เปลี่ยนจากการพิจารณา (O..U และ X)
