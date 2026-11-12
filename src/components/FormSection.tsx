@@ -1001,7 +1001,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
+            className="modal-overlay fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
           >
             <motion.div
               initial={{ scale: 0.9, y: 20 }}
@@ -2071,7 +2071,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     <AnimatePresence>
       {isPreviewOpen && facebookProofFile && (
         <div
-          className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-5 bg-slate-950/80 backdrop-blur-md cursor-pointer animate-in fade-in duration-200"
+          className="modal-overlay fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-5 bg-slate-950/80 backdrop-blur-md cursor-pointer animate-in fade-in duration-200"
           onClick={() => setIsPreviewOpen(false)}
           id="proof-image-lightbox-modal"
         >
@@ -2080,7 +2080,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 15 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
-            className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden border border-slate-200 cursor-default flex flex-col max-h-[90vh]"
+            className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden border border-slate-200 cursor-default flex flex-col max-h-modal"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
@@ -2152,7 +2152,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                 if (driveId) {
                   return (
                     <div className="w-full h-full flex flex-col items-center justify-center space-y-3">
-                      <DriveImage driveId={driveId} alt="Profile Proof Full Preview" className="max-h-[65vh] max-w-full object-contain rounded-xl shadow-lg" isTh={isTh}/>
+                      <DriveImage driveId={driveId} alt="Profile Proof Full Preview" className="max-h-modal-img max-w-full object-contain rounded-xl shadow-lg" isTh={isTh}/>
                       <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
                         <a
                           href={`https://drive.google.com/file/d/${driveId}/view`}
@@ -2174,7 +2174,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                     <img
                       src={facebookProofFile.dataUrl}
                       alt="Profile Proof Full Preview"
-                      className="max-h-[65vh] max-w-full object-contain rounded-xl shadow-lg"
+                      className="max-h-modal-img max-w-full object-contain rounded-xl shadow-lg"
                     />
                   </div>
                 );

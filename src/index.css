@@ -30,6 +30,25 @@ button, a, input, select, textarea {
   touch-action: manipulation;
 }
 
+/* ล็อกการเลื่อนหน้าพื้นหลังขณะเปิดหน้าต่าง (modal) — บนมือถือเดิมนิ้วเลื่อนแล้วหน้าข้างหลังเลื่อนตามไปด้วย */
+body:has(.modal-overlay) {
+  overflow: hidden;
+}
+.modal-overlay {
+  overscroll-behavior: contain;
+}
+
+/* ความสูงหน้าต่างบนมือถือ: vh ของ Safari นับรวมแถบที่อยู่ซ่อน ทำให้ปุ่มล่างของหน้าต่างโดนแถบเครื่องมือบัง
+   ใช้ dvh (ความสูงที่มองเห็นจริง) ถ้าเบราว์เซอร์รองรับ ไม่รองรับก็ใช้ vh ตามเดิม */
+.max-h-modal {
+  max-height: 90vh;
+  max-height: 90dvh;
+}
+.max-h-modal-img {
+  max-height: 65vh;
+  max-height: 65dvh;
+}
+
 /* เปิดให้ซูมหน้าจอได้แล้ว: ตั้งช่องกรอกบนมือถือเป็น 16px กัน iOS ซูมเข้าเองทุกครั้งที่แตะช่องกรอก */
 @media (max-width: 640px) {
   input, select, textarea {

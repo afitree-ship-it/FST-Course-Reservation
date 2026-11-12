@@ -1016,7 +1016,7 @@ export default function App() {
               </AnimatePresence>
             </div>
             <div className="min-w-0 flex-1">
-              <h1 className="text-sm sm:text-base md:text-lg font-black font-sans tracking-tight text-slate-800 dark:text-white leading-tight whitespace-nowrap">
+              <h1 className="text-sm sm:text-base md:text-lg font-black font-sans tracking-tight text-slate-800 dark:text-white leading-tight whitespace-nowrap truncate">
                 {isTh ? 'ระบบสำรองที่นั่ง' : 'Seat Reservation'}
               </h1>
               <p className="text-[9px] sm:text-[10px] font-medium text-slate-400 dark:text-slate-400 font-sans tracking-tight sm:tracking-normal whitespace-nowrap overflow-visible mt-0.5">
@@ -1287,7 +1287,7 @@ export default function App() {
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 10, scale: 0.95 }}
                         transition={{ duration: 0.2 }}
-                        className="absolute right-0 mt-2.5 w-80 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 overflow-hidden"
+                        className="absolute right-0 mt-2.5 w-80 max-w-[calc(100vw-1.5rem)] bg-white border border-slate-200 rounded-2xl shadow-xl z-50 overflow-hidden"
                       >
                         {/* Dropdown Header */}
                         <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
@@ -1350,7 +1350,7 @@ export default function App() {
                                       saveClearedNotificationIds(newCleared);
                                       showToast(isTh ? 'ซ่อนการแจ้งเตือนนี้แล้ว' : 'Notification hidden.', 'info');
                                     }}
-                                    className="absolute right-2 top-3 p-1 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-slate-100 transition-all cursor-pointer opacity-0 group-hover:opacity-100 focus:opacity-100 z-10"
+                                    className="absolute right-2 top-3 p-1 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-slate-100 transition-all cursor-pointer opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 z-10"
                                     title={isTh ? "ซ่อนแจ้งเตือนนี้" : "Hide this notification"}
                                   >
                                     <X className="w-4 h-4" />
@@ -1615,7 +1615,7 @@ export default function App() {
 
       {/* Custom Bottom-Right Floating Notifications Container for Newly Submitted Requests */}
       {isAdminLoggedIn && activeTab === 'admin' && bottomNotifications.length > 0 && (
-        <div className="fixed bottom-24 right-3 sm:bottom-5 sm:right-5 z-50 flex flex-col gap-3 w-full max-w-sm pointer-events-none">
+        <div className="fixed bottom-24 right-3 sm:bottom-5 sm:right-5 z-50 flex flex-col gap-3 w-[calc(100%-1.5rem)] max-w-sm pointer-events-none">
           {bottomNotifications.length > 1 && (
             <button
               onClick={() => setBottomNotifications([])}

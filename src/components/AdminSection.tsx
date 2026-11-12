@@ -4214,7 +4214,7 @@ function handleRecordAuditLog(data) {
       {/* --- REJECTION MODAL POPUP --- */}
       <AnimatePresence>
         {rejectionRequestId && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+          <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -4272,7 +4272,7 @@ function handleRecordAuditLog(data) {
       <AnimatePresence>
         {previewImage && (
           <div 
-            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs cursor-pointer"
+            className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs cursor-pointer"
             onClick={() => setPreviewImage(null)}
             id="image-previewer-light-box"
           >
@@ -4281,7 +4281,7 @@ function handleRecordAuditLog(data) {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
-              className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden border border-slate-200 cursor-default flex flex-col max-h-[90vh]"
+              className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden border border-slate-200 cursor-default flex flex-col max-h-modal"
               onClick={e => e.stopPropagation()}
             >
               {/* Modal Header */}
@@ -4325,7 +4325,7 @@ function handleRecordAuditLog(data) {
                   if (driveId) {
                     return (
                       <div className="w-full h-full flex flex-col items-center justify-center space-y-3">
-                        <DriveImage driveId={driveId} alt="ภาพหลักฐาน Facebook" className="max-h-[65vh] max-w-full object-contain rounded-md shadow-lg" viaServer />
+                        <DriveImage driveId={driveId} alt="ภาพหลักฐาน Facebook" className="max-h-modal-img max-w-full object-contain rounded-md shadow-lg" viaServer />
                         <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
                           <a
                             href={`https://drive.google.com/file/d/${driveId}/view`}
@@ -4348,7 +4348,7 @@ function handleRecordAuditLog(data) {
                         <img
                           src={targetUrl}
                           alt="ภาพหลักฐาน Facebook"
-                          className="max-h-[65vh] max-w-full object-contain rounded-md shadow-lg"
+                          className="max-h-modal-img max-w-full object-contain rounded-md shadow-lg"
                           onError={(e) => {
                             e.currentTarget.style.display = 'none';
                             const el = document.getElementById('image-error-fallback');
@@ -4410,12 +4410,12 @@ function handleRecordAuditLog(data) {
       {/* Unified System Settings Modal */}
       <AnimatePresence>
         {showSystemSettings && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+          <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white/95 backdrop-blur-3xl rounded-2xl w-full max-w-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.2),_0_15px_30px_-15px_rgba(0,0,0,0.15)] overflow-hidden flex flex-col max-h-[90vh] border border-white"
+              className="bg-white/95 backdrop-blur-3xl rounded-2xl w-full max-w-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.2),_0_15px_30px_-15px_rgba(0,0,0,0.15)] overflow-hidden flex flex-col max-h-modal border border-white"
             >
               {/* Header */}
               <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center shrink-0">
@@ -4944,7 +4944,7 @@ function handleRecordAuditLog(data) {
       <AnimatePresence>
         {confirmDialog && (
           <div 
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs"
+            className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs"
             id="custom-confirm-modal"
           >
             <motion.div
