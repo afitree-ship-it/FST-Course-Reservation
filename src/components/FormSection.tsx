@@ -158,6 +158,8 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isPreviewOpen]);
   const [phone, setPhone] = useState('');
+  // แสดงเบอร์/อีเมลแบบเซ็นเซอร์เป็นคำใบ้ เมื่อเครื่องนี้ไม่มีข้อมูลจริงให้เติม
+  const [contactHint, setContactHint] = useState<{ phone: string; email: string } | null>(null);
   const [consent, setConsent] = useState(true);
 
   // Student notification choice states
@@ -593,6 +595,39 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     }
   };
 
+  // ข้อมูลจากการค้นหาสาธารณะถูกเซ็นเซอร์ (เช่น 08******78, ab***@ftu.ac.th)
+  // จึงเติมเบอร์/อีเมลจริงให้เฉพาะเมื่อเครื่องนี้เคยบันทึกค่าของรหัสนี้ไว้ และตรงกับรูปแบบที่เซ็นเซอร์มา
+  const isMaskedValue = (v?: string) => !!v && v.includes('*');
+  const matchesMask = (real: string, masked: string) => {
+    const [head, tail] = masked.split(/\*+/);
+    return real.length >= head.length + tail.length && real.startsWith(head) && real.endsWith(tail);
+  };
+  const applyContactInfo = (latest: ReservationRequest) => {
+    const id = studentId.trim();
+    let needsReentry = false;
+
+    const remotePhone = String(latest.phone || '');
+    if (isMaskedValue(remotePhone)) {
+      const savedPhone = localStorage.getItem('saved_phone_' + id) || '';
+      const ok = savedPhone && matchesMask(savedPhone.replace(/\D/g, ''), remotePhone);
+      setPhone(ok ? savedPhone : '');
+      if (!ok) needsReentry = true;
+    } else {
+      setPhone(remotePhone);
+    }
+
+    const remoteEmail = String(latest.notifyContact || '');
+    if (isMaskedValue(remoteEmail)) {
+      const savedEmail = localStorage.getItem('saved_email_' + id) || '';
+      const ok = savedEmail && matchesMask(savedEmail, remoteEmail);
+      setNotifyContact(ok ? savedEmail : '');
+      if (!ok) needsReentry = true;
+    } else if (remoteEmail) {
+      setNotifyContact(remoteEmail);
+    }
+    setContactHint(needsReentry ? { phone: remotePhone, email: remoteEmail } : null);
+  };
+
   const restoreProofData = (id: string, remoteData?: ReservationRequest): boolean => {
     try {
       // 1. Check local storage for this student or last saved proof (fastest and retains high-res base64)
@@ -680,8 +715,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       setFaculty(String(latest.faculty || ''));
       setDepartment(String(latest.department || ''));
       setYear(String(latest.year || ''));
-      setPhone(String(latest.phone || ''));
-      if (latest.notifyContact) setNotifyContact(String(latest.notifyContact));
+      applyContactInfo(latest);
       restoreProofData(studentId.trim(), latest);
       setHasProfile(true);
       setTouched({});
@@ -699,8 +733,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
         setFaculty(String(latest.faculty || ''));
         setDepartment(String(latest.department || ''));
         setYear(String(latest.year || ''));
-        setPhone(String(latest.phone || ''));
-        if (latest.notifyContact) setNotifyContact(String(latest.notifyContact));
+        applyContactInfo(latest);
         restoreProofData(studentId.trim(), latest);
         setHasProfile(true);
       } else {
@@ -714,6 +747,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
         setFacebookProofFile(null);
         setNotifyContact('');
         setHasProfile(false);
+        setContactHint(null);
         // Check if this browser has a saved proof of contact from earlier
         restoreProofData(studentId.trim());
       }
@@ -729,6 +763,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       setFacebookProofFile(null);
       setNotifyContact('');
       setHasProfile(false);
+      setContactHint(null);
       // Check if this browser has a saved proof of contact from earlier
       restoreProofData(studentId.trim());
       setTouched({});
@@ -915,6 +950,10 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       const response = await submitRequest(submitPayload);
       if (response.success && response.data) {
         localStorage.setItem('notify_contact_email', notifyContact.trim());
+        try {
+          if (phone.trim()) localStorage.setItem('saved_phone_' + studentId.trim(), phone.trim());
+          localStorage.setItem('saved_email_' + studentId.trim(), notifyContact.trim());
+        } catch { /* ignore */ }
 
         // Remember contact proof (image or link)
         try {
@@ -1143,8 +1182,18 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                       <div>
                         <strong className="font-bold">{isTh ? '✨ พบประวัติข้อมูลเดิมของคุณ' : '✨ Profile Found!'}</strong>
                         <p className="opacity-90 text-xs mt-0.5 text-emerald-700">
-                          {isTh ? 'เราได้กรอกข้อมูลส่วนตัวและอีเมลให้คุณแล้ว คุณสามารถแก้ไขได้หรือข้ามไปเลือกรายวิชาได้เลย' : 'We have pre-filled your personal info & email. You can edit it or skip directly to selecting courses.'}
+                          {contactHint
+                            ? (isTh
+                                ? 'เราได้กรอกข้อมูลส่วนตัวให้แล้ว แต่เบอร์โทรและอีเมลถูกซ่อนไว้เพื่อความปลอดภัย กรุณากรอกอีกครั้ง'
+                                : 'We pre-filled your info, but your phone and email are hidden for privacy. Please enter them again.')
+                            : (isTh ? 'เราได้กรอกข้อมูลส่วนตัวและอีเมลให้คุณแล้ว คุณสามารถแก้ไขได้หรือข้ามไปเลือกรายวิชาได้เลย' : 'We have pre-filled your personal info & email. You can edit it or skip directly to selecting courses.')}
                         </p>
+                        {contactHint && (contactHint.phone || contactHint.email) && (
+                          <p className="text-[11px] mt-1 text-emerald-700/80 font-mono">
+                            {isTh ? 'ข้อมูลเดิม: ' : 'Previously: '}
+                            {[contactHint.phone, contactHint.email].filter(Boolean).join(' · ')}
+                          </p>
+                        )}
                       </div>
                     </div>
                   )}

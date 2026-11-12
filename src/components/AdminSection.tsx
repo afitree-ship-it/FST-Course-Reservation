@@ -1347,6 +1347,33 @@ function findRequestsByStudentId(studentId) {
   return filtered;
 }
 
+// ---------- ปิดบังข้อมูลส่วนตัวสำหรับการค้นหาแบบสาธารณะ ----------
+// หน้าเช็กสถานะ/ฟอร์มนักศึกษาไม่ต้องล็อกอิน และรหัสนักศึกษาเดาได้ง่าย จึงซ่อนข้อมูลติดต่อและรูปหลักฐาน
+// (แอดมินดึงผ่าน getAllRequests ซึ่งต้องล็อกอิน ยังเห็นข้อมูลครบเหมือนเดิม)
+function maskPhone(phone) {
+  var p = String(phone || '').replace(/\\D/g, '');
+  if (p.length < 6) return p ? '******' : '';
+  return p.slice(0, 2) + '******' + p.slice(-2);
+}
+
+function maskEmail(email) {
+  var e = String(email || '').trim();
+  var at = e.indexOf('@');
+  if (at < 1) return e ? '***' : '';
+  var local = e.slice(0, at);
+  return local.slice(0, Math.min(2, local.length)) + '***' + e.slice(at);
+}
+
+function toPublicRequest(req) {
+  var out = {};
+  for (var k in req) if (req.hasOwnProperty(k)) out[k] = req[k];
+  out.phone = maskPhone(req.phone);
+  out.notifyContact = maskEmail(req.notifyContact);
+  delete out.facebookProofLink;
+  delete out.facebookProofFile;
+  return out;
+}
+
 function doGet(e) {
   var p = (e && e.parameter) ? e.parameter : {};
   var action = p.action || '';
@@ -1356,7 +1383,7 @@ function doGet(e) {
       var sid = String(p.studentId || '').replace(/^'/, '').trim();
       var found = findRequestsByStudentId(sid);
       if (found === null) return jsonOut({ success: false, error: 'รหัสนักศึกษาต้องเป็นตัวเลข 9 หลัก' });
-      return jsonOut({ success: true, data: found });
+      return jsonOut({ success: true, data: found.map(toPublicRequest) });
     }
     if (action === 'getPublicSettings' || (action === 'getSettings' && !p.token)) {
       return jsonOut({ success: true, data: publicSettings() });
