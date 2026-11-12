@@ -52,6 +52,9 @@ export default function StatusCheckSection({ initialStudentId = '', showToast }:
   const [results, setResults] = useState<ReservationRequest[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'ทั้งหมด' | RequestStatus>('ทั้งหมด');
+  // รหัสที่ค้นหาสำเร็จล่าสุด ใช้สำหรับอัปเดตสถานะอัตโนมัติโดยไม่ต้องรีเฟรช
+  const [liveStudentId, setLiveStudentId] = useState('');
+  const resultsRef = React.useRef<ReservationRequest[]>([]);
 
   const currentBEYear = new Date().getFullYear() + 543;
   const [selectedYear, setSelectedYear] = useState<number>(currentBEYear);
@@ -102,6 +105,51 @@ export default function StatusCheckSection({ initialStudentId = '', showToast }:
     });
   }, [results, selectedYear, currentBEYear]);
 
+  useEffect(() => { resultsRef.current = results; }, [results]);
+
+  // ถ้าปีที่เลือกไม่มีคำร้อง แต่ปีอื่นมี ให้สลับไปปีล่าสุดที่มีคำร้องอัตโนมัติ (กันคำร้อง "หาย" จากหน้าจอ)
+  useEffect(() => {
+    if (results.length > 0 && resultsForYear.length === 0) {
+      const latest = availableYears.find(y => results.some(r => parseDateSafe(r.createdAt).getFullYear() + 543 === y));
+      if (latest && latest !== selectedYear) setSelectedYear(latest);
+    }
+  }, [results]);
+
+  // อัปเดตสถานะแบบเรียลไทม์: เช็กซ้ำทุก 30 วินาทีขณะเปิดหน้านี้อยู่ และทันทีเมื่อกลับมาที่แท็บ
+  // เมื่อแอดมินเปลี่ยนสถานะ หน้าจอนักศึกษาจะเปลี่ยนตามเองโดยไม่ต้องกดรีเฟรช
+  useEffect(() => {
+    if (!liveStudentId) return;
+    let cancelled = false;
+    let lastCheck = Date.now();
+    const signature = (list: ReservationRequest[]) =>
+      list.map(r => `${r.id}:${r.status}:${(r.courses || []).map(c => `${c.courseCode}=${c.status}`).join(',')}`).sort().join('|');
+
+    const refresh = async () => {
+      if (document.visibilityState !== 'visible') return;
+      lastCheck = Date.now();
+      try {
+        const res = await getStatusByStudentId(liveStudentId, true);
+        if (cancelled || !res.success || !res.data) return;
+        const fresh = [...res.data].sort((a, b) => parseDateSafe(b.createdAt).getTime() - parseDateSafe(a.createdAt).getTime());
+        if (signature(resultsRef.current) !== signature(fresh)) {
+          setResults(fresh);
+          showToast(isTh ? 'สถานะคำร้องของคุณมีการอัปเดต' : 'Your request status has been updated', 'info');
+        }
+      } catch { /* ignore, try again next round */ }
+    };
+
+    const interval = setInterval(refresh, 30000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastCheck > 5000) refresh();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [liveStudentId]);
+
   // Automatically fetch if initialized with a studentId
   useEffect(() => {
     if (initialStudentId) {
@@ -143,6 +191,7 @@ export default function StatusCheckSection({ initialStudentId = '', showToast }:
     try {
       const response = await getStatusByStudentId(trimmedId, true);
       if (response.success && response.data) {
+        setLiveStudentId(trimmedId);
         const sortedData = [...response.data].sort((a, b) => parseDateSafe(b.createdAt).getTime() - parseDateSafe(a.createdAt).getTime());
         setResults(sortedData);
         setHasSearched(true);

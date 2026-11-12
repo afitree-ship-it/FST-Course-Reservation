@@ -262,7 +262,15 @@ function rowToRequest(row) {
 
 function cellToIso(value) {
   if (!value) return '';
-  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Date) {
+    // ถ้าชีตตีความปีเป็น พ.ศ. ผิด (ได้ปี ค.ศ. 14xx) ให้บวก 543 กลับ
+    if (value.getFullYear() < 1800) {
+      var fixed = new Date(value.getTime());
+      fixed.setFullYear(value.getFullYear() + 543);
+      return fixed.toISOString();
+    }
+    return value.toISOString();
+  }
   var str = String(value).trim();
   var dmyMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/);
   if (dmyMatch) {
@@ -533,13 +541,13 @@ function findRequestsByStudentId(studentId) {
   var filtered = [];
   for (var j = 1; j < rows.length; j++) {
     if (!rows[j][0]) continue;
-    var own = String(rows[j][2]).replace(/^'/, '').trim() === studentId;
+    var own = normalizeId(rows[j][2]) === studentId;
     var asFriend = false;
     if (!own) {
       try {
         var cs = JSON.parse(rows[j][20] || '[]');
         asFriend = cs.some(function (c) {
-          return (c.coStudents || []).some(function (f) { return String(f.studentId || '').trim() === studentId; });
+          return (c.coStudents || []).some(function (f) { return normalizeId(f.studentId) === studentId; });
         });
       } catch (e) {}
     }
@@ -582,9 +590,16 @@ function doGet(e) {
     // ---- Public (ไม่ต้องล็อกอิน) ----
     if (action === 'getStatusByStudentId') {
       var sid = String(p.studentId || '').replace(/^'/, '').trim();
-      var found = findRequestsByStudentId(sid);
-      if (found === null) return jsonOut({ success: false, error: 'รหัสนักศึกษาต้องเป็นตัวเลข 9 หลัก' });
-      return jsonOut({ success: true, data: found.map(toPublicRequest) });
+      if (!/^\d{9}$/.test(sid)) return jsonOut({ success: false, error: 'รหัสนักศึกษาต้องเป็นตัวเลข 9 หลัก' });
+      var sCache = CacheService.getScriptCache();
+      var ver = getDataVersion();
+      var hit = sCache.get('stu_' + sid);
+      if (hit) {
+        try { var parsed = JSON.parse(hit); if (parsed.v === ver) return jsonOut({ success: true, data: parsed.d }); } catch (e) {}
+      }
+      var found = findRequestsByStudentId(sid).map(toPublicRequest);
+      try { sCache.put('stu_' + sid, JSON.stringify({ v: ver, d: found }), 120); } catch (e) {}
+      return jsonOut({ success: true, data: found });
     }
     if (action === 'getPublicSettings' || (action === 'getSettings' && !p.token)) {
       return jsonOut({ success: true, data: publicSettings() });
@@ -789,6 +804,7 @@ function handleSubmitRequest(data) {
     totalSeats      // 26. จำนวนที่นั่งรวม
   ]);
   SpreadsheetApp.flush();
+  bumpDataVersion();
   newRowIndex = sheet.getLastRow(); // อยู่ใน lock => ได้แถวของคำร้องนี้แน่นอน (เดิมอาจไปเขียนสถานะอีเมลทับแถวคนอื่น)
   } finally {
     lock.releaseLock();
@@ -913,6 +929,28 @@ function handleSubmitRequest(data) {
   var payload = JSON.stringify({ success: true, data: newReq });
   if (idemKey) { try { cache.put(idemKey, payload, 900); } catch (e) {} }
   return ContentService.createTextOutput(payload).setMimeType(ContentService.MimeType.JSON);
+}
+
+// เขียนกลับเฉพาะคอลัมน์ที่เปลี่ยนจากการพิจารณา (O..U และ X)
+// ห้ามเขียนทับทั้งแถว: Google Sheets จะตีความค่าใหม่เหมือนพิมพ์เอง ทำให้รหัสนักศึกษา/เบอร์โทรที่เป็นข้อความ
+// กลายเป็นตัวเลข (เบอร์โทรหายเลข 0 นำหน้า) และวันที่ยื่นคำร้องอาจถูกแปลงผิดปี => คำร้องหายจากหน้าตรวจสอบสถานะ
+function writeDecisionColumns(sheet, rowNum, row) {
+  sheet.getRange(rowNum, 15, 1, 7).setValues([row.slice(14, 21)]); // O:U  สถานะ, เหตุผล, จำนวนวิชา, วันที่ดำเนินการ, ผู้ดำเนินการ, หลักฐาน JSON, รายวิชา JSON
+  sheet.getRange(rowNum, 24).setValue(row[23] || '');               // X    สถานะการส่งอีเมล
+}
+
+// เวอร์ชันข้อมูล: เพิ่มทุกครั้งที่มีการเขียน ใช้ตัดสินว่าแคชผลค้นหารายนักศึกษายังใช้ได้ไหม
+// ทำให้หน้าตรวจสอบสถานะที่เช็กซ้ำทุก 30 วินาทีแทบไม่ต้องอ่านชีตเลยถ้าไม่มีอะไรเปลี่ยน
+function getDataVersion() {
+  return CacheService.getScriptCache().get('data_ver') || '0';
+}
+
+function bumpDataVersion() {
+  CacheService.getScriptCache().put('data_ver', Date.now() + '-' + Math.random().toString(36).slice(2), 21600);
+}
+
+function normalizeId(v) {
+  return String(v == null ? '' : v).replace(/\D/g, '');
 }
 
 function handleUpdateStatus(data) {
@@ -1041,7 +1079,8 @@ function handleUpdateStatus(data) {
   } else if (shouldEmail) {
     row[emailStatusCol] = (row[emailStatusCol] || '') + " | ⚠️ ไม่มีอีเมล";
   }
-  rowRange.setValues([row]);
+  writeDecisionColumns(sheet, rowNum, row);
+  bumpDataVersion();
 
   try {
     var statusAlertMsg = "\n📢 [ผลการพิจารณาคำร้องสำรองที่นั่ง]\n" +
@@ -1193,7 +1232,8 @@ function handleUpdateCourseStatus(data) {
     var sendRes3 = sendSafeEmail(studentEmail, emailSubject, textBody, htmlBody);
     row[emailStatusCol] = (row[emailStatusCol] || '') + (sendRes3.success ? " | ✅ แจ้งวิชา " + data.courseCode + " (" + status + ")" : " | ❌ แจ้งวิชาล้มเหลว: " + sendRes3.message);
   }
-  rowRange.setValues([row]);
+  writeDecisionColumns(sheet, rowNum, row);
+  bumpDataVersion();
 
   try {
     var courseAlertMsg = "\n📢 [ผลการพิจารณารายวิชา]\n" +
