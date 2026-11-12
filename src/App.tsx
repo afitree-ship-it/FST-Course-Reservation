@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   GraduationCap, 
@@ -33,7 +33,8 @@ import {
 
 import FormSection from './components/FormSection';
 import StatusCheckSection from './components/StatusCheckSection';
-import AdminSection from './components/AdminSection';
+// หน้าแอดมินมีขนาดใหญ่มาก (~4,500 บรรทัด) โหลดเฉพาะตอนเปิดแท็บแอดมิน นักศึกษาจึงไม่ต้องดาวน์โหลด
+const AdminSection = lazy(() => import('./components/AdminSection'));
 import ToastContainer, { ToastMessage, ToastType } from './components/Toast';
 import PwaInstallPrompt from './components/PwaInstallPrompt';
 import { isApiConfigured, isGoogleSheetUrlInstead, getAllRequests, submitRequest, getRemoteSettings, saveRemoteSetting } from './services/api';
@@ -762,16 +763,31 @@ export default function App() {
     pollRequestsRef.current = pollRequests;
   });
 
-  // Run the polling interval once on mount
+  // ดึงข้อมูลคำร้องทั้งหมดเป็นระยะ "เฉพาะตอนแอดมินล็อกอิน" และหน้าเว็บเปิดอยู่
+  // (เดิมนักศึกษาทุกคนที่เปิดเว็บจะดาวน์โหลดฐานข้อมูลทั้งชีตทุก 12 วินาที ทำให้ Apps Script คิวยาว
+  //  เว็บกระตุกทุกรอบที่ข้อมูลเข้ามา และข้อมูลส่วนตัวนักศึกษาทุกคนหลุดไปที่เบราว์เซอร์ของใครก็ได้)
   useEffect(() => {
-    pollRequestsRef.current();
+    if (!isAdminLoggedIn) return;
+    const tick = () => {
+      if (document.visibilityState === 'visible') pollRequestsRef.current();
+    };
+    const interval = setInterval(tick, 20000);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, [isAdminLoggedIn]);
 
-    const interval = setInterval(() => {
-      pollRequestsRef.current();
-    }, 12000);
-
-    return () => clearInterval(interval);
-  }, []);
+  // เซสชันแอดมินหมดอายุ (ฝั่งเซิร์ฟเวอร์ปฏิเสธ token) => ออกจากระบบอัตโนมัติ
+  useEffect(() => {
+    const onExpired = () => {
+      setIsAdminLoggedIn(false);
+      showToast(isTh ? 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบแอดมินใหม่' : 'Session expired, please log in again', 'warning');
+    };
+    window.addEventListener('admin-session-expired', onExpired);
+    return () => window.removeEventListener('admin-session-expired', onExpired);
+  });
 
   // Monitor admin logged-in state changes to properly align the notification baseline
   useEffect(() => {
@@ -853,16 +869,20 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50/30 text-slate-800 flex flex-col justify-between font-sans antialiased relative overflow-hidden">
       {/* Luxury macOS-style ambient blurry out-of-focus background */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none select-none z-0" aria-hidden="true">
-        {/* Soft Apricot/Peach blob - upper right */}
-        <div className="absolute -top-[15%] -right-[10%] w-[55vw] h-[55vw] min-w-[380px] min-h-[380px] rounded-full bg-gradient-to-br from-amber-200/40 via-rose-300/35 to-pink-200/25 blur-[120px] opacity-75"></div>
-        {/* Soft Lavender/Sky Blue blob - upper left */}
-        <div className="absolute top-[5%] -left-[10%] w-[48vw] h-[48vw] min-w-[320px] min-h-[320px] rounded-full bg-gradient-to-tr from-sky-200/35 via-indigo-200/30 to-purple-200/20 blur-[130px] opacity-70"></div>
-        {/* Soft Mint/Teal blob - mid right */}
-        <div className="absolute top-[40%] -right-[15%] w-[42vw] h-[42vw] min-w-[300px] min-h-[300px] rounded-full bg-gradient-to-l from-emerald-100/25 via-teal-100/30 to-sky-200/35 blur-[120px] opacity-60"></div>
-        {/* Soft Plum/Rose blob - bottom left */}
-        <div className="absolute -bottom-[15%] left-[5%] w-[58vw] h-[58vw] min-w-[420px] min-h-[420px] rounded-full bg-gradient-to-tr from-purple-200/40 via-rose-200/35 to-amber-100/20 blur-[140px] opacity-75"></div>
-      </div>
+      {/* พื้นหลังฟุ้ง ๆ แบบเดิม แต่ใช้ radial-gradient แทน filter: blur(120-140px)
+          (blur ขนาดใหญ่ 4 ก้อน + header แบบ backdrop-blur ทำให้มือถือต้องวาดใหม่ทุกครั้งที่เลื่อนจอ = กระตุก) */}
+      <div
+        className="fixed inset-0 pointer-events-none select-none z-0"
+        aria-hidden="true"
+        style={{
+          backgroundImage: [
+            'radial-gradient(ellipse 45vw 45vw at 85% 8%, rgba(253, 205, 170, 0.45), transparent 70%)',
+            'radial-gradient(ellipse 40vw 40vw at 10% 22%, rgba(186, 212, 245, 0.40), transparent 70%)',
+            'radial-gradient(ellipse 35vw 35vw at 95% 60%, rgba(167, 230, 215, 0.30), transparent 70%)',
+            'radial-gradient(ellipse 48vw 48vw at 25% 100%, rgba(221, 196, 240, 0.42), transparent 70%)'
+          ].join(', ')
+        }}
+      ></div>
       {/* Dynamic Demo Warning Banner */}
       {hasSheetUrlConflict ? (
         <div className="bg-rose-600 text-white font-sans text-xs px-4 py-2 text-center flex items-center justify-center gap-2 font-medium shadow-md transition-all duration-300 z-40 animate-bounce">
@@ -1516,6 +1536,7 @@ export default function App() {
 
               {/* --- SECTION 3: STAFF / ADMINISTRATIVE VIEW --- */}
               {activeTab === 'admin' && (
+                <Suspense fallback={<div className="py-24 flex justify-center"><div className="w-8 h-8 border-4 border-slate-200 border-t-mangosteen rounded-full animate-spin" /></div>}>
                 <AdminSection 
                   isInitiallyLoggedIn={isAdminLoggedIn}
                   onLoginSuccess={() => {
@@ -1555,6 +1576,7 @@ export default function App() {
                     saveRemoteSetting('custom_favicon', newFavicon);
                   }}
                 />
+                </Suspense>
               )}
             </>
           )}

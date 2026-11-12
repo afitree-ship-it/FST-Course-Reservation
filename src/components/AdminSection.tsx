@@ -39,7 +39,7 @@ import {
 } from 'lucide-react';
 import { ReservationRequest, RequestStatus, AuditLog } from '../types';
 import { compressImage } from '../imageUtils';
-import { adminLogin, addAdminPassword, getSavedAdminPasswords, removeAdminPassword, getAllRequests, updateStatus, updateCourseStatus, saveApiUrl, getApiUrl, isApiConfigured, getLoggedInAdminName, adminLogout, hashString, syncAdminPasswordsWithGoogleSheets, getRemoteSettings, saveRemoteSetting, getAuditLogs } from '../services/api';
+import { adminLogin, addAdminPassword, getSavedAdminPasswords, removeAdminPassword, getAllRequests, updateStatus, updateCourseStatus, saveApiUrl, getApiUrl, isApiConfigured, getLoggedInAdminName, adminLogout, hashString, syncAdminPasswordsWithGoogleSheets, getRemoteSettings, saveRemoteSetting, saveRemoteSettings, getAuditLogs, getEmailQuota } from '../services/api';
 import { BarChart2, PieChart, Calendar, Shield, Bell, FileText, Download } from 'lucide-react';
 
 interface AdminSectionProps {
@@ -232,13 +232,17 @@ export default function AdminSection({
     e.preventDefault();
     setIsSavingScheduleSettings(true);
     try {
-      await saveRemoteSetting('system_opening_mode', systemOpeningMode);
-      await saveRemoteSetting('system_open_start', systemOpenStart);
-      await saveRemoteSetting('system_open_end', systemOpenEnd);
-      await saveRemoteSetting('system_closed_message', systemClosedMessage);
-      await saveRemoteSetting('notify_line_token', notifyLineToken);
-      await saveRemoteSetting('notify_on_new_request', String(notifyOnNewRequest));
-      await saveRemoteSetting('notify_on_status_change', String(notifyOnStatusChange));
+      // บันทึกทุกค่าในคำขอเดียว (เดิมยิง 7 คำขอต่อกัน รอ 10-20 วินาที)
+      const ok = await saveRemoteSettings({
+        system_opening_mode: systemOpeningMode,
+        system_open_start: systemOpenStart,
+        system_open_end: systemOpenEnd,
+        system_closed_message: systemClosedMessage,
+        notify_line_token: notifyLineToken,
+        notify_on_new_request: String(notifyOnNewRequest),
+        notify_on_status_change: String(notifyOnStatusChange)
+      });
+      if (!ok) throw new Error('save failed');
 
       showToast('บันทึกการตั้งค่ากำหนดการและระบบแจ้งเตือนเรียบร้อยแล้ว!', 'success');
     } catch (err) {
@@ -530,8 +534,7 @@ export default function AdminSection({
     if (!isApiConfigured()) return;
     setCheckingQuota(true);
     try {
-      const res = await fetch(`${getApiUrl()}?action=checkEmailQuota`);
-      const data = await res.json();
+      const data = await getEmailQuota();
       if (data.success && typeof data.remainingDailyQuota === 'number') {
         setEmailQuota({ remaining: data.remainingDailyQuota, user: data.sentFromUser || '' });
       }
@@ -764,7 +767,7 @@ export default function AdminSection({
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 7000); // 7s timeout
       
-      const response = await fetch(`${gasUrlInput.trim()}?action=getAllRequests`, {
+      const response = await fetch(`${gasUrlInput.trim()}?action=adminStatus`, {
         signal: controller.signal
       });
       clearTimeout(timeoutId);
@@ -852,10 +855,109 @@ function jsonOut(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// รหัสคำร้องแบบไม่ซ้ำ (เดิมสุ่มแค่ 4 หลัก มีโอกาสชนกันสูงมากเมื่อมีคำร้องหลักร้อย
+// ทำให้แอดมินกดอนุมัติแล้วไปแก้ "แถวอื่น" ที่มีรหัสเดียวกัน)
 function newId(prefix) {
   var y = new Date().getFullYear() + 543;
-  var rand = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+  var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  var rand = '';
+  for (var i = 0; i < 6; i++) rand += chars.charAt(Math.floor(Math.random() * chars.length));
   return prefix + '-' + y + '-' + rand;
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ---------- Auth (ตรวจสิทธิ์แอดมินฝั่งเซิร์ฟเวอร์) ----------
+// เดิมการตรวจรหัสแอดมินทำเฉพาะในเบราว์เซอร์ ใครก็ยิง API อนุมัติ/ลบแอดมิน/ดึงข้อมูลนักศึกษาทั้งหมดได้
+var SESSION_TTL_SECONDS = 6 * 60 * 60; // 6 ชั่วโมง
+
+function createAdminSession(name) {
+  var token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, '');
+  CacheService.getScriptCache().put('sess_' + token, String(name || 'แอดมินระบบ'), SESSION_TTL_SECONDS);
+  return token;
+}
+
+function getAdminFromToken(token) {
+  if (!token) return null;
+  var name = CacheService.getScriptCache().get('sess_' + token);
+  return name || null;
+}
+
+function unauthorized() {
+  return jsonOut({ success: false, error: 'UNAUTHORIZED', message: 'กรุณาเข้าสู่ระบบแอดมินใหม่อีกครั้ง' });
+}
+
+function countAdmins() {
+  var rows = adminsSheet().getDataRange().getValues();
+  var n = 0;
+  for (var i = 1; i < rows.length; i++) if (rows[i][0]) n++;
+  return n;
+}
+
+function handleAdminLogin(data) {
+  var hash = String(data.hash || '');
+  if (!/^[0-9a-f]{64}$/.test(hash)) return jsonOut({ success: false, error: 'รหัสผ่านไม่ถูกต้อง' });
+  // กันการเดารหัสแบบรัว ๆ: จำกัด 10 ครั้ง / 5 นาที ต่อทั้งระบบ
+  var cache = CacheService.getScriptCache();
+  var fails = Number(cache.get('login_fails') || 0);
+  if (fails >= 10) return jsonOut({ success: false, error: 'พยายามเข้าสู่ระบบผิดหลายครั้ง กรุณารอ 5 นาที' });
+  var rows = adminsSheet().getDataRange().getValues();
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]) === hash) {
+      var name = String(rows[i][1] || 'แอดมินทั่วไป');
+      return jsonOut({ success: true, name: name, token: createAdminSession(name) });
+    }
+  }
+  cache.put('login_fails', String(fails + 1), 300);
+  return jsonOut({ success: false, error: 'รหัสผ่านไม่ถูกต้อง' });
+}
+
+// ---------- Settings (cache + แยก public/private) ----------
+var PUBLIC_SETTING_KEYS = ['custom_logo', 'custom_favicon', 'system_opening_mode', 'system_open_start', 'system_open_end', 'system_closed_message'];
+
+function readAllSettings() {
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get('settings_all');
+  if (cached) { try { return JSON.parse(cached); } catch (e) {} }
+  var sRows = settingsSheet().getDataRange().getValues();
+  var settings = {};
+  for (var m = 1; m < sRows.length; m++) {
+    if (sRows[m][0]) settings[String(sRows[m][0])] = String(sRows[m][1]);
+  }
+  try { cache.put('settings_all', JSON.stringify(settings), 600); } catch (e) {} // >100KB จะ cache ไม่ได้ ก็อ่านจากชีตตามปกติ
+  return settings;
+}
+
+function invalidateSettingsCache() {
+  CacheService.getScriptCache().remove('settings_all');
+}
+
+function publicSettings() {
+  var all = readAllSettings();
+  var out = {};
+  PUBLIC_SETTING_KEYS.forEach(function (k) { if (all[k] !== undefined) out[k] = all[k]; });
+  return out;
+}
+
+function isWebhookUrl(s) {
+  return /^https:\\/\\//.test(String(s || ''));
+}
+
+// LINE Notify ปิดให้บริการถาวรตั้งแต่ 31 มี.ค. 2025 การยิงไปที่ notify-api.line.me ทำให้ทุกคำร้องช้าลงโดยไม่มีประโยชน์
+// จึงรองรับเฉพาะ Webhook URL (Discord / Google Chat / Make / n8n ฯลฯ)
+function postWebhook(url, message) {
+  if (!isWebhookUrl(url)) return false;
+  UrlFetchApp.fetch(url, {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify({ content: message, text: message }),
+    muteHttpExceptions: true
+  });
+  return true;
 }
 
 function buildCourseSummary(courses) {
@@ -968,34 +1070,12 @@ function sendSafeEmail(toEmail, subject, textBody, htmlBody) {
   }
 }
 
-// ส่งข้อความแจ้งเตือนแอดมินผ่าน LINE / Discord / Webhook
+// ส่งข้อความแจ้งเตือนแอดมินผ่าน Webhook (Discord / Google Chat ฯลฯ)
 function sendAdminWebhookNotification(message) {
   try {
-    var sSheet = settingsSheet();
-    var sRows = sSheet.getDataRange().getValues();
-    var notifyEnabled = 'false';
-    var notifyToken = '';
-    for (var i = 1; i < sRows.length; i++) {
-      if (String(sRows[i][0]) === 'notify_on_new_request') notifyEnabled = String(sRows[i][1]);
-      if (String(sRows[i][0]) === 'notify_line_token') notifyToken = String(sRows[i][1]);
-    }
-    if (notifyEnabled !== 'true' || !notifyToken) return;
-
-    if (notifyToken.indexOf('http://') === 0 || notifyToken.indexOf('https://') === 0) {
-      UrlFetchApp.fetch(notifyToken, {
-        method: 'post',
-        contentType: 'application/json',
-        payload: JSON.stringify({ content: message, text: message }),
-        muteHttpExceptions: true
-      });
-    } else {
-      UrlFetchApp.fetch('https://notify-api.line.me/api/notify', {
-        method: 'post',
-        headers: { 'Authorization': 'Bearer ' + notifyToken },
-        payload: { message: message },
-        muteHttpExceptions: true
-      });
-    }
+    var st = readAllSettings();
+    if (st.notify_on_new_request !== 'true') return;
+    postWebhook(st.notify_line_token, message);
   } catch (err) {
     Logger.log('Admin notify error: ' + err.toString());
   }
@@ -1003,58 +1083,26 @@ function sendAdminWebhookNotification(message) {
 
 function sendStatusChangeWebhookNotification(message) {
   try {
-    var sSheet = settingsSheet();
-    var sRows = sSheet.getDataRange().getValues();
-    var notifyEnabled = 'true';
-    var notifyToken = '';
-    for (var i = 1; i < sRows.length; i++) {
-      if (String(sRows[i][0]) === 'notify_on_status_change') notifyEnabled = String(sRows[i][1]);
-      if (String(sRows[i][0]) === 'notify_line_token') notifyToken = String(sRows[i][1]);
-    }
-    if (notifyEnabled === 'false' || !notifyToken) return;
-
-    if (notifyToken.indexOf('http://') === 0 || notifyToken.indexOf('https://') === 0) {
-      UrlFetchApp.fetch(notifyToken, {
-        method: 'post',
-        contentType: 'application/json',
-        payload: JSON.stringify({ content: message, text: message }),
-        muteHttpExceptions: true
-      });
-    } else {
-      UrlFetchApp.fetch('https://notify-api.line.me/api/notify', {
-        method: 'post',
-        headers: { 'Authorization': 'Bearer ' + notifyToken },
-        payload: { message: message },
-        muteHttpExceptions: true
-      });
-    }
+    var st = readAllSettings();
+    if (st.notify_on_status_change === 'false') return;
+    postWebhook(st.notify_line_token, message);
   } catch (err) {
     Logger.log('Status change notify error: ' + err.toString());
   }
 }
 
+// ใช้สำหรับปุ่ม "ทดสอบการแจ้งเตือน" ในหน้าแอดมิน (ต้องล็อกอิน) — ไม่เปิดให้คนนอกใช้เป็นตัวยิง URL ใด ๆ
 function handleDispatchNotification(data) {
   var tokenOrWebhook = data.tokenOrWebhook;
   var message = data.message;
   if (!tokenOrWebhook || !message) {
     return jsonOut({ success: false, error: 'Missing token or message' });
   }
+  if (!isWebhookUrl(tokenOrWebhook)) {
+    return jsonOut({ success: false, error: 'LINE Notify ปิดให้บริการแล้ว (31 มี.ค. 2025) กรุณาใช้ Webhook URL ที่ขึ้นต้นด้วย https:// แทน' });
+  }
   try {
-    if (tokenOrWebhook.indexOf('http://') === 0 || tokenOrWebhook.indexOf('https://') === 0) {
-      UrlFetchApp.fetch(tokenOrWebhook, {
-        method: 'post',
-        contentType: 'application/json',
-        payload: JSON.stringify({ content: message, text: message }),
-        muteHttpExceptions: true
-      });
-    } else {
-      UrlFetchApp.fetch('https://notify-api.line.me/api/notify', {
-        method: 'post',
-        headers: { 'Authorization': 'Bearer ' + tokenOrWebhook },
-        payload: { message: message },
-        muteHttpExceptions: true
-      });
-    }
+    postWebhook(tokenOrWebhook, String(message).slice(0, 2000));
     return jsonOut({ success: true });
   } catch (e) {
     return jsonOut({ success: false, error: e.toString() });
@@ -1100,8 +1148,8 @@ function buildMobileCoursesCards(courses, defaultStatus) {
       '<div style="background-color: #ffffff; border: 1.5px solid ' + borderColor + '; border-radius: 10px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">' +
         '<div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">' +
           '<div>' +
-            '<span style="font-size: 16px; font-weight: bold; color: #0f172a;">' + (c.courseCode || '-') + '</span>' +
-            '<div style="font-size: 14px; color: #334155; font-weight: 500; margin-top: 2px;">' + (c.courseName || '-') + '</div>' +
+            '<span style="font-size: 16px; font-weight: bold; color: #0f172a;">' + escapeHtml(c.courseCode || '-') + '</span>' +
+            '<div style="font-size: 14px; color: #334155; font-weight: 500; margin-top: 2px;">' + escapeHtml(c.courseName || '-') + '</div>' +
           '</div>' +
           '<div style="margin-left: 8px; text-align: right;">' +
             '<span style="background-color: ' + badgeBg + '; color: ' + badgeColor + '; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: bold; display: inline-block;">' +
@@ -1111,14 +1159,14 @@ function buildMobileCoursesCards(courses, defaultStatus) {
         '</div>' +
 
         '<div style="font-size: 13px; color: #64748b; line-height: 1.6; border-top: 1px dashed #e2e8f0; padding-top: 8px; margin-top: 8px;">' +
-          '<div>• <strong>กลุ่ม/เซกชัน (Section):</strong> <span style="color: #1e293b; font-weight: bold;">' + (c.section || '-') + '</span></div>' +
-          '<div>• <strong>อาจารย์ผู้สอน (Instructor):</strong> <span style="color: #1e293b;">' + (c.instructor || '-') + '</span></div>' +
+          '<div>• <strong>กลุ่ม/เซกชัน (Section):</strong> <span style="color: #1e293b; font-weight: bold;">' + escapeHtml(c.section || '-') + '</span></div>' +
+          '<div>• <strong>อาจารย์ผู้สอน (Instructor):</strong> <span style="color: #1e293b;">' + escapeHtml(c.instructor || '-') + '</span></div>' +
         '</div>';
 
     if (c.rejectionReason && isRej) {
       cardsHtml += 
         '<div style="background-color: #fff1f2; border-radius: 6px; padding: 8px 10px; margin-top: 8px; font-size: 12px; color: #be123c;">' +
-          '<strong>[ไม่อนุมัติ] เหตุผล/หมายเหตุ (Reason):</strong> ' + c.rejectionReason +
+          '<strong>[ไม่อนุมัติ] เหตุผล/หมายเหตุ (Reason):</strong> ' + escapeHtml(c.rejectionReason) +
         '</div>';
     }
 
@@ -1136,10 +1184,10 @@ function buildMobileCoStudentsCard(coStudentsList) {
     var f = coStudentsList[i];
     friendsHtml += 
       '<div style="background-color: #ffffff; border-radius: 6px; padding: 8px 12px; margin-bottom: 6px; border: 1px solid #cbd5e1; font-size: 13px;">' +
-        '<div style="font-weight: bold; color: #1e293b;">' + (i + 1) + '. ' + f.fullName + '</div>' +
+        '<div style="font-weight: bold; color: #1e293b;">' + (i + 1) + '. ' + escapeHtml(f.fullName) + '</div>' +
         '<div style="color: #64748b; font-size: 12px; margin-top: 2px;">' +
-          'รหัสนักศึกษา (Student ID): <span style="color: #0284c7; font-weight: bold;">' + f.studentId + '</span> ' +
-          (f.courseCode ? '<span style="color: #64748b;">| ฝากวิชา: ' + f.courseCode + '</span>' : '') +
+          'รหัสนักศึกษา (Student ID): <span style="color: #0284c7; font-weight: bold;">' + escapeHtml(f.studentId) + '</span> ' +
+          (f.courseCode ? '<span style="color: #64748b;">| ฝากวิชา: ' + escapeHtml(f.courseCode) + '</span>' : '') +
         '</div>' +
       '</div>';
   }
@@ -1175,91 +1223,93 @@ function buildMobileRegInstructionsBox(hasApproved) {
 
 // ---------- doGet ----------
 
-function doGet(e) {
-  var action = (e && e.parameter) ? e.parameter.action : '';
-  try {
-    if (action === 'checkEmailQuota') {
-      var remainingQuota = MailApp.getRemainingDailyQuota();
-      var effectiveUser = Session.getEffectiveUser().getEmail();
-      return jsonOut({
-        success: true,
-        remainingDailyQuota: remainingQuota,
-        sentFromUser: effectiveUser,
-        timestamp: new Date().toISOString()
+function readAllRequests() {
+  var rows = requestsSheet().getDataRange().getValues();
+  var results = [];
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i][0]) results.push(rowToRequest(rows[i]));
+  }
+  return results;
+}
+
+function readAuditLogs() {
+  var auRows = auditSheet().getDataRange().getValues();
+  var logs = [];
+  for (var n = 1; n < auRows.length; n++) {
+    if (auRows[n][0]) {
+      logs.push({
+        id: String(auRows[n][0]),
+        timestamp: String(auRows[n][1]),
+        adminName: String(auRows[n][2]),
+        action: String(auRows[n][3]),
+        targetId: String(auRows[n][4] || ''),
+        details: String(auRows[n][5])
       });
     }
+  }
+  logs.sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
+  return logs.slice(0, 500);
+}
 
-    if (action === 'getAllRequests') {
-      var sheet = requestsSheet();
-      var rows = sheet.getDataRange().getValues();
-      var results = [];
-      for (var i = 1; i < rows.length; i++) {
-        if (rows[i][0]) results.push(rowToRequest(rows[i]));
-      }
-      return jsonOut({ success: true, data: results });
+function readAdmins() {
+  var aRows = adminsSheet().getDataRange().getValues();
+  var admins = [];
+  for (var k = 1; k < aRows.length; k++) {
+    if (aRows[k][0]) admins.push({ hash: String(aRows[k][0]), name: String(aRows[k][1]), addedAt: String(aRows[k][2]) });
+  }
+  return admins;
+}
+
+// ค้นหาคำร้องของนักศึกษาคนเดียว: ต้องเป็นรหัส 9 หลักเท่านั้น และเทียบแบบตรงตัว
+// (เดิมถ้าส่ง studentId ว่าง indexOf('') จะคืนค่า 0 => ได้ข้อมูลนักศึกษา "ทุกคน" ออกไปแบบไม่ต้องล็อกอิน)
+function findRequestsByStudentId(studentId) {
+  if (!/^\\d{9}$/.test(studentId)) return null;
+  var rows = requestsSheet().getDataRange().getValues();
+  var filtered = [];
+  for (var j = 1; j < rows.length; j++) {
+    if (!rows[j][0]) continue;
+    var own = String(rows[j][2]).replace(/^'/, '').trim() === studentId;
+    var asFriend = false;
+    if (!own) {
+      try {
+        var cs = JSON.parse(rows[j][20] || '[]');
+        asFriend = cs.some(function (c) {
+          return (c.coStudents || []).some(function (f) { return String(f.studentId || '').trim() === studentId; });
+        });
+      } catch (e) {}
     }
+    if (own || asFriend) filtered.push(rowToRequest(rows[j]));
+  }
+  return filtered;
+}
 
+function doGet(e) {
+  var p = (e && e.parameter) ? e.parameter : {};
+  var action = p.action || '';
+  try {
+    // ---- Public (ไม่ต้องล็อกอิน) ----
     if (action === 'getStatusByStudentId') {
-      var studentId = String(e.parameter.studentId || '').replace(/^'/, '').trim();
-      var sheet2 = requestsSheet();
-      var rows2 = sheet2.getDataRange().getValues();
-      var filtered = [];
-      for (var j = 1; j < rows2.length; j++) {
-        if (!rows2[j][0]) continue;
-        var cleanStudentIdInSheet = String(rows2[j][2]).replace(/^'/, '').trim();
-        var coStudentsCell = String(rows2[j][24] || '');
-        var coursesCell = String(rows2[j][20] || '');
-        var isMatch = (cleanStudentIdInSheet === studentId) ||
-                      (coStudentsCell.indexOf(studentId) > -1) ||
-                      (coursesCell.indexOf(studentId) > -1);
-        if (isMatch) {
-          filtered.push(rowToRequest(rows2[j]));
-        }
-      }
-      return jsonOut({ success: true, data: filtered });
+      var sid = String(p.studentId || '').replace(/^'/, '').trim();
+      var found = findRequestsByStudentId(sid);
+      if (found === null) return jsonOut({ success: false, error: 'รหัสนักศึกษาต้องเป็นตัวเลข 9 หลัก' });
+      return jsonOut({ success: true, data: found });
+    }
+    if (action === 'getPublicSettings' || (action === 'getSettings' && !p.token)) {
+      return jsonOut({ success: true, data: publicSettings() });
+    }
+    if (action === 'adminStatus') {
+      return jsonOut({ success: true, hasAdmins: countAdmins() > 0 });
     }
 
-    if (action === 'getAdmins') {
-      var aSheet = adminsSheet();
-      var aRows = aSheet.getDataRange().getValues();
-      var admins = [];
-      for (var k = 1; k < aRows.length; k++) {
-        if (aRows[k][0]) {
-          admins.push({ hash: String(aRows[k][0]), name: String(aRows[k][1]), addedAt: String(aRows[k][2]) });
-        }
-      }
-      return jsonOut({ success: true, data: admins });
+    // ---- Admin เท่านั้น ----
+    if (!getAdminFromToken(p.token)) return unauthorized();
+    if (action === 'checkEmailQuota') {
+      return jsonOut({ success: true, remainingDailyQuota: MailApp.getRemainingDailyQuota(), sentFromUser: Session.getEffectiveUser().getEmail(), timestamp: new Date().toISOString() });
     }
-
-    if (action === 'getSettings') {
-      var sSheet = settingsSheet();
-      var sRows = sSheet.getDataRange().getValues();
-      var settings = {};
-      for (var m = 1; m < sRows.length; m++) {
-        if (sRows[m][0]) settings[String(sRows[m][0])] = String(sRows[m][1]);
-      }
-      return jsonOut({ success: true, data: settings });
-    }
-
-    if (action === 'getAuditLogs') {
-      var auSheet = auditSheet();
-      var auRows = auSheet.getDataRange().getValues();
-      var logs = [];
-      for (var n = 1; n < auRows.length; n++) {
-        if (auRows[n][0]) {
-          logs.push({
-            id: String(auRows[n][0]),
-            timestamp: String(auRows[n][1]),
-            adminName: String(auRows[n][2]),
-            action: String(auRows[n][3]),
-            targetId: String(auRows[n][4] || ''),
-            details: String(auRows[n][5])
-          });
-        }
-      }
-      logs.sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
-      return jsonOut({ success: true, data: logs.slice(0, 500) });
-    }
+    if (action === 'getAllRequests') return jsonOut({ success: true, data: readAllRequests() });
+    if (action === 'getAdmins') return jsonOut({ success: true, data: readAdmins() });
+    if (action === 'getSettings') return jsonOut({ success: true, data: readAllSettings() });
+    if (action === 'getAuditLogs') return jsonOut({ success: true, data: readAuditLogs() });
 
     return jsonOut({ success: false, error: 'Unknown GET action: ' + action });
   } catch (err) {
@@ -1274,14 +1324,42 @@ function doPost(e) {
     var postData = JSON.parse(e.postData.contents);
     var action = postData.action;
 
+    // ---- Public ----
     if (action === 'submitRequest') return handleSubmitRequest(postData);
-    if (action === 'updateStatus') return handleUpdateStatus(postData);
-    if (action === 'updateCourseStatus') return handleUpdateCourseStatus(postData);
+    if (action === 'adminLogin') return handleAdminLogin(postData);
+    // สร้างแอดมินคนแรกได้เฉพาะตอนที่ชีต Admins ยังว่างเท่านั้น
+    if (action === 'addAdmin' && countAdmins() === 0) return handleAddAdmin(postData);
+
+    // ---- Admin เท่านั้น ----
+    var adminName = getAdminFromToken(postData.token);
+    if (!adminName) return unauthorized();
+    postData.processedBy = adminName;   // ใช้ชื่อจาก session จริง ไม่เชื่อชื่อที่ส่งมาจากเบราว์เซอร์
+    postData.adminName = adminName;
+
+    if (action === 'getAllRequests') return jsonOut({ success: true, data: readAllRequests() });
+    if (action === 'getAdmins') return jsonOut({ success: true, data: readAdmins() });
+    if (action === 'getSettings') return jsonOut({ success: true, data: readAllSettings() });
+    if (action === 'getAuditLogs') return jsonOut({ success: true, data: readAuditLogs() });
+    if (action === 'checkEmailQuota') {
+      return jsonOut({ success: true, remainingDailyQuota: MailApp.getRemainingDailyQuota(), sentFromUser: Session.getEffectiveUser().getEmail(), timestamp: new Date().toISOString() });
+    }
+    if (action === 'updateStatus') {
+      var r1 = withLock(function () { return handleUpdateStatus(postData); });
+      logAudit(adminName, 'เปลี่ยนสถานะคำร้อง', postData.requestId, postData.status + (postData.rejectionReason ? ' — ' + postData.rejectionReason : ''));
+      return r1;
+    }
+    if (action === 'updateCourseStatus') {
+      var r2 = withLock(function () { return handleUpdateCourseStatus(postData); });
+      logAudit(adminName, 'เปลี่ยนสถานะรายวิชา', postData.requestId, postData.courseCode + ': ' + postData.status + (postData.rejectionReason ? ' — ' + postData.rejectionReason : ''));
+      return r2;
+    }
     if (action === 'addAdmin') return handleAddAdmin(postData);
     if (action === 'deleteAdmin') return handleDeleteAdmin(postData);
-    if (action === 'saveSetting') return handleSaveSetting(postData);
+    if (action === 'saveSetting') return handleSaveSettings({ settings: [{ key: postData.key, value: postData.value }] });
+    if (action === 'saveSettings') return handleSaveSettings(postData);
     if (action === 'recordAuditLog') return handleRecordAuditLog(postData);
     if (action === 'dispatchNotification') return handleDispatchNotification(postData);
+    if (action === 'adminLogout') { CacheService.getScriptCache().remove('sess_' + postData.token); return jsonOut({ success: true }); }
 
     return jsonOut({ success: false, error: 'Unknown POST action: ' + action });
   } catch (err) {
@@ -1289,9 +1367,30 @@ function doPost(e) {
   }
 }
 
+// กันสองแอดมินกดอนุมัติคำร้องเดียวกันพร้อมกันแล้วเขียนทับ JSON รายวิชาของกันและกัน
+function withLock(fn) {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return jsonOut({ success: false, error: 'ระบบกำลังประมวลผลคำขออื่น กรุณาลองใหม่' });
+  try { return fn(); } finally { lock.releaseLock(); }
+}
+
 // ---------- Request Handlers ----------
 
 function handleSubmitRequest(data) {
+  // ตรวจข้อมูลขั้นต่ำฝั่งเซิร์ฟเวอร์
+  var sidCheck = String(data.studentId || '').trim();
+  if (!/^\\d{9}$/.test(sidCheck)) return jsonOut({ success: false, error: 'รหัสนักศึกษาไม่ถูกต้อง' });
+  if (!data.fullName || String(data.fullName).length > 200) return jsonOut({ success: false, error: 'ชื่อ-นามสกุลไม่ถูกต้อง' });
+  if (data.courses && data.courses.length > 20) return jsonOut({ success: false, error: 'จำนวนรายวิชามากเกินไป' });
+
+  // กันคำร้องซ้ำ: เบราว์เซอร์ retry ตอนเน็ตหลุด ทั้งที่ครั้งแรกบันทึกสำเร็จไปแล้ว
+  var cache = CacheService.getScriptCache();
+  var idemKey = data.clientRequestId ? 'submit_' + String(data.clientRequestId).slice(0, 80) : '';
+  if (idemKey) {
+    var prev = cache.get(idemKey);
+    if (prev) return ContentService.createTextOutput(prev).setMimeType(ContentService.MimeType.JSON);
+  }
+
   var sheet = requestsSheet();
   var id = newId('RES');
   
@@ -1375,6 +1474,10 @@ function handleSubmitRequest(data) {
   var studentIdStr = "'" + String(data.studentId || '');
   var phoneStr = data.phone ? "'" + String(data.phone) : '';
 
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  var newRowIndex;
+  try {
   sheet.appendRow([
     id, formattedDate, studentIdStr, data.fullName || '', data.year || '', data.faculty || '', data.department || '',
     summary.courseCodes, summary.courseNames, summary.sections, summary.instructors, phoneStr, data.proofType || '',
@@ -1383,8 +1486,11 @@ function handleSubmitRequest(data) {
     coStudentsText, // 25. เพื่อนร่วมกลุ่ม
     totalSeats      // 26. จำนวนที่นั่งรวม
   ]);
-
-  var newRowIndex = sheet.getLastRow();
+  SpreadsheetApp.flush();
+  newRowIndex = sheet.getLastRow(); // อยู่ใน lock => ได้แถวของคำร้องนี้แน่นอน (เดิมอาจไปเขียนสถานะอีเมลทับแถวคนอื่น)
+  } finally {
+    lock.releaseLock();
+  }
 
   var newReq = {
     id: id, studentId: data.studentId, fullName: data.fullName, department: data.department, faculty: data.faculty, 
@@ -1429,8 +1535,8 @@ function handleSubmitRequest(data) {
 
           "<div style='padding: 18px 16px; color: #1e293b;'>" +
             "<p style='font-size: 15px; margin: 0 0 12px 0;'>" +
-              "เรียน / Dear <strong>" + (data.fullName || 'Student') + "</strong> " +
-              "<span style='color: #64748b;'>(รหัส: <strong>" + (data.studentId || '-') + "</strong>)</span>," +
+              "เรียน / Dear <strong>" + escapeHtml(data.fullName || 'Student') + "</strong> " +
+              "<span style='color: #64748b;'>(รหัส: <strong>" + escapeHtml(data.studentId || '-') + "</strong>)</span>," +
             "</p>" +
 
             "<p style='color: #475569; font-size: 13px; line-height: 1.5; margin-bottom: 16px;'>" +
@@ -1444,7 +1550,7 @@ function handleSubmitRequest(data) {
                 "<span style='color: #0284c7; font-weight: bold;'>" + id + "</span>" +
               "</div>" +
               "<div><strong>วันที่ยื่น / Submission Date:</strong> " + formattedDate + "</div>" +
-              "<div><strong>สาขาวิชา / Department:</strong> " + (data.department || '-') + "</div>" +
+              "<div><strong>สาขาวิชา / Department:</strong> " + escapeHtml(data.department || '-') + "</div>" +
               "<div><strong>จำนวนที่นั่งรวม / Total Seats:</strong> " + totalSeats + " ที่นั่ง (Seats)</div>" +
               "<div><strong>สถานะเริ่มต้น / Status:</strong> <span style='color: #d97706; font-weight: bold;'>รอดำเนินการ (Pending)</span></div>" +
             "</div>" +
@@ -1502,7 +1608,9 @@ function handleSubmitRequest(data) {
     Logger.log("Admin notification error: " + alertErr.toString());
   }
 
-  return jsonOut({ success: true, data: newReq });
+  var payload = JSON.stringify({ success: true, data: newReq });
+  if (idemKey) { try { cache.put(idemKey, payload, 900); } catch (e) {} }
+  return ContentService.createTextOutput(payload).setMimeType(ContentService.MimeType.JSON);
 }
 
 function handleUpdateStatus(data) {
@@ -1519,14 +1627,11 @@ function handleUpdateStatus(data) {
   var rejectionReason = status === 'ไม่อนุมัติ' ? rawReason : '';
   var processedBy = data.processedBy || 'แอดมินระบบ';
 
-  sheet.getRange(rowNum, 15).setValue(status);              
-  sheet.getRange(rowNum, 16).setValue(rejectionReason);      
-  sheet.getRange(rowNum, 18).setValue(formattedDate);        
-  sheet.getRange(rowNum, 19).setValue(processedBy);          
-
-  var coursesRaw = sheet.getRange(rowNum, 21).getValue();
+  // อ่านทั้งแถวครั้งเดียว แก้ในหน่วยความจำ แล้วเขียนกลับครั้งเดียว (เดิมเรียกชีต ~10 ครั้งต่อการกดอนุมัติ 1 ครั้ง)
+  var rowRange = sheet.getRange(rowNum, 1, 1, REQUESTS_HEADERS.length);
+  var row = rowRange.getValues()[0];
   var courses = [];
-  try { courses = coursesRaw ? JSON.parse(coursesRaw) : []; } catch (err) { courses = []; }
+  try { courses = row[20] ? JSON.parse(row[20]) : []; } catch (err) { courses = []; }
   courses = courses.map(function (c) {
     return Object.assign({}, c, {
       status: status,
@@ -1535,10 +1640,13 @@ function handleUpdateStatus(data) {
       processedAt: now
     });
   });
-  sheet.getRange(rowNum, 21).setValue(JSON.stringify(courses));
-
-  var updatedRow = sheet.getRange(rowNum, 1, 1, REQUESTS_HEADERS.length).getValues()[0];
-  var result = rowToRequest(updatedRow);
+  row[14] = status;
+  row[15] = rejectionReason;
+  row[17] = formattedDate;
+  row[18] = processedBy;
+  row[20] = JSON.stringify(courses);
+  var emailStatusCol = 23; // index ของคอลัมน์ 24
+  var result = rowToRequest(row);
 
   var coStudentsList = extractCoStudents(courses);
   var studentEmail = result.notifyContact || '';
@@ -1594,8 +1702,8 @@ function handleUpdateStatus(data) {
 
           "<div style='padding: 18px 16px; color: #1e293b;'>" +
             "<p style='font-size: 15px; margin: 0 0 12px 0;'>" +
-              "เรียน / Dear <strong>" + result.fullName + "</strong> " +
-              "<span style='color: #64748b;'>(รหัส: <strong>" + result.studentId + "</strong>)</span>," +
+              "เรียน / Dear <strong>" + escapeHtml(result.fullName) + "</strong> " +
+              "<span style='color: #64748b;'>(รหัส: <strong>" + escapeHtml(result.studentId) + "</strong>)</span>," +
             "</p>" +
 
             "<div style='background-color: #f8fafc; border-left: 5px solid " + statusBadgeColor + "; border-radius: 8px; padding: 14px; margin-bottom: 16px; font-size: 13px; line-height: 1.7;'>" +
@@ -1604,8 +1712,8 @@ function handleUpdateStatus(data) {
                 "<span style='color: " + statusBadgeColor + "; font-weight: bold; font-size: 16px;'>" + status + " (" + displayStatusEN + ")</span>" +
               "</div>" +
               "<div><strong>รหัสคำร้อง / Request ID:</strong> <span style='color: #0284c7; font-weight: bold;'>" + result.id + "</span></div>" +
-              (rejectionReason ? "<div style='color: #dc2626; margin-top: 4px;'><strong>เหตุผล/หมายเหตุ (Reason / Remarks):</strong> " + rejectionReason + "</div>" : "") +
-              "<div style='color: #64748b; font-size: 12px; margin-top: 4px;'>ผู้ดำเนินการ: " + processedBy + " &nbsp;|&nbsp; วันที่: " + formattedDate + "</div>" +
+              (rejectionReason ? "<div style='color: #dc2626; margin-top: 4px;'><strong>เหตุผล/หมายเหตุ (Reason / Remarks):</strong> " + escapeHtml(rejectionReason) + "</div>" : "") +
+              "<div style='color: #64748b; font-size: 12px; margin-top: 4px;'>ผู้ดำเนินการ: " + escapeHtml(processedBy) + " &nbsp;|&nbsp; วันที่: " + formattedDate + "</div>" +
             "</div>" +
 
             "<div style='margin-bottom: 8px; font-size: 14px; font-weight: bold; color: #334155;'>[รายวิชา] รายละเอียดวิชาที่ได้รับการพิจารณา / Course Details:</div>" +
@@ -1626,15 +1734,11 @@ function handleUpdateStatus(data) {
       "</div>";
 
     var sendRes2 = sendSafeEmail(studentEmail, emailSubject, textBody, htmlBody);
-    var oldEmailStatus = sheet.getRange(rowNum, 24).getValue() || '';
-    if (sendRes2.success) {
-      sheet.getRange(rowNum, 24).setValue(oldEmailStatus + " | ✅ แจ้งผลแล้ว (" + status + ")");
-    } else {
-      sheet.getRange(rowNum, 24).setValue(oldEmailStatus + " | ❌ แจ้งผลล้มเหลว: " + sendRes2.message);
-    }
+    row[emailStatusCol] = (row[emailStatusCol] || '') + (sendRes2.success ? " | ✅ แจ้งผลแล้ว (" + status + ")" : " | ❌ แจ้งผลล้มเหลว: " + sendRes2.message);
   } else {
-    sheet.getRange(rowNum, 24).setValue(sheet.getRange(rowNum, 24).getValue() + " | ⚠️ ไม่มีอีเมล");
+    row[emailStatusCol] = (row[emailStatusCol] || '') + " | ⚠️ ไม่มีอีเมล";
   }
+  rowRange.setValues([row]);
 
   try {
     var statusAlertMsg = "\\n📢 [ผลการพิจารณาคำร้องสำรองที่นั่ง]\\n" +
@@ -1665,9 +1769,10 @@ function handleUpdateCourseStatus(data) {
   var rejectionReason = status === 'ไม่อนุมัติ' ? rawReason : '';
   var processedBy = data.processedBy || 'แอดมินระบบ';
 
-  var coursesRaw = sheet.getRange(rowNum, 21).getValue();
+  var rowRange = sheet.getRange(rowNum, 1, 1, REQUESTS_HEADERS.length);
+  var row = rowRange.getValues()[0];
   var courses = [];
-  try { courses = coursesRaw ? JSON.parse(coursesRaw) : []; } catch (err) { courses = []; }
+  try { courses = row[20] ? JSON.parse(row[20]) : []; } catch (err) { courses = []; }
 
   courses = courses.map(function (c) {
     if (c.courseCode === data.courseCode) {
@@ -1681,28 +1786,19 @@ function handleUpdateCourseStatus(data) {
     return c;
   });
 
-  sheet.getRange(rowNum, 21).setValue(JSON.stringify(courses));
-
   var overallStatus = recomputeOverallStatus(courses);
-  sheet.getRange(rowNum, 15).setValue(overallStatus);
-
   var overallRejectionReasons = courses
     .filter(function(c) { return c.status === 'ไม่อนุมัติ' && c.rejectionReason; })
     .map(function(c) { return c.courseCode + ': ' + c.rejectionReason; })
-    .join('\\n'); 
+    .join('\\n');
 
-  sheet.getRange(rowNum, 16).setValue(overallRejectionReasons);
-
-  if (overallStatus !== 'รอดำเนินการ') {
-    sheet.getRange(rowNum, 18).setValue(formattedDate);
-    sheet.getRange(rowNum, 19).setValue(processedBy);
-  } else {
-    sheet.getRange(rowNum, 18).setValue('');
-    sheet.getRange(rowNum, 19).setValue('');
-  }
-
-  var updatedRow = sheet.getRange(rowNum, 1, 1, REQUESTS_HEADERS.length).getValues()[0];
-  var result = rowToRequest(updatedRow);
+  row[20] = JSON.stringify(courses);
+  row[14] = overallStatus;
+  row[15] = overallRejectionReasons;
+  row[17] = overallStatus !== 'รอดำเนินการ' ? formattedDate : '';
+  row[18] = overallStatus !== 'รอดำเนินการ' ? processedBy : '';
+  var emailStatusCol = 23;
+  var result = rowToRequest(row);
 
   var coStudentsList = extractCoStudents(courses);
   var studentEmail = result.notifyContact || '';
@@ -1757,20 +1853,20 @@ function handleUpdateCourseStatus(data) {
 
           "<div style='padding: 18px 16px; color: #1e293b;'>" +
             "<p style='font-size: 15px; margin: 0 0 12px 0;'>" +
-              "เรียน / Dear <strong>" + result.fullName + "</strong> " +
-              "<span style='color: #64748b;'>(รหัส: <strong>" + result.studentId + "</strong>)</span>," +
+              "เรียน / Dear <strong>" + escapeHtml(result.fullName) + "</strong> " +
+              "<span style='color: #64748b;'>(รหัส: <strong>" + escapeHtml(result.studentId) + "</strong>)</span>," +
             "</p>" +
 
             "<div style='background-color: #f8fafc; border-left: 5px solid " + statusBadgeColor + "; border-radius: 8px; padding: 14px; margin-bottom: 16px; font-size: 13px; line-height: 1.7;'>" +
               "<div style='font-size: 15px; margin-bottom: 4px;'>" +
-                "<strong>วิชาที่พิจารณา:</strong> <span style='font-weight: bold; color: #0f172a;'>" + data.courseCode + "</span>" +
+                "<strong>วิชาที่พิจารณา:</strong> <span style='font-weight: bold; color: #0f172a;'>" + escapeHtml(data.courseCode) + "</span>" +
               "</div>" +
               "<div><strong>ผลการพิจารณา / Decision:</strong> " +
                 "<span style='color: " + statusBadgeColor + "; font-weight: bold; font-size: 15px;'>" + status + " (" + displayStatusEN + ")</span>" +
               "</div>" +
               "<div><strong>รหัสคำร้อง / Request ID:</strong> <span style='color: #0284c7; font-weight: bold;'>" + result.id + "</span></div>" +
-              (rejectionReason ? "<div style='color: #dc2626; margin-top: 4px;'><strong>เหตุผล/หมายเหตุ (Reason / Remarks):</strong> " + rejectionReason + "</div>" : "") +
-              "<div style='color: #64748b; font-size: 12px; margin-top: 4px;'>ผู้ดำเนินการ: " + processedBy + " &nbsp;|&nbsp; วันที่: " + formattedDate + "</div>" +
+              (rejectionReason ? "<div style='color: #dc2626; margin-top: 4px;'><strong>เหตุผล/หมายเหตุ (Reason / Remarks):</strong> " + escapeHtml(rejectionReason) + "</div>" : "") +
+              "<div style='color: #64748b; font-size: 12px; margin-top: 4px;'>ผู้ดำเนินการ: " + escapeHtml(processedBy) + " &nbsp;|&nbsp; วันที่: " + formattedDate + "</div>" +
             "</div>" +
 
             "<div style='margin-bottom: 8px; font-size: 14px; font-weight: bold; color: #334155;'>[รายวิชา] สรุปสถานะทุกรายวิชา / All Courses Summary:</div>" +
@@ -1791,13 +1887,9 @@ function handleUpdateCourseStatus(data) {
       "</div>";
 
     var sendRes3 = sendSafeEmail(studentEmail, emailSubject, textBody, htmlBody);
-    var oldEmailStatus2 = sheet.getRange(rowNum, 24).getValue() || '';
-    if (sendRes3.success) {
-      sheet.getRange(rowNum, 24).setValue(oldEmailStatus2 + " | ✅ แจ้งวิชา " + data.courseCode + " (" + status + ")");
-    } else {
-      sheet.getRange(rowNum, 24).setValue(oldEmailStatus2 + " | ❌ แจ้งวิชาล้มเหลว: " + sendRes3.message);
-    }
+    row[emailStatusCol] = (row[emailStatusCol] || '') + (sendRes3.success ? " | ✅ แจ้งวิชา " + data.courseCode + " (" + status + ")" : " | ❌ แจ้งวิชาล้มเหลว: " + sendRes3.message);
   }
+  rowRange.setValues([row]);
 
   try {
     var courseAlertMsg = "\\n📢 [ผลการพิจารณารายวิชา]\\n" +
@@ -1818,40 +1910,75 @@ function handleUpdateCourseStatus(data) {
 // ---------- Admin Handlers ----------
 
 function handleAddAdmin(data) {
-  var sheet = adminsSheet();
-  var rows = sheet.getDataRange().getValues();
-  for (var i = 1; i < rows.length; i++) {
-    if (String(rows[i][0]) === String(data.hash)) {
-      return jsonOut({ success: true }); 
+  var hash = String(data.hash || '');
+  if (!/^[0-9a-f]{64}$/.test(hash)) return jsonOut({ success: false, error: 'ข้อมูลรหัสผ่านไม่ถูกต้อง' });
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var sheet = adminsSheet();
+    var rows = sheet.getDataRange().getValues();
+    for (var i = 1; i < rows.length; i++) {
+      if (String(rows[i][0]) === hash) return jsonOut({ success: true });
     }
+    var formattedDate = Utilities.formatDate(new Date(), "GMT+7", "dd/MM/yyyy HH:mm:ss");
+    sheet.appendRow([hash, String(data.name || 'แอดมินทั่วไป').slice(0, 100), formattedDate]);
+    return jsonOut({ success: true });
+  } finally {
+    lock.releaseLock();
   }
-  var formattedDate = Utilities.formatDate(new Date(), "GMT+7", "dd/MM/yyyy HH:mm:ss");
-  sheet.appendRow([data.hash, data.name || 'แอดมินทั่วไป', formattedDate]);
-  return jsonOut({ success: true });
 }
 
 function handleDeleteAdmin(data) {
   var sheet = adminsSheet();
-  var rowNum = -1;
   var rows = sheet.getDataRange().getValues();
+  var rowNum = -1, total = 0;
   for (var i = 1; i < rows.length; i++) {
-    if (String(rows[i][0]) === String(data.hash)) { rowNum = i + 1; break; }
+    if (!rows[i][0]) continue;
+    total++;
+    if (String(rows[i][0]) === String(data.hash)) rowNum = i + 1;
   }
+  if (rowNum > -1 && total <= 1) return jsonOut({ success: false, error: 'ต้องมีแอดมินเหลืออย่างน้อย 1 คน' });
   if (rowNum > -1) sheet.deleteRow(rowNum);
   return jsonOut({ success: true });
 }
 
-function handleSaveSetting(data) {
-  var sheet = settingsSheet();
-  var rows = sheet.getDataRange().getValues();
-  for (var i = 1; i < rows.length; i++) {
-    if (String(rows[i][0]) === String(data.key)) {
-      sheet.getRange(i + 1, 2).setValue(data.value || '');
-      return jsonOut({ success: true });
-    }
+// บันทึกการตั้งค่าหลายค่าในครั้งเดียว (เดิมหน้าแอดมินยิงทีละค่า 7 ครั้งติดกัน = รอ 10-20 วินาที)
+function handleSaveSettings(data) {
+  var list = data.settings || [];
+  if (!list.length) return jsonOut({ success: true });
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var sheet = settingsSheet();
+    var rows = sheet.getDataRange().getValues();
+    var index = {};
+    for (var i = 1; i < rows.length; i++) if (rows[i][0]) index[String(rows[i][0])] = i;
+    var appended = [];
+    list.forEach(function (it) {
+      var key = String(it.key || '');
+      if (!key) return;
+      var val = it.value == null ? '' : String(it.value);
+      if (index[key] !== undefined) rows[index[key]][1] = val;
+      else appended.push([key, val]);
+    });
+    if (rows.length > 1) sheet.getRange(2, 1, rows.length - 1, 2).setValues(rows.slice(1).map(function (r) { return [r[0], r[1]]; }));
+    if (appended.length) sheet.getRange(sheet.getLastRow() + 1, 1, appended.length, 2).setValues(appended);
+    invalidateSettingsCache();
+    return jsonOut({ success: true });
+  } finally {
+    lock.releaseLock();
   }
-  sheet.appendRow([data.key, data.value || '']);
-  return jsonOut({ success: true });
+}
+
+// บันทึกประวัติการอนุมัติฝั่งเซิร์ฟเวอร์ (เดิมหน้าเว็บไม่เคยเรียกบันทึก ทำให้แท็บประวัติว่างเปล่า)
+function logAudit(adminName, action, targetId, details) {
+  try {
+    var id = 'LOG-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+    var formattedDate = Utilities.formatDate(new Date(), "GMT+7", "dd/MM/yyyy HH:mm:ss");
+    auditSheet().appendRow([id, formattedDate, adminName || 'เจ้าหน้าที่', action || '', targetId || '', String(details || '').slice(0, 1000)]);
+  } catch (e) {
+    Logger.log('audit log error: ' + e);
+  }
 }
 
 function handleRecordAuditLog(data) {

@@ -2,7 +2,7 @@
  * Service Worker for FST Course Reservation PWA
  */
 
-const CACHE_NAME = 'fst-reserve-cache-v1';
+const CACHE_NAME = 'fst-reserve-cache-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -47,7 +47,25 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network first with cache fallback for navigation / static assets
+  // ไฟล์ใน /assets/ มีชื่อแบบ hash (เปลี่ยนชื่อทุกครั้งที่ build) จึงใช้ cache-first ได้อย่างปลอดภัย
+  // เปิดเว็บครั้งถัดไปจะโหลด JS/CSS จากเครื่องทันที ไม่ต้องรอเน็ต
+  if (url.origin === self.location.origin && url.pathname.startsWith('/assets/')) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request).then((res) => {
+          if (res && res.status === 200) {
+            const copy = res.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          }
+          return res;
+        });
+      })
+    );
+    return;
+  }
+
+  // Network first with cache fallback for navigation / other static files
   event.respondWith(
     fetch(request)
       .then((networkResponse) => {
