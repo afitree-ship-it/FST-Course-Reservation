@@ -37,7 +37,7 @@ import StatusCheckSection from './components/StatusCheckSection';
 const AdminSection = lazy(() => import('./components/AdminSection'));
 import ToastContainer, { ToastMessage, ToastType } from './components/Toast';
 import PwaInstallPrompt from './components/PwaInstallPrompt';
-import { isApiConfigured, isGoogleSheetUrlInstead, getAllRequests, submitRequest, getRemoteSettings, saveRemoteSetting } from './services/api';
+import { isApiConfigured, isGoogleSheetUrlInstead, getAllRequests, submitRequest, getRemoteSettings, saveRemoteSetting, saveRemoteSettings } from './services/api';
 import { ReservationRequest, RequestStatus } from './types';
 import { useTranslation } from './contexts/LanguageContext';
 
@@ -549,6 +549,7 @@ export default function App() {
   };
 
   // Poll for requests from the database (either LocalStorage or live GAS Sheet)
+  const lastServerDataRef = useRef<ReservationRequest[] | null>(null);
   const pollRequests = async () => {
     if (isPollingRef.current) return;
     isPollingRef.current = true;
@@ -556,6 +557,12 @@ export default function App() {
       // When logged in as admin, force fresh data from Google Sheets to detect new requests instantly
       const response = await getAllRequests(isAdminLoggedIn);
       if (response.success && response.data) {
+        // ข้อมูลจากเซิร์ฟเวอร์ไม่เปลี่ยน (ได้ array เดิมจากแคช) และไม่มีการแก้ค้างอยู่ => ไม่ต้องอัปเดตหน้าจอ
+        // ลดการ render หน้าแอดมินทั้งหน้าทุก 20 วินาที
+        if (isAdminLoggedIn && !isFirstFetchRef.current && response.data === lastServerDataRef.current && Object.keys(recentStatusOverridesRef.current).length === 0) {
+          return;
+        }
+        lastServerDataRef.current = response.data;
         let fetchedRequests = response.data;
 
         // Merge with fresh local status overrides (45 seconds to account for Google Sheets write/read latency)
@@ -799,6 +806,7 @@ export default function App() {
       // Clear previous notifications and loaded student data on logout
       setBottomNotifications([]);
       setAllRequestsState([]);
+      lastServerDataRef.current = null;
     }
   }, [isAdminLoggedIn]);
 
@@ -1564,7 +1572,9 @@ export default function App() {
                     } else {
                       localStorage.removeItem('custom_logo');
                     }
-                    saveRemoteSetting('custom_logo', newLogo);
+                    saveRemoteSettings({ custom_logo: newLogo }).then(ok => {
+                      if (!ok) showToast(isTh ? 'บันทึกรูปลงระบบไม่สำเร็จ เครื่องอื่นจะยังไม่เห็นรูปใหม่ กรุณาลองใหม่' : 'Could not save the image to the server. Please try again.', 'error');
+                    });
                   }}
                   customFavicon={customFavicon}
                   onUpdateFavicon={(newFavicon) => {
@@ -1574,7 +1584,9 @@ export default function App() {
                     } else {
                       localStorage.removeItem('custom_favicon');
                     }
-                    saveRemoteSetting('custom_favicon', newFavicon);
+                    saveRemoteSettings({ custom_favicon: newFavicon }).then(ok => {
+                      if (!ok) showToast(isTh ? 'บันทึกรูปลงระบบไม่สำเร็จ เครื่องอื่นจะยังไม่เห็นรูปใหม่ กรุณาลองใหม่' : 'Could not save the image to the server. Please try again.', 'error');
+                    });
                   }}
                 />
                 </Suspense>

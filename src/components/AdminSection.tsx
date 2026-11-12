@@ -933,7 +933,23 @@ function countAdmins() {
   var rows = adminsSheet().getDataRange().getValues();
   var n = 0;
   for (var i = 1; i < rows.length; i++) if (rows[i][0]) n++;
+  // จำไว้ถาวรว่าระบบเคยมีแอดมินแล้ว => ถ้าภายหลังชีต Admins ว่าง (ลบด้วยมือ) คนนอกจะตั้งตัวเองเป็นแอดมินไม่ได้
+  if (n > 0) {
+    var props = PropertiesService.getScriptProperties();
+    if (props.getProperty('ADMIN_BOOTSTRAPPED') !== 'true') props.setProperty('ADMIN_BOOTSTRAPPED', 'true');
+  }
   return n;
+}
+
+function isBootstrapAllowed() {
+  return countAdmins() === 0 && PropertiesService.getScriptProperties().getProperty('ADMIN_BOOTSTRAPPED') !== 'true';
+}
+
+// กู้คืนกรณีลบแอดมินหมดจนเข้าระบบไม่ได้: เปิดไฟล์นี้ใน Apps Script แล้วกด Run ฟังก์ชันนี้ (ทำได้เฉพาะเจ้าของสคริปต์)
+// จากนั้นเปิดหน้าแอดมินบนเว็บเพื่อตั้งรหัสผ่านแอดมินคนแรกใหม่
+function resetAdminSetup() {
+  PropertiesService.getScriptProperties().deleteProperty('ADMIN_BOOTSTRAPPED');
+  Logger.log('เปิดให้ตั้งค่าแอดมินคนแรกใหม่ได้แล้ว (ใช้ได้เฉพาะเมื่อชีต Admins ว่างอยู่)');
 }
 
 function handleAdminLogin(data) {
@@ -942,11 +958,12 @@ function handleAdminLogin(data) {
   // กันการเดารหัสแบบรัว ๆ: จำกัด 10 ครั้ง / 5 นาที ต่อทั้งระบบ
   var cache = CacheService.getScriptCache();
   var fails = Number(cache.get('login_fails') || 0);
-  if (fails >= 10) return jsonOut({ success: false, error: 'พยายามเข้าสู่ระบบผิดหลายครั้ง กรุณารอ 5 นาที' });
+  if (fails >= 20) return jsonOut({ success: false, error: 'พยายามเข้าสู่ระบบผิดหลายครั้ง กรุณารอ 5 นาที' });
   var rows = adminsSheet().getDataRange().getValues();
   for (var i = 1; i < rows.length; i++) {
     if (String(rows[i][0]) === hash) {
       var name = String(rows[i][1] || 'แอดมินทั่วไป');
+      ensureProofCleanupTrigger();
       return jsonOut({ success: true, name: name, token: createAdminSession(name) });
     }
   }
@@ -1405,7 +1422,7 @@ function doGet(e) {
       return jsonOut({ success: true, data: publicSettings() });
     }
     if (action === 'adminStatus') {
-      return jsonOut({ success: true, hasAdmins: countAdmins() > 0 });
+      return jsonOut({ success: true, hasAdmins: !isBootstrapAllowed() });
     }
 
     // ---- Admin เท่านั้น ----
@@ -1436,7 +1453,7 @@ function doPost(e) {
     if (action === 'adminLogin') return handleAdminLogin(postData);
     if (action === 'submitFollowUp') return handleSubmitFollowUp(postData);
     // สร้างแอดมินคนแรกได้เฉพาะตอนที่ชีต Admins ยังว่างเท่านั้น
-    if (action === 'addAdmin' && countAdmins() === 0) return handleAddAdmin(postData);
+    if (action === 'addAdmin' && isBootstrapAllowed()) return handleAddAdmin(postData);
 
     // ---- Admin เท่านั้น ----
     var adminName = getAdminFromToken(postData.token);
@@ -1444,7 +1461,14 @@ function doPost(e) {
     postData.processedBy = adminName;   // ใช้ชื่อจาก session จริง ไม่เชื่อชื่อที่ส่งมาจากเบราว์เซอร์
     postData.adminName = adminName;
 
-    if (action === 'getAllRequests') return jsonOut({ success: true, data: readAllRequests() });
+    if (action === 'getAllRequests') {
+      // ถ้าข้อมูลไม่เปลี่ยนจากรอบก่อน (เวอร์ชันเท่าเดิม) ไม่ต้องอ่านชีตและไม่ต้องส่งข้อมูลทั้งก้อนกลับไป
+      var curVer = getDataVersion();
+      if (postData.ifVersion && curVer !== '0' && postData.ifVersion === curVer) {
+        return jsonOut({ success: true, notModified: true, version: curVer });
+      }
+      return jsonOut({ success: true, data: readAllRequests(), version: curVer });
+    }
     if (action === 'getAdmins') return jsonOut({ success: true, data: readAdmins() });
     if (action === 'getSettings') return jsonOut({ success: true, data: readAllSettings() });
     if (action === 'getAuditLogs') return jsonOut({ success: true, data: readAuditLogs() });
@@ -1452,12 +1476,12 @@ function doPost(e) {
       return jsonOut({ success: true, remainingDailyQuota: MailApp.getRemainingDailyQuota(), sentFromUser: Session.getEffectiveUser().getEmail(), timestamp: new Date().toISOString() });
     }
     if (action === 'updateStatus') {
-      var r1 = withLock(function () { return handleUpdateStatus(postData); });
+      var r1 = handleUpdateStatus(postData);
       logAudit(adminName, 'เปลี่ยนสถานะคำร้อง', postData.requestId, postData.status + (postData.rejectionReason ? ' — ' + postData.rejectionReason : ''));
       return r1;
     }
     if (action === 'updateCourseStatus') {
-      var r2 = withLock(function () { return handleUpdateCourseStatus(postData); });
+      var r2 = handleUpdateCourseStatus(postData);
       logAudit(adminName, 'เปลี่ยนสถานะรายวิชา', postData.requestId, postData.courseCode + ': ' + postData.status + (postData.rejectionReason ? ' — ' + postData.rejectionReason : ''));
       return r2;
     }
@@ -1545,7 +1569,7 @@ function handleSubmitRequest(data) {
     proofLink = data.facebookProofFile.dataUrl; 
   }
 
-  var FOLDER_ID = '1SMwTumzdm_FQczUdH0gqnG55lS70JMAf'; 
+  var FOLDER_ID = PROOF_FOLDER_ID;
 
   if (proofLink.startsWith('data:image/')) {
     try {
@@ -1572,7 +1596,9 @@ function handleSubmitRequest(data) {
       
       proofLink = file.getUrl(); 
     } catch (error) {
-      proofLink = "Upload Error: " + error.message; 
+      // เดิมบันทึกคำร้องต่อไปพร้อมข้อความ "Upload Error" โดยนักศึกษาไม่รู้ตัว => ตอนนี้แจ้งให้ส่งใหม่
+      Logger.log('Proof upload failed: ' + error);
+      return jsonOut({ success: false, error: 'อัปโหลดรูปหลักฐานไม่สำเร็จ กรุณากดส่งคำร้องอีกครั้ง (ข้อมูลที่กรอกยังอยู่ครบ)' });
     }
   } else if (proofLink.length > 200) {
     proofLink = "ข้อมูลหลักฐานผิดรูปแบบหรือไม่ใช่รูปภาพ";
@@ -1638,6 +1664,61 @@ function handleSubmitRequest(data) {
   var payload = JSON.stringify({ success: true, data: newReq, followUp: deferred });
   if (idemKey) { try { cache.put(idemKey, payload, 900); } catch (e) {} }
   return ContentService.createTextOutput(payload).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ---------- ลบรูปหลักฐานที่เก่าเกิน 3 ปี ----------
+var PROOF_FOLDER_ID = '1SMwTumzdm_FQczUdH0gqnG55lS70JMAf';
+var PROOF_RETENTION_YEARS = 3;
+
+// ทำงานอัตโนมัติสัปดาห์ละครั้ง (ตั้งเวลาให้เองเมื่อแอดมินล็อกอิน หรือกด Run ฟังก์ชัน installProofCleanupTrigger)
+// ย้ายรูปที่สร้างเกิน 3 ปีไปถังขยะของ Drive (กู้คืนได้ภายใน 30 วัน) แล้วระบุในชีตว่ารูปถูกลบตามกำหนดเก็บรักษา
+function cleanupOldProofs() {
+  var started = Date.now();
+  var cutoff = new Date();
+  cutoff.setFullYear(cutoff.getFullYear() - PROOF_RETENTION_YEARS);
+  var trashedIds = {};
+  var count = 0;
+  var files = DriveApp.getFolderById(PROOF_FOLDER_ID).getFiles();
+  while (files.hasNext()) {
+    if (Date.now() - started > 4.5 * 60 * 1000) break; // กันเกินเวลา 6 นาทีของ Apps Script รอบหน้าจะทำต่อ
+    var f = files.next();
+    if (f.getDateCreated() < cutoff) {
+      f.setTrashed(true);
+      trashedIds[f.getId()] = true;
+      count++;
+    }
+  }
+  if (count > 0) {
+    var sheet = requestsSheet();
+    var rows = sheet.getDataRange().getValues();
+    for (var i = 1; i < rows.length; i++) {
+      var link = String(rows[i][13] || '');
+      var m = link.match(/\\/d\\/([a-zA-Z0-9_-]+)/) || link.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+      if (m && trashedIds[m[1]]) {
+        sheet.getRange(i + 1, 14).setValue('ลบรูปแล้วตามกำหนดเก็บรักษา ' + PROOF_RETENTION_YEARS + ' ปี');
+      }
+    }
+  }
+  Logger.log('cleanupOldProofs: moved ' + count + ' file(s) to trash');
+  return count;
+}
+
+function installProofCleanupTrigger() {
+  var exists = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'cleanupOldProofs'; });
+  if (!exists) {
+    ScriptApp.newTrigger('cleanupOldProofs').timeBased().everyWeeks(1).onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(3).create();
+  }
+}
+
+function ensureProofCleanupTrigger() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('CLEANUP_TRIGGER_OK') === 'true') return;
+  try {
+    installProofCleanupTrigger();
+    props.setProperty('CLEANUP_TRIGGER_OK', 'true');
+  } catch (e) {
+    Logger.log('Cannot install cleanup trigger: ' + e);
+  }
 }
 
 function runSubmitNotifications(ctx) {
@@ -1794,9 +1875,13 @@ function normalizeId(v) {
 }
 
 function handleUpdateStatus(data) {
+  // ล็อกเฉพาะช่วงอ่าน-แก้-เขียนชีต (ไม่กี่ร้อยมิลลิวินาที) แล้วปล่อยก่อนส่งอีเมล
+  // เดิมล็อกค้างระหว่างส่งอีเมล 2-4 วิ ทำให้แอดมินกดหลายรายการติดกันต้องต่อคิวรอ
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return jsonOut({ success: false, error: 'ระบบกำลังประมวลผลคำขออื่น กรุณาลองใหม่' });
   var sheet = requestsSheet();
   var rowNum = findRowById(sheet, data.requestId);
-  if (rowNum === -1) return jsonOut({ success: false, error: 'ไม่พบคำร้อง' });
+  if (rowNum === -1) { lock.releaseLock(); return jsonOut({ success: false, error: 'ไม่พบคำร้อง' }); }
 
   var nowDate = new Date();
   var formattedDate = Utilities.formatDate(nowDate, "GMT+7", "dd/MM/yyyy HH:mm:ss"); 
@@ -1827,6 +1912,12 @@ function handleUpdateStatus(data) {
   row[20] = JSON.stringify(courses);
   var emailStatusCol = 23; // index ของคอลัมน์ 24
   var result = rowToRequest(row);
+  try {
+    writeDecisionColumns(sheet, rowNum, row);
+    bumpDataVersion();
+  } finally {
+    lock.releaseLock();
+  }
 
   var coStudentsList = extractCoStudents(courses);
   var studentEmail = result.notifyContact || '';
@@ -1919,8 +2010,7 @@ function handleUpdateStatus(data) {
   } else if (shouldEmail) {
     row[emailStatusCol] = (row[emailStatusCol] || '') + " | ⚠️ ไม่มีอีเมล";
   }
-  writeDecisionColumns(sheet, rowNum, row);
-  bumpDataVersion();
+  if (shouldEmail) sheet.getRange(rowNum, 24).setValue(row[emailStatusCol] || '');
 
   try {
     var statusAlertMsg = "\\n📢 [ผลการพิจารณาคำร้องสำรองที่นั่ง]\\n" +
@@ -1938,9 +2028,13 @@ function handleUpdateStatus(data) {
 }
 
 function handleUpdateCourseStatus(data) {
+  // ล็อกเฉพาะช่วงอ่าน-แก้-เขียนชีต (ไม่กี่ร้อยมิลลิวินาที) แล้วปล่อยก่อนส่งอีเมล
+  // เดิมล็อกค้างระหว่างส่งอีเมล 2-4 วิ ทำให้แอดมินกดหลายรายการติดกันต้องต่อคิวรอ
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return jsonOut({ success: false, error: 'ระบบกำลังประมวลผลคำขออื่น กรุณาลองใหม่' });
   var sheet = requestsSheet();
   var rowNum = findRowById(sheet, data.requestId);
-  if (rowNum === -1) return jsonOut({ success: false, error: 'ไม่พบคำร้อง' });
+  if (rowNum === -1) { lock.releaseLock(); return jsonOut({ success: false, error: 'ไม่พบคำร้อง' }); }
 
   var nowDate = new Date();
   var formattedDate = Utilities.formatDate(nowDate, "GMT+7", "dd/MM/yyyy HH:mm:ss");
@@ -1981,29 +2075,46 @@ function handleUpdateCourseStatus(data) {
   row[18] = overallStatus !== 'รอดำเนินการ' ? processedBy : '';
   var emailStatusCol = 23;
   var result = rowToRequest(row);
+  try {
+    writeDecisionColumns(sheet, rowNum, row);
+    bumpDataVersion();
+  } finally {
+    lock.releaseLock();
+  }
 
   var coStudentsList = extractCoStudents(courses);
   var studentEmail = result.notifyContact || '';
 
-  var shouldEmail = status === 'อนุมัติแล้ว' || status === 'ไม่อนุมัติ';
+  // รวมเป็นอีเมลเดียวเมื่อพิจารณา "ครบทุกวิชา" แล้ว (เดิมส่ง 1 ฉบับต่อวิชา คำร้อง 3 วิชาได้ 3 ฉบับ)
+  var approvedCount = courses.filter(function (c) { return c.status === 'อนุมัติแล้ว'; }).length;
+  var rejectedCount = courses.filter(function (c) { return c.status === 'ไม่อนุมัติ'; }).length;
+  var allDecided = courses.length > 0 && approvedCount + rejectedCount === courses.length;
+  var shouldEmail = (status === 'อนุมัติแล้ว' || status === 'ไม่อนุมัติ') && allDecided;
   if (shouldEmail && studentEmail && studentEmail.indexOf('@') > -1) {
-    var isApprove = status === 'อนุมัติแล้ว';
-    var isReject = status === 'ไม่อนุมัติ';
+    var isApprove = approvedCount > 0;
+    var isReject = approvedCount === 0;
+    var decisionSummary = approvedCount === courses.length ? 'อนุมัติทุกวิชา'
+      : (rejectedCount === courses.length ? 'ไม่อนุมัติทุกวิชา'
+      : 'อนุมัติ ' + approvedCount + ' วิชา / ไม่อนุมัติ ' + rejectedCount + ' วิชา');
+    var decisionSummaryEN = approvedCount === courses.length ? 'All approved'
+      : (rejectedCount === courses.length ? 'All rejected'
+      : approvedCount + ' approved / ' + rejectedCount + ' rejected');
+    rejectionReason = overallRejectionReasons;
     var headerBg = isApprove ? 'linear-gradient(135deg, #059669 0%, #10b981 100%)' : (isReject ? 'linear-gradient(135deg, #dc2626 0%, #ef4444 100%)' : 'linear-gradient(135deg, #d97706 0%, #f59e0b 100%)');
     var statusBadgeColor = isApprove ? '#059669' : (isReject ? '#dc2626' : '#d97706');
     var displayStatusEN = isApprove ? 'Approved' : (isReject ? 'Rejected' : 'Pending');
     
-    var emailSubject = "[FTU FST] ผลการพิจารณารายวิชา " + data.courseCode + " (" + status + ") - " + result.id;
+    var emailSubject = "[FTU FST] ผลการพิจารณาคำร้องสำรองที่นั่ง: " + decisionSummary + " - " + result.id;
     var coursesCardsHtml = buildMobileCoursesCards(courses, '');
     var coStudentsCardHtml = buildMobileCoStudentsCard(coStudentsList);
     var regBoxHtml = buildMobileRegInstructionsBox(isApprove);
 
     var textBody = "เรียน / Dear " + result.fullName + " (รหัสนักศึกษา / Student ID: " + result.studentId + "),\\n\\n" +
-                    "รายวิชา " + data.courseCode + " ตามคำร้องรหัส " + result.id + " ได้รับการพิจารณาแล้ว\\n" +
-                    "Your request for course " + data.courseCode + " has been processed.\\n\\n" +
+                    "คำร้องรหัส " + result.id + " ได้รับการพิจารณาครบทุกรายวิชาแล้ว\\n" +
+                    "All courses in your request " + result.id + " have been processed.\\n\\n" +
                     "--------------------------------------------------\\n" +
-                    "• รหัสวิชา / Course Code: " + data.courseCode + "\\n" +
-                    "• ผลการพิจารณา / Decision: " + status + " (" + displayStatusEN + ")\\n" +
+                    courses.map(function (c) { return "• " + c.courseCode + " " + (c.courseName || '') + ": " + c.status; }).join("\\n") + "\\n" +
+                    "• สรุปผล / Summary: " + decisionSummary + " (" + decisionSummaryEN + ")\\n" +
                     "• ผู้ดำเนินการ / Processed by: " + processedBy + "\\n" +
                     (rejectionReason ? "• เหตุผล/หมายเหตุ / Reason: " + rejectionReason + "\\n" : "") +
                     "--------------------------------------------------\\n\\n";
@@ -2030,7 +2141,7 @@ function handleUpdateCourseStatus(data) {
         "<div style='max-width: 560px; margin: auto; background-color: #ffffff; border-radius: 14px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid #e2e8f0;'>" +
           
           "<div style='background: " + headerBg + "; color: #ffffff; padding: 20px 16px; text-align: center;'>" +
-            "<h2 style='margin: 0; font-size: 18px; font-weight: bold;'>ผลการพิจารณารายวิชาที่ขอสำรองที่นั่ง</h2>" +
+            "<h2 style='margin: 0; font-size: 18px; font-weight: bold;'>ผลการพิจารณาคำร้องสำรองที่นั่ง</h2>" +
             "<p style='margin: 4px 0 0 0; font-size: 13px; opacity: 0.9;'>Course Seat Reservation Status Notification</p>" +
           "</div>" +
 
@@ -2042,13 +2153,13 @@ function handleUpdateCourseStatus(data) {
 
             "<div style='background-color: #f8fafc; border-left: 5px solid " + statusBadgeColor + "; border-radius: 8px; padding: 14px; margin-bottom: 16px; font-size: 13px; line-height: 1.7;'>" +
               "<div style='font-size: 15px; margin-bottom: 4px;'>" +
-                "<strong>วิชาที่พิจารณา:</strong> <span style='font-weight: bold; color: #0f172a;'>" + escapeHtml(data.courseCode) + "</span>" +
+                "<strong>พิจารณาครบทุกรายวิชาแล้ว</strong> <span style='color: #64748b;'>(" + courses.length + " วิชา)</span>" +
               "</div>" +
               "<div><strong>ผลการพิจารณา / Decision:</strong> " +
-                "<span style='color: " + statusBadgeColor + "; font-weight: bold; font-size: 15px;'>" + status + " (" + displayStatusEN + ")</span>" +
+                "<span style='color: " + statusBadgeColor + "; font-weight: bold; font-size: 15px;'>" + decisionSummary + " (" + decisionSummaryEN + ")</span>" +
               "</div>" +
               "<div><strong>รหัสคำร้อง / Request ID:</strong> <span style='color: #0284c7; font-weight: bold;'>" + result.id + "</span></div>" +
-              (rejectionReason ? "<div style='color: #dc2626; margin-top: 4px;'><strong>เหตุผล/หมายเหตุ (Reason / Remarks):</strong> " + escapeHtml(rejectionReason) + "</div>" : "") +
+              (rejectionReason ? "<div style='color: #dc2626; margin-top: 4px; white-space: pre-line;'><strong>เหตุผล/หมายเหตุ (Reason / Remarks):</strong> " + escapeHtml(rejectionReason) + "</div>" : "") +
               "<div style='color: #64748b; font-size: 12px; margin-top: 4px;'>ผู้ดำเนินการ: " + escapeHtml(processedBy) + " &nbsp;|&nbsp; วันที่: " + formattedDate + "</div>" +
             "</div>" +
 
@@ -2070,10 +2181,9 @@ function handleUpdateCourseStatus(data) {
       "</div>";
 
     var sendRes3 = sendSafeEmail(studentEmail, emailSubject, textBody, htmlBody);
-    row[emailStatusCol] = (row[emailStatusCol] || '') + (sendRes3.success ? " | ✅ แจ้งวิชา " + data.courseCode + " (" + status + ")" : " | ❌ แจ้งวิชาล้มเหลว: " + sendRes3.message);
+    row[emailStatusCol] = (row[emailStatusCol] || '') + (sendRes3.success ? " | ✅ แจ้งผลครบทุกวิชา (" + decisionSummary + ")" : " | ❌ แจ้งผลล้มเหลว: " + sendRes3.message);
+    sheet.getRange(rowNum, 24).setValue(row[emailStatusCol] || '');
   }
-  writeDecisionColumns(sheet, rowNum, row);
-  bumpDataVersion();
 
   try {
     var courseAlertMsg = "\\n📢 [ผลการพิจารณารายวิชา]\\n" +
@@ -2142,6 +2252,7 @@ function handleSaveSettings(data) {
       var key = String(it.key || '');
       if (!key) return;
       var val = it.value == null ? '' : String(it.value);
+      if (val.length > 49000) throw new Error('ค่าการตั้งค่า "' + key + '" ยาวเกินที่ Google Sheets รับได้ (50,000 ตัวอักษร/ช่อง)');
       if (index[key] !== undefined) rows[index[key]][1] = val;
       else appended.push([key, val]);
     });
@@ -3901,21 +4012,26 @@ function handleRecordAuditLog(data) {
         <div>
           <div className="flex items-center space-x-2 mb-1">
             <Bell className="w-4 h-4 text-emerald-600" />
-            <h3 className="text-base font-extrabold text-slate-800">ระบบการแจ้งเตือนอัตโนมัติ (LINE Notify / Webhook)</h3>
+            <h3 className="text-base font-extrabold text-slate-800">ระบบการแจ้งเตือนอัตโนมัติ (Webhook)</h3>
           </div>
-          <p className="text-xs text-slate-500">ส่งข้อความแจ้งเตือนเข้ากลุ่ม LINE เจ้าหน้าที่ หรือนักศึกษาทันทีที่มีรายการอัปเดต</p>
+          <p className="text-xs text-slate-500">ส่งข้อความแจ้งเตือนเข้า Discord / Google Chat / Slack ของเจ้าหน้าที่ทันทีที่มีรายการอัปเดต (LINE Notify ปิดให้บริการแล้วตั้งแต่ 31 มี.ค. 2025)</p>
         </div>
 
         <div className="space-y-3">
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">LINE Notify Access Token / Webhook URL (สำหรับแอดมิน)</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1">Webhook URL (สำหรับแอดมิน)</label>
             <input
               type="text"
               value={notifyLineToken}
               onChange={e => setNotifyLineToken(e.target.value)}
-              placeholder="ใส่ LINE Notify Token หรือ Webhook URL"
+              placeholder="https://discord.com/api/webhooks/... หรือ https://chat.googleapis.com/..."
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono focus:outline-hidden focus:border-emerald-600"
             />
+            {notifyLineToken.trim() && !/^https:\/\//i.test(notifyLineToken.trim()) && (
+              <p className="mt-1 text-[11px] text-amber-600 font-medium">
+                ค่านี้ดูเหมือน LINE Notify Token ซึ่งใช้งานไม่ได้แล้ว กรุณาเปลี่ยนเป็น Webhook URL ที่ขึ้นต้นด้วย https://
+              </p>
+            )}
           </div>
 
           <div className="flex flex-col sm:flex-row gap-4 pt-2">
@@ -4522,7 +4638,7 @@ function handleRecordAuditLog(data) {
                                       setLogoInput(base64);
                                       showToast('โหลดและย่อขนาดรูปภาพสำเร็จ เตรียมบันทึก', 'success');
                                     }).catch(err => {
-                                      showToast('เกิดข้อผิดพลาดในการประมวลผลรูปภาพ', 'error');
+                                      showToast(err?.message || 'เกิดข้อผิดพลาดในการประมวลผลรูปภาพ', 'error');
                                       console.error(err);
                                     });
                                   }
@@ -4602,7 +4718,7 @@ function handleRecordAuditLog(data) {
                                       setFaviconInput(base64);
                                       showToast('โหลดและย่อขนาด Favicon สำเร็จ เตรียมบันทึก', 'success');
                                     }).catch(err => {
-                                      showToast('เกิดข้อผิดพลาดในการประมวลผลรูปภาพ', 'error');
+                                      showToast(err?.message || 'เกิดข้อผิดพลาดในการประมวลผลรูปภาพ', 'error');
                                       console.error(err);
                                     });
                                   }

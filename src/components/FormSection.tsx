@@ -533,10 +533,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                 },
                 facebookProofLink: ''
               };
-              if (studentId.trim()) {
-                localStorage.setItem('saved_proof_' + studentId.trim(), JSON.stringify(saveObj));
-              }
-              localStorage.setItem('saved_proof_last', JSON.stringify(saveObj));
+              saveProofLocal(studentId.trim(), saveObj);
             } catch (err) {
               // ignore quota
             }
@@ -595,6 +592,20 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     } catch (e) {
       // ignore
     }
+  };
+
+  // เก็บหลักฐานไว้ในเครื่องแยกตามรหัสนักศึกษา และเก็บแค่ 5 คนล่าสุด
+  // (คอมห้องแล็บใช้ร่วมกันหลายคน ถ้าไม่จำกัด localStorage จะเต็มแล้วบันทึกอะไรไม่ได้อีก)
+  const saveProofLocal = (id: string, obj: any) => {
+    if (!id) return;
+    try {
+      localStorage.removeItem('saved_proof_last');
+      const index: string[] = JSON.parse(localStorage.getItem('saved_proof_index') || '[]').filter((x: string) => x !== id);
+      index.unshift(id);
+      index.slice(5).forEach(old => localStorage.removeItem('saved_proof_' + old));
+      localStorage.setItem('saved_proof_index', JSON.stringify(index.slice(0, 5)));
+      localStorage.setItem('saved_proof_' + id, JSON.stringify(obj));
+    } catch { /* storage full or blocked */ }
   };
 
   // ข้อมูลจากการค้นหาสาธารณะถูกเซ็นเซอร์ (เช่น 08******78, ab***@ftu.ac.th)
@@ -964,10 +975,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
             facebookProofLink: proofType === 'link' ? facebookProofLink.trim() : '',
             facebookProofFile: proofType === 'file' && facebookProofFile ? facebookProofFile : null
           };
-          if (studentId.trim()) {
-            localStorage.setItem('saved_proof_' + studentId.trim(), JSON.stringify(proofPayload));
-          }
-          localStorage.setItem('saved_proof_last', JSON.stringify(proofPayload));
+          saveProofLocal(studentId.trim(), proofPayload);
         } catch (proofErr) {
           // ignore storage quota error
         }
@@ -1969,8 +1977,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                             setIsProofAutoRestored(false);
                             try {
                               const saveObj = { proofType: 'link', facebookProofFile: null, facebookProofLink: e.target.value };
-                              if (studentId.trim()) localStorage.setItem('saved_proof_' + studentId.trim(), JSON.stringify(saveObj));
-                              localStorage.setItem('saved_proof_last', JSON.stringify(saveObj));
+                              saveProofLocal(studentId.trim(), saveObj);
                             } catch (err) {}
                           }}
                           onBlur={() => handleBlur('facebookProofLink')}

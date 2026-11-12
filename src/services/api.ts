@@ -12,6 +12,8 @@ type ApiResult<T = any> = { success: boolean; data?: T; error?: string; [k: stri
 // ---------------------------------------------------------------------------
 let cachedRequests: ReservationRequest[] | null = null;
 let lastFetchTime = 0;
+let requestsVersion = '';
+let lastFullFetchTime = 0; // ดึงเต็มอย่างน้อยทุก 2 นาที เผื่อมีคนแก้ข้อมูลในชีตด้วยมือ
 let activeFetchPromise: Promise<ApiResult<ReservationRequest[]>> | null = null;
 
 const SETTINGS_TTL = 60_000;
@@ -35,6 +37,7 @@ export function isApiConfigured(): boolean {
 
 function invalidateRequestsCache() {
   cachedRequests = null;
+  requestsVersion = '';
   lastFetchTime = 0;
   activeFetchPromise = null;
 }
@@ -369,10 +372,17 @@ export async function getAllRequests(forceRefresh = false): Promise<ApiResult<Re
   if (isApiConfigured()) {
     activeFetchPromise = (async () => {
       try {
-        const result = await adminCall('getAllRequests', {}, true, 2);
+        const canSkip = !!(cachedRequests && requestsVersion && Date.now() - lastFullFetchTime < 120000);
+        const result = await adminCall('getAllRequests', canSkip ? { ifVersion: requestsVersion } : {}, true, 2);
+        if (result.success && result.notModified && cachedRequests) {
+          lastFetchTime = Date.now();
+          return { success: true, data: cachedRequests };
+        }
         if (result.success && Array.isArray(result.data)) {
           cachedRequests = result.data;
+          requestsVersion = typeof result.version === 'string' ? result.version : '';
           lastFetchTime = Date.now();
+          lastFullFetchTime = lastFetchTime;
           return { success: true, data: result.data };
         }
         if (result.error === 'UNAUTHORIZED') {
