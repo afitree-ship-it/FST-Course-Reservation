@@ -796,8 +796,9 @@ export default function App() {
       isFirstFetchRef.current = true;
       pollRequestsRef.current();
     } else {
-      // Clear previous notifications on logout
+      // Clear previous notifications and loaded student data on logout
       setBottomNotifications([]);
+      setAllRequestsState([]);
     }
   }, [isAdminLoggedIn]);
 

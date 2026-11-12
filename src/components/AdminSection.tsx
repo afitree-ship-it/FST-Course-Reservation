@@ -594,7 +594,9 @@ export default function AdminSection({
 
     const escapeCsv = (str: any) => {
       if (str === null || str === undefined) return '""';
-      const clean = String(str).replace(/"/g, '""');
+      let clean = String(str).replace(/"/g, '""');
+      // กัน CSV/Excel formula injection: ถ้านักศึกษากรอกชื่อขึ้นต้นด้วย = + - @ Excel จะรันเป็นสูตร
+      if (/^[=+\-@\t\r]/.test(clean)) clean = "'" + clean;
       return `"${clean}"`;
     };
 
@@ -875,16 +877,51 @@ function escapeHtml(s) {
 // เดิมการตรวจรหัสแอดมินทำเฉพาะในเบราว์เซอร์ ใครก็ยิง API อนุมัติ/ลบแอดมิน/ดึงข้อมูลนักศึกษาทั้งหมดได้
 var SESSION_TTL_SECONDS = 6 * 60 * 60; // 6 ชั่วโมง
 
+// เก็บเซสชันใน ScriptProperties (ถาวร) + CacheService (เร็ว)
+// ถ้าใช้ CacheService อย่างเดียว Google อาจลบทิ้งก่อนเวลา ทำให้แอดมินหลุดออกจากระบบเอง
 function createAdminSession(name) {
-  var token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, '');
-  CacheService.getScriptCache().put('sess_' + token, String(name || 'แอดมินระบบ'), SESSION_TTL_SECONDS);
+  var token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+  var adminName = String(name || 'แอดมินระบบ');
+  var exp = Date.now() + SESSION_TTL_SECONDS * 1000;
+  var props = PropertiesService.getScriptProperties();
+  cleanupExpiredSessions(props);
+  props.setProperty('sess_' + token, JSON.stringify({ n: adminName, e: exp }));
+  CacheService.getScriptCache().put('sess_' + token, adminName, SESSION_TTL_SECONDS);
   return token;
 }
 
 function getAdminFromToken(token) {
-  if (!token) return null;
-  var name = CacheService.getScriptCache().get('sess_' + token);
-  return name || null;
+  if (!token || !/^[0-9a-f]{64}$/.test(String(token))) return null;
+  var key = 'sess_' + token;
+  var cache = CacheService.getScriptCache();
+  var name = cache.get(key);
+  if (name) return name;
+  var raw = PropertiesService.getScriptProperties().getProperty(key);
+  if (!raw) return null;
+  try {
+    var sess = JSON.parse(raw);
+    var left = Math.floor((sess.e - Date.now()) / 1000);
+    if (left <= 0) { PropertiesService.getScriptProperties().deleteProperty(key); return null; }
+    cache.put(key, sess.n, Math.min(left, SESSION_TTL_SECONDS));
+    return sess.n;
+  } catch (e) {
+    return null;
+  }
+}
+
+function destroyAdminSession(token) {
+  if (!token) return;
+  CacheService.getScriptCache().remove('sess_' + token);
+  PropertiesService.getScriptProperties().deleteProperty('sess_' + token);
+}
+
+function cleanupExpiredSessions(props) {
+  var all = props.getProperties();
+  var now = Date.now();
+  Object.keys(all).forEach(function (k) {
+    if (k.indexOf('sess_') !== 0) return;
+    try { if (JSON.parse(all[k]).e < now) props.deleteProperty(k); } catch (e) { props.deleteProperty(k); }
+  });
 }
 
 function unauthorized() {
@@ -941,6 +978,29 @@ function publicSettings() {
   var out = {};
   PUBLIC_SETTING_KEYS.forEach(function (k) { if (all[k] !== undefined) out[k] = all[k]; });
   return out;
+}
+
+function parseLocalDateTime(str) {
+  if (!str) return null;
+  var s2 = String(str).trim();
+  // ค่าจากช่อง datetime-local ไม่มีโซนเวลา => ตีความเป็นเวลาไทย (+07:00)
+  if (/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2})?$/.test(s2)) s2 += '+07:00';
+  var d = new Date(s2);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function checkSystemClosed() {
+  var st = readAllSettings();
+  var mode = st.system_opening_mode || 'always_open';
+  var msg = st.system_closed_message || 'ขณะนี้ระบบปิดรับคำร้องสำรองที่นั่ง';
+  if (mode === 'closed') return msg;
+  if (mode === 'scheduled') {
+    var now = new Date();
+    var start = parseLocalDateTime(st.system_open_start);
+    var end = parseLocalDateTime(st.system_open_end);
+    if ((start && now < start) || (end && now > end)) return msg;
+  }
+  return '';
 }
 
 function isWebhookUrl(s) {
@@ -1034,6 +1094,10 @@ function recomputeOverallStatus(courses) {
   var allRejected = courses.every(function (c) { return c.status === 'ไม่อนุมัติ'; });
   if (allApproved) return 'อนุมัติแล้ว';
   if (allRejected) return 'ไม่อนุมัติ';
+  // พิจารณาครบทุกวิชาแล้วแต่ผลผสม (อนุมัติบาง/ไม่อนุมัติบาง) => ถือว่าอนุมัติ (ได้ที่นั่งอย่างน้อย 1 วิชา)
+  // เดิมคืนค่า 'รอดำเนินการ' ทำให้คำร้องค้างอยู่ในรายการรอตรวจตลอดไป
+  var anyPending = courses.some(function (c) { return !c.status || c.status === 'รอดำเนินการ'; });
+  if (!anyPending) return 'อนุมัติแล้ว';
   return 'รอดำเนินการ';
 }
 
@@ -1359,7 +1423,7 @@ function doPost(e) {
     if (action === 'saveSettings') return handleSaveSettings(postData);
     if (action === 'recordAuditLog') return handleRecordAuditLog(postData);
     if (action === 'dispatchNotification') return handleDispatchNotification(postData);
-    if (action === 'adminLogout') { CacheService.getScriptCache().remove('sess_' + postData.token); return jsonOut({ success: true }); }
+    if (action === 'adminLogout') { destroyAdminSession(postData.token); return jsonOut({ success: true }); }
 
     return jsonOut({ success: false, error: 'Unknown POST action: ' + action });
   } catch (err) {
@@ -1382,6 +1446,12 @@ function handleSubmitRequest(data) {
   if (!/^\\d{9}$/.test(sidCheck)) return jsonOut({ success: false, error: 'รหัสนักศึกษาไม่ถูกต้อง' });
   if (!data.fullName || String(data.fullName).length > 200) return jsonOut({ success: false, error: 'ชื่อ-นามสกุลไม่ถูกต้อง' });
   if (data.courses && data.courses.length > 20) return jsonOut({ success: false, error: 'จำนวนรายวิชามากเกินไป' });
+  if (data.facebookProofLink && !/^https?:\\/\\//i.test(String(data.facebookProofLink))) {
+    return jsonOut({ success: false, error: 'ลิงก์หลักฐานต้องขึ้นต้นด้วย http:// หรือ https://' });
+  }
+  // ตรวจช่วงเวลาเปิดรับคำร้องที่ฝั่งเซิร์ฟเวอร์ด้วย (เดิมตรวจแค่ตอนเปิดหน้าเว็บ ถ้าเปิดหน้าค้างไว้ก่อนเวลาปิด ก็ยังส่งได้หลังปิดรับ)
+  var closedMsg = checkSystemClosed();
+  if (closedMsg) return jsonOut({ success: false, error: closedMsg });
 
   // กันคำร้องซ้ำ: เบราว์เซอร์ retry ตอนเน็ตหลุด ทั้งที่ครั้งแรกบันทึกสำเร็จไปแล้ว
   var cache = CacheService.getScriptCache();
@@ -1651,7 +1721,8 @@ function handleUpdateStatus(data) {
   var coStudentsList = extractCoStudents(courses);
   var studentEmail = result.notifyContact || '';
 
-  if (studentEmail && studentEmail.indexOf('@') > -1) {
+  var shouldEmail = status === 'อนุมัติแล้ว' || status === 'ไม่อนุมัติ';
+  if (shouldEmail && studentEmail && studentEmail.indexOf('@') > -1) {
     var isApprove = status === 'อนุมัติแล้ว';
     var isReject = status === 'ไม่อนุมัติ';
     var headerBg = isApprove ? 'linear-gradient(135deg, #059669 0%, #10b981 100%)' : (isReject ? 'linear-gradient(135deg, #dc2626 0%, #ef4444 100%)' : 'linear-gradient(135deg, #d97706 0%, #f59e0b 100%)');
@@ -1735,7 +1806,7 @@ function handleUpdateStatus(data) {
 
     var sendRes2 = sendSafeEmail(studentEmail, emailSubject, textBody, htmlBody);
     row[emailStatusCol] = (row[emailStatusCol] || '') + (sendRes2.success ? " | ✅ แจ้งผลแล้ว (" + status + ")" : " | ❌ แจ้งผลล้มเหลว: " + sendRes2.message);
-  } else {
+  } else if (shouldEmail) {
     row[emailStatusCol] = (row[emailStatusCol] || '') + " | ⚠️ ไม่มีอีเมล";
   }
   rowRange.setValues([row]);
@@ -1803,7 +1874,8 @@ function handleUpdateCourseStatus(data) {
   var coStudentsList = extractCoStudents(courses);
   var studentEmail = result.notifyContact || '';
 
-  if (studentEmail && studentEmail.indexOf('@') > -1) {
+  var shouldEmail = status === 'อนุมัติแล้ว' || status === 'ไม่อนุมัติ';
+  if (shouldEmail && studentEmail && studentEmail.indexOf('@') > -1) {
     var isApprove = status === 'อนุมัติแล้ว';
     var isReject = status === 'ไม่อนุมัติ';
     var headerBg = isApprove ? 'linear-gradient(135deg, #059669 0%, #10b981 100%)' : (isReject ? 'linear-gradient(135deg, #dc2626 0%, #ef4444 100%)' : 'linear-gradient(135deg, #d97706 0%, #f59e0b 100%)');

@@ -410,6 +410,26 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       }
     });
     
+    // กันกรอกวิชาเดียวกันซ้ำในคำร้องเดียว และกันใส่เพื่อนคนเดียวกันซ้ำในวิชาเดียวกัน
+    const seenCourses = new Set<string>();
+    courses.forEach((course, index) => {
+      const key = course.courseCode.trim().toUpperCase();
+      if (!key) return;
+      if (seenCourses.has(key) && !errors[`courseCode_${index}`]) {
+        errors[`courseCode_${index}`] = isTh ? 'รหัสวิชานี้กรอกซ้ำแล้วในคำร้องนี้' : 'This course is already listed';
+      }
+      seenCourses.add(key);
+      const seenFriends = new Set<string>();
+      (course.coStudents || []).forEach((cs, csIdx) => {
+        const fid = cs.studentId.trim();
+        if (!fid) return;
+        if (seenFriends.has(fid) && !errors[`coStudent_id_${index}_${csIdx}`]) {
+          errors[`coStudent_id_${index}_${csIdx}`] = isTh ? 'ใส่รหัสเพื่อนคนนี้ซ้ำ' : 'Duplicate friend ID';
+        }
+        seenFriends.add(fid);
+      });
+    });
+
     if (proofType === 'link' && !facebookProofLink.trim()) {
       errors.facebookProofLink = isTh ? 'กรุณากรอกลิงก์โปรไฟล์ Facebook' : 'Please provide your Facebook profile URL link.';
     } else if (proofType === 'link' && !facebookProofLink.trim().startsWith('http')) {
@@ -576,7 +596,9 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
   const restoreProofData = (id: string, remoteData?: ReservationRequest): boolean => {
     try {
       // 1. Check local storage for this student or last saved proof (fastest and retains high-res base64)
-      const savedRaw = (id ? localStorage.getItem('saved_proof_' + id) : null) || localStorage.getItem('saved_proof_last');
+      // ใช้เฉพาะหลักฐานของรหัสนักศึกษานี้เท่านั้น (เดิม fallback ไปใช้ 'saved_proof_last' ทำให้เครื่องคอมห้องแล็บ
+      // แนบรูปหลักฐานของนักศึกษาคนก่อนให้คนถัดไปโดยอัตโนมัติ)
+      const savedRaw = id ? localStorage.getItem('saved_proof_' + id) : null;
       if (savedRaw) {
         const parsed = JSON.parse(savedRaw);
         if (parsed.proofType === 'file' && parsed.facebookProofFile?.dataUrl) {
@@ -642,10 +664,18 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
 
     setCheckingStudentId(true);
 
-    const cached = getCachedRequestsByStudentId(studentId.trim());
-    if (cached && cached.length > 0) {
-      const sortedData = [...cached].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      const latest = sortedData[0];
+    // เติมข้อมูลอัตโนมัติจาก "คำร้องล่าสุดของนักศึกษาคนนี้เอง" เท่านั้น
+    // (เดิมถ้ารหัสนี้เคยถูกเพื่อนใส่เป็นผู้ร่วมกลุ่ม ระบบจะเติมชื่อ/เบอร์/อีเมล/หลักฐานของเพื่อนคนนั้นให้
+    //  และ API ส่งข้อมูลเรียงจากเก่าไปใหม่ จึงได้ข้อมูลเก่าที่สุดแทนล่าสุด)
+    const ownLatest = (list?: ReservationRequest[] | null) => {
+      const own = (list || []).filter(r => String(r.studentId).trim() === studentId.trim());
+      own.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      return own[0];
+    };
+
+    const cachedLatest = ownLatest(getCachedRequestsByStudentId(studentId.trim()));
+    if (cachedLatest) {
+      const latest = cachedLatest;
       setFullName(String(latest.fullName || ''));
       setFaculty(String(latest.faculty || ''));
       setDepartment(String(latest.department || ''));
@@ -663,8 +693,8 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     try {
       const res = await getStatusByStudentId(studentId.trim());
       setTouched({}); 
-      if (res.success && res.data && res.data.length > 0) {
-        const latest = res.data[0];
+      const latest = res.success ? ownLatest(res.data) : undefined;
+      if (latest) {
         setFullName(String(latest.fullName || ''));
         setFaculty(String(latest.faculty || ''));
         setDepartment(String(latest.department || ''));
