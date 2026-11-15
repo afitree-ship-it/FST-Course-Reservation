@@ -36,7 +36,6 @@ import StatusCheckSection from './components/StatusCheckSection';
 // หน้าแอดมินมีขนาดใหญ่มาก (~4,500 บรรทัด) โหลดเฉพาะตอนเปิดแท็บแอดมิน นักศึกษาจึงไม่ต้องดาวน์โหลด
 const AdminSection = lazy(() => import('./components/AdminSection'));
 import ToastContainer, { ToastMessage, ToastType } from './components/Toast';
-import PwaInstallPrompt from './components/PwaInstallPrompt';
 import { isApiConfigured, isGoogleSheetUrlInstead, getAllRequests, submitRequest, getRemoteSettings, saveRemoteSetting, saveRemoteSettings } from './services/api';
 import { ReservationRequest, RequestStatus } from './types';
 import { useTranslation } from './contexts/LanguageContext';
@@ -1605,8 +1604,6 @@ export default function App() {
             {t('copyright')}
           </p>
 
-          {/* Locked PWA install prompt in footer (behind floating nav bar) */}
-          <PwaInstallPrompt />
         </div>
       </footer>
 

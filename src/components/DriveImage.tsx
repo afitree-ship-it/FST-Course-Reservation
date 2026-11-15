@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ExternalLink, ImageOff, Loader2 } from 'lucide-react';
+import { ExternalLink, AlertCircle, RefreshCw } from 'lucide-react';
 import { getProofImage } from '../services/api';
 
 /**
@@ -81,7 +81,7 @@ export default function DriveImage({
   if (viaServer && serverState !== 'failed') {
     return (
       <div className="flex flex-col items-center justify-center gap-3 text-slate-300 py-12">
-        <Loader2 className="w-8 h-8 animate-spin" />
+        <RefreshCw className="w-8 h-8 animate-spin" />
         <p className="text-xs font-sans">{isTh ? 'กำลังโหลดรูปจากระบบ...' : 'Loading image...'}</p>
       </div>
     );
@@ -89,7 +89,7 @@ export default function DriveImage({
 
   return (
     <div className="flex flex-col items-center justify-center gap-3 text-center text-slate-300 py-10 px-4">
-      <ImageOff className="w-10 h-10 text-slate-500" />
+      <AlertCircle className="w-10 h-10 text-slate-500" />
       <p className="text-sm font-sans max-w-sm">
         {serverError ||
           (isTh
