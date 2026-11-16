@@ -25,8 +25,8 @@ import { CloudUpload,
   Eye,
   ExternalLink
 } from 'lucide-react';
-import { YEARS, ReservationRequest, CoStudent, CourseInput } from '../types';
-import { submitRequest, getStatusByStudentId, getCachedRequestsByStudentId, getRemoteSettings } from '../services/api';
+import { YEARS, ReservationRequest, CoStudent, CourseInput, CourseCatalog, CatalogCourse } from '../types';
+import { submitRequest, getStatusByStudentId, getCachedRequestsByStudentId, getRemoteSettings, getCourseCatalog } from '../services/api';
 import { useTranslation } from '../contexts/LanguageContext';
 import { Calendar, Bell, Lock, ShieldAlert, Users, UserPlus } from 'lucide-react';
 import ScrambleText from './ScrambleText';
@@ -305,14 +305,149 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       .replace(/(รศ\.)(ดร)\s+/g, '$1$2.');
   };
 
+  // ---------- รายวิชาจากระบบทะเบียน (ถ้าแอดมินเปิดใช้งาน) ----------
+  const [catalog, setCatalog] = useState<CourseCatalog | null>(null);
+  const [suggestFor, setSuggestFor] = useState<{ index: number; field: 'code' | 'name' } | null>(null);
+  // วิชาที่นักศึกษาเลือก "อื่น ๆ (กรอกเอง)" ในช่องกลุ่ม (กลุ่มที่ต้องการไม่มีในระบบทะเบียน)
+  const [manualSection, setManualSection] = useState<Record<number, boolean>>({});
+
+  useEffect(() => {
+    getCourseCatalog().then(c => {
+      if (c && c.enabled && c.courses.length > 0) setCatalog(c);
+    });
+  }, []);
+
+  const catalogByCode = useMemo(() => {
+    const map: Record<string, CatalogCourse> = {};
+    (catalog?.courses || []).forEach(c => { map[c.code.toUpperCase()] = c; });
+    return map;
+  }, [catalog]);
+
+  const catalogCourseName = (c: CatalogCourse) => (c.nameEn ? `${c.nameTh} (${c.nameEn})` : c.nameTh);
+
+  const catalogSuggestions = (text: string) => {
+    if (!catalog) return [];
+    const q = text.trim().toLowerCase();
+    const list = q
+      ? catalog.courses.filter(c => c.code.toLowerCase().includes(q) || c.nameTh.toLowerCase().includes(q) || c.nameEn.toLowerCase().includes(q))
+      : catalog.courses;
+    return list.slice(0, 50);
+  };
+
+  const applyCatalogCourse = (index: number, c: CatalogCourse) => {
+    setManualSection(prev => ({ ...prev, [index]: false }));
+    setCourses(prev => {
+      const updated = [...prev];
+      const onlyOne = c.sections.length === 1 ? c.sections[0] : null;
+      updated[index] = {
+        ...updated[index],
+        courseCode: c.code,
+        courseName: catalogCourseName(c),
+        section: onlyOne ? onlyOne.section : '',
+        instructor: onlyOne ? onlyOne.instructors.join(', ') : ''
+      };
+      return updated;
+    });
+    setSuggestFor(null);
+  };
+
+  // จัดประเภทรหัสวิชาที่นักศึกษากรอกเอง (ไม่อยู่ในรายการจากระบบทะเบียน)
+  const facultyPrefixes = (catalog?.prefixes && catalog.prefixes.length ? catalog.prefixes : ['IT', 'DS', 'RD', 'SC']).map(p => p.toUpperCase());
+  const classifyCourseCode = (raw: string): 'empty' | 'catalog' | 'ge' | 'faculty' | 'outside' => {
+    const code = raw.trim().toUpperCase();
+    if (code.length < 2) return 'empty';
+    if (catalogByCode[code]) return 'catalog';
+    if (code.startsWith('GE')) return 'ge';
+    if (facultyPrefixes.some(p => code.startsWith(p))) return 'faculty';
+    return 'outside';
+  };
+
+  const openSuggest = (index: number, field: 'code' | 'name') => { if (catalog) setSuggestFor({ index, field }); };
+  const closeSuggestLater = (index: number, field: 'code' | 'name') =>
+    setTimeout(() => setSuggestFor(cur => (cur && cur.index === index && cur.field === field ? null : cur)), 150);
+
+  const renderCatalogDropdown = (index: number, field: 'code' | 'name', text: string, currentCode: string) => {
+    if (!catalog || !suggestFor || suggestFor.index !== index || suggestFor.field !== field) return null;
+    // ถ้าเลือกวิชาไว้แล้ว กดช่องอีกครั้งให้เห็นรายการทั้งหมด (เปลี่ยนวิชาได้ง่าย)
+    const list = catalogSuggestions(catalogByCode[currentCode.toUpperCase()] ? '' : text);
+    return (
+      <div className="absolute left-0 right-0 top-full mt-1 z-30 max-h-72 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl">
+        {list.length === 0 ? (
+          <div className="px-3 py-3 text-xs text-slate-500">
+            {isTh ? 'ไม่พบในรายวิชาที่เปิด — กรอกเองได้' : 'Not in the course list — you can type it in'}
+          </div>
+        ) : list.map(c => (
+          <button
+            key={c.code}
+            type="button"
+            onMouseDown={e => { e.preventDefault(); applyCatalogCourse(index, c); }}
+            className={`w-full text-left px-3 py-2.5 hover:bg-mangosteen/5 border-b border-slate-100 last:border-0 cursor-pointer ${c.code === currentCode ? 'bg-mangosteen/5' : ''}`}
+          >
+            <div className="text-sm"><span className="font-mono font-bold text-slate-800">{c.code}</span> <span className="text-slate-700">{c.nameTh}</span></div>
+            <div className="text-xs text-slate-500">
+              {c.nameEn ? c.nameEn + ' · ' : ''}{isTh ? 'กลุ่ม' : 'Sec'} {c.sections.map(x => x.section).join(', ')}
+            </div>
+          </button>
+        ))}
+      </div>
+    );
+  };
+
+  const applyCatalogSection = (index: number, sectionNo: string) => {
+    if (sectionNo === '__other__') {
+      setManualSection(prev => ({ ...prev, [index]: true }));
+      setCourses(prev => {
+        const updated = [...prev];
+        updated[index] = { ...updated[index], section: '', instructor: '' };
+        return updated;
+      });
+      setTimeout(() => document.getElementById(`input-section-manual_${index}`)?.focus(), 50);
+      return;
+    }
+    setManualSection(prev => ({ ...prev, [index]: false }));
+    setCourses(prev => {
+      const updated = [...prev];
+      const c = catalogByCode[updated[index].courseCode.toUpperCase()];
+      const sec = c?.sections.find(s => s.section === sectionNo);
+      updated[index] = {
+        ...updated[index],
+        section: sectionNo,
+        instructor: sec && sec.instructors.length ? sec.instructors.join(', ') : updated[index].instructor
+      };
+      return updated;
+    });
+  };
+
   const handleCourseChange = (index: number, field: string, value: string) => {
+    // พิมพ์รหัสวิชาตรงกับรายวิชาในระบบทะเบียน => เติมชื่อวิชาให้อัตโนมัติ
+    if (field === 'courseCode' && catalog) {
+      const hit = catalogByCode[value.trim().toUpperCase()];
+      if (hit) {
+        applyCatalogCourse(index, hit);
+        return;
+      }
+    }
+    // พิมพ์ชื่อวิชาตรงกับรายวิชาในระบบทะเบียน (ไทยหรืออังกฤษ) => เติมรหัสวิชาให้อัตโนมัติ
+    if (field === 'courseName' && catalog) {
+      const q = value.trim().toLowerCase();
+      const hit = q.length >= 3 ? catalog.courses.find(c => c.nameTh.toLowerCase() === q || c.nameEn.toLowerCase() === q) : undefined;
+      if (hit) {
+        applyCatalogCourse(index, hit);
+        return;
+      }
+    }
     let finalValue = value;
     if (field === 'instructor') {
       finalValue = autoFormatThaiNameOrTitle(value);
     }
     setCourses(prev => {
       const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: finalValue };
+      const before = updated[index];
+      updated[index] = { ...before, [field]: finalValue };
+      // แก้รหัสวิชาจนไม่ตรงกับวิชาที่เลือกจากระบบทะเบียนแล้ว => ล้างชื่อ/กลุ่ม/อาจารย์ที่เติมไว้ ไม่ให้ข้อมูลค้างผิดวิชา
+      if (field === 'courseCode' && catalogByCode[before.courseCode.toUpperCase()] && !catalogByCode[String(finalValue).toUpperCase()]) {
+        updated[index] = { ...updated[index], courseName: '', section: '', instructor: '' };
+      }
       return updated;
     });
   };
@@ -324,6 +459,16 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
   const removeCourseField = (index: number) => {
     if (courses.length > 1) {
       setCourses(prev => prev.filter((_, i) => i !== index));
+      // เลื่อนสถานะ "กรอกกลุ่มเอง" ของวิชาที่อยู่ถัดไปตามลำดับใหม่
+      setManualSection(prev => {
+        const next: Record<number, boolean> = {};
+        Object.keys(prev).forEach(k => {
+          const i = Number(k);
+          if (i < index) next[i] = prev[i];
+          else if (i > index) next[i - 1] = prev[i];
+        });
+        return next;
+      });
     }
   };
 
@@ -1538,21 +1683,52 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                         <label className="block text-xs font-semibold text-slate-700 mb-1.5 font-sans">
                           {t('courseCodeLabel')} <span className="text-rose-500">*</span>
                         </label>
+                        <div className="relative">
                         <input
                           type="text"
                           id={`input-courseCode_${index}`}
                           value={course.courseCode}
-                          onChange={e => handleCourseChange(index, 'courseCode', e.target.value.toUpperCase())}
-                          onBlur={() => handleBlur(`courseCode_${index}`)}
-                          placeholder={isTh ? 'เช่น IT2301-123' : 'e.g., IT2301-123'}
+                          autoComplete="off"
+                          onChange={e => { handleCourseChange(index, 'courseCode', e.target.value.toUpperCase()); openSuggest(index, 'code'); }}
+                          onFocus={() => openSuggest(index, 'code')}
+                          onBlur={() => { handleBlur(`courseCode_${index}`); closeSuggestLater(index, 'code'); }}
+                          placeholder={catalog ? (isTh ? 'พิมพ์รหัสหรือชื่อวิชา แล้วเลือกจากรายการ' : 'Type a code or name, then pick') : (isTh ? 'เช่น IT2301-123' : 'e.g., IT2301-123')}
                           className={`w-full px-4 py-3 rounded-xl border-2 bg-slate-50 hover:bg-white text-sm font-semibold tracking-wide font-sans transition-all focus:outline-hidden focus:ring-4 ${
                             touched[`courseCode_${index}`] && validationErrors[`courseCode_${index}`]
                               ? 'border-rose-300 focus:ring-rose-200 focus:border-rose-400 bg-rose-50/20 text-rose-700'
                               : 'border-slate-200 focus:border-mangosteen focus:ring-mangosteen/20 text-slate-700'
                           }`}
                         />
+                        {renderCatalogDropdown(index, 'code', course.courseCode, course.courseCode)}
+                        </div>
                         {touched[`courseCode_${index}`] && validationErrors[`courseCode_${index}`] && (
                           <p className="mt-1 text-xs text-rose-500 font-sans font-medium">{validationErrors[`courseCode_${index}`]}</p>
+                        )}
+                        {(() => {
+                          const kind = classifyCourseCode(course.courseCode);
+                          if (kind === 'ge') return (
+                            <p className="mt-1.5 text-[11px] leading-snug text-sky-700 bg-sky-50 border border-sky-200 rounded-lg px-2.5 py-1.5 font-sans">
+                              {isTh ? 'วิชาศึกษาทั่วไป (GE): กรุณาตรวจสอบให้แน่ใจว่าเป็นรายวิชา/กลุ่มที่เปิดสอนโดยคณะวิทยาศาสตร์และเทคโนโลยี' : 'General Education (GE): please make sure this course/section is offered by the Faculty of Science and Technology.'}
+                            </p>
+                          );
+                          if (kind === 'outside') return (
+                            <p className="mt-1.5 text-[11px] leading-snug text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 font-sans">
+                              {isTh ? '⚠️ รหัสนี้ไม่ใช่รายวิชาของคณะวิทยาศาสตร์และเทคโนโลยี หากไม่ใช่วิชาของคณะ คำร้องจะถูกปฏิเสธ' : '⚠️ This is not a Faculty of Science and Technology course. Requests for courses outside the faculty will be rejected.'}
+                            </p>
+                          );
+                          if (kind === 'faculty' && catalog) return (
+                            <p className="mt-1.5 text-[11px] leading-snug text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 font-sans">
+                              {isTh ? `ไม่พบรหัสนี้ในรายวิชาที่เปิดภาคเรียน ${catalog.semester}/${catalog.year} กรุณาตรวจสอบรหัสวิชาอีกครั้ง` : `This code isn't in the ${catalog.semester}/${catalog.year} course list. Please double-check it.`}
+                            </p>
+                          );
+                          return null;
+                        })()}
+                        {catalog && !course.courseCode && index === 0 && (
+                          <p className="mt-1 text-[11px] text-slate-400 font-sans">
+                            {isTh
+                              ? `รายวิชาจากระบบทะเบียน ปีการศึกษา ${catalog.year} ภาคเรียน ${catalog.semester}`
+                              : `Courses from the registrar, ${catalog.year}/${catalog.semester}`}
+                          </p>
                         )}
                       </div>
 
@@ -1561,19 +1737,24 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                         <label className="block text-xs font-semibold text-slate-700 mb-1.5 font-sans">
                           {isTh ? 'ชื่อรายวิชา' : 'Course Name'} <span className="text-rose-500">*</span>
                         </label>
+                        <div className="relative">
                         <input
                           type="text"
                           id={`input-courseName_${index}`}
                           value={course.courseName}
-                          onChange={e => handleCourseChange(index, 'courseName', e.target.value)}
-                          onBlur={() => handleBlur(`courseName_${index}`)}
-                          placeholder={isTh ? 'เช่น การออกแบบระบบข้อมูล' : 'e.g., Database Systems Design'}
+                          autoComplete="off"
+                          onChange={e => { handleCourseChange(index, 'courseName', e.target.value); openSuggest(index, 'name'); }}
+                          onFocus={() => openSuggest(index, 'name')}
+                          onBlur={() => { handleBlur(`courseName_${index}`); closeSuggestLater(index, 'name'); }}
+                          placeholder={catalog ? (isTh ? 'พิมพ์ชื่อวิชา (ไทย/อังกฤษ) แล้วเลือกจากรายการ' : 'Type a course name (TH/EN), then pick') : (isTh ? 'เช่น การออกแบบระบบข้อมูล' : 'e.g., Database Systems Design')}
                           className={`w-full px-4 py-3 rounded-xl border-2 bg-slate-50 hover:bg-white text-sm font-medium font-sans transition-all focus:outline-hidden focus:ring-4 ${
                             touched[`courseName_${index}`] && validationErrors[`courseName_${index}`]
                               ? 'border-rose-300 focus:ring-rose-200 focus:border-rose-400 bg-rose-50/20 text-rose-700'
                               : 'border-slate-200 focus:border-mangosteen focus:ring-mangosteen/20 text-slate-700'
                           }`}
                         />
+                        {renderCatalogDropdown(index, 'name', course.courseName, course.courseCode)}
+                        </div>
                         {touched[`courseName_${index}`] && validationErrors[`courseName_${index}`] && (
                           <p className="mt-1 text-xs text-rose-500 font-sans font-medium">{validationErrors[`courseName_${index}`]}</p>
                         )}
@@ -1584,6 +1765,57 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                         <label className="block text-xs font-semibold text-slate-700 mb-1.5 font-sans">
                           {isTh ? 'กลุ่ม' : 'Section'} <span className="text-rose-500">*</span>
                         </label>
+                        {catalogByCode[course.courseCode.toUpperCase()] ? (
+                          <>
+                          <select
+                            id={`input-section_${index}`}
+                            value={manualSection[index] ? '__other__' : course.section}
+                            onChange={e => applyCatalogSection(index, e.target.value)}
+                            onBlur={() => handleBlur(`section_${index}`)}
+                            className={`w-full px-4 py-3 rounded-xl border-2 bg-slate-50 hover:bg-white text-sm font-medium font-sans transition-all focus:outline-hidden focus:ring-4 ${
+                              touched[`section_${index}`] && validationErrors[`section_${index}`]
+                                ? 'border-rose-300 focus:ring-rose-200 focus:border-rose-400 bg-rose-50/20 text-rose-700'
+                                : 'border-slate-200 focus:border-mangosteen focus:ring-mangosteen/20 text-slate-700'
+                            }`}
+                          >
+                            <option value="">{isTh ? '— เลือกกลุ่ม —' : '— Select section —'}</option>
+                            {catalogByCode[course.courseCode.toUpperCase()].sections.map(sec => (
+                              <option key={sec.section} value={sec.section}>
+                                {isTh
+                                  ? `กลุ่ม ${sec.section} · เหลือ ${sec.remaining}/${sec.capacity} ที่นั่ง${sec.time ? ' · ' + sec.time : ''}`
+                                  : `Sec ${sec.section} · ${sec.remaining}/${sec.capacity} seats left${sec.time ? ' · ' + sec.time : ''}`}
+                              </option>
+                            ))}
+                            <option value="__other__">{isTh ? 'อื่น ๆ (กรอกกลุ่มเอง)' : 'Other (type a section)'}</option>
+                          </select>
+                          {manualSection[index] && (
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              maxLength={4}
+                              id={`input-section-manual_${index}`}
+                              value={course.section}
+                              onChange={e => handleCourseChange(index, 'section', e.target.value.replace(/\D/g, ''))}
+                              onBlur={() => handleBlur(`section_${index}`)}
+                              placeholder={isTh ? 'กรอกกลุ่มที่ต้องการ เช่น 03' : 'Type the section, e.g. 03'}
+                              className="mt-2 w-full px-4 py-3 rounded-xl border-2 border-slate-200 bg-white text-sm font-medium font-sans focus:outline-hidden focus:ring-4 focus:border-mangosteen focus:ring-mangosteen/20 text-slate-700"
+                            />
+                          )}
+                          {(() => {
+                            const sec = catalogByCode[course.courseCode.toUpperCase()].sections.find(x => x.section === course.section);
+                            if (!sec || manualSection[index]) return null;
+                            return (
+                              <p className="mt-1 text-[11px] text-slate-500 font-sans">
+                                {sec.remaining <= 0
+                                  ? (isTh ? `กลุ่มนี้เต็มแล้ว (${sec.enrolled}/${sec.capacity})` : `This section is full (${sec.enrolled}/${sec.capacity})`)
+                                  : (isTh ? `เหลือ ${sec.remaining} ที่นั่ง` : `${sec.remaining} seats left`)}
+                                {sec.note ? ` · ${sec.note}` : ''}
+                              </p>
+                            );
+                          })()}
+                          </>
+                        ) : (
                         <input
                           type="text"
                           inputMode="numeric"
@@ -1600,6 +1832,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                               : 'border-slate-200 focus:border-mangosteen focus:ring-mangosteen/20 text-slate-700'
                           }`}
                         />
+                        )}
                         {touched[`section_${index}`] && validationErrors[`section_${index}`] && (
                           <p className="mt-1 text-xs text-rose-500 font-sans font-medium">{validationErrors[`section_${index}`]}</p>
                         )}

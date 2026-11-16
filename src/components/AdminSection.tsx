@@ -37,10 +37,11 @@ import {
   Users,
   Mail
 } from 'lucide-react';
-import { ReservationRequest, RequestStatus, AuditLog } from '../types';
+import { ReservationRequest, RequestStatus, AuditLog, termFromDate, compareTermsDesc } from '../types';
 import { compressImage } from '../imageUtils';
 import { adminLogin, addAdminPassword, getSavedAdminPasswords, removeAdminPassword, getAllRequests, updateStatus, updateCourseStatus, saveApiUrl, getApiUrl, isApiConfigured, getLoggedInAdminName, adminLogout, hashString, syncAdminPasswordsWithGoogleSheets, getRemoteSettings, saveRemoteSetting, saveRemoteSettings, getAuditLogs, getEmailQuota } from '../services/api';
 import DriveImage from './DriveImage';
+import CourseCatalogSettings from './CourseCatalogSettings';
 import { BarChart2, PieChart, Calendar, Shield, Bell, FileText, Download } from 'lucide-react';
 
 interface AdminSectionProps {
@@ -548,7 +549,28 @@ export default function AdminSection({
 
   // Year filter state (Buddhist Era)
   const currentBEYear = new Date().getFullYear() + 543;
-  const [selectedYear, setSelectedYear] = useState<number>(currentBEYear);
+
+  // ตัวกรองภาคเรียน เช่น "2/2569" (คำร้องใหม่บันทึกภาคเรียนไว้ คำร้องเก่าคำนวณจากวันที่ยื่น)
+  const currentTermLabel = termFromDate(new Date());
+  const getReqTerm = (r: ReservationRequest) => {
+    if (r.term && /^[123]\/\d{4}$/.test(r.term)) return r.term;
+    try { return termFromDate(parseDateSafe(r.createdAt)); } catch { return currentTermLabel; }
+  };
+  const [selectedTerm, setSelectedTerm] = useState<string>(currentTermLabel);
+  const availableTerms = React.useMemo(() => {
+    const set = new Set<string>([currentTermLabel]);
+    requests.forEach(r => set.add(getReqTerm(r)));
+    return Array.from(set).sort(compareTermsDesc);
+  }, [requests, currentTermLabel]);
+  const inSelectedTerm = (r: ReservationRequest) => selectedTerm === 'all' || getReqTerm(r) === selectedTerm;
+
+  // ความคืบหน้าการพิจารณารายวิชาของคำร้อง
+  const courseProgress = (r: ReservationRequest) => {
+    const list = r.courses || [];
+    const approved = list.filter(c => c.status === 'อนุมัติแล้ว').length;
+    const rejected = list.filter(c => c.status === 'ไม่อนุมัติ').length;
+    return { total: list.length, approved, rejected, pending: list.length - approved - rejected };
+  };
 
   const availableYears = React.useMemo(() => {
     const yearsSet = new Set<number>();
@@ -662,7 +684,7 @@ export default function AdminSection({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `FST_Reservations_${selectedYear}_${statusFilter}.csv`);
+    link.setAttribute('download', `FST_Reservations_${selectedTerm === 'all' ? 'all' : selectedTerm.replace('/', '-')}_${statusFilter}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -702,12 +724,7 @@ export default function AdminSection({
       if (found) {
         setSearchQuery(found.id);
         setStatusFilter('ทั้งหมด');
-        try {
-          const year = new Date(found.createdAt).getFullYear() + 543;
-          setSelectedYear(year);
-        } catch (e) {
-          // ignore
-        }
+        setSelectedTerm(getReqTerm(found));
         showToast(`กำลังแสดงข้อมูลคำร้องรหัส ${found.id}`, 'info');
         if (onClearTargetRequestId) {
           onClearTargetRequestId();
@@ -835,8 +852,27 @@ var REQUESTS_HEADERS = [
   'สถานะการตรวจสอบ', 'เหตุผลปฏิเสธสิทธิ์', 'จำนวนวิชาที่ยื่น',
   'วันที่ดำเนินการ', 'ผู้ดำเนินการ', 'ไฟล์หลักฐาน (JSON)', 'รายวิชาที่ยื่น (JSON)',
   'ช่องทางแจ้งเตือน', 'ช่องทางติดต่อ',
-  'สถานะการส่งอีเมล', 'รายชื่อเพื่อนร่วมกลุ่ม (ฝากกรอก)', 'จำนวนที่นั่งรวม'
+  'สถานะการส่งอีเมล', 'รายชื่อเพื่อนร่วมกลุ่ม (ฝากกรอก)', 'จำนวนที่นั่งรวม', 'ภาคเรียน'
 ];
+
+// ภาคเรียนจากวันที่ (ปฏิทิน ม.ฟาฏอนี โดยประมาณ): มิ.ย.–ต.ค. = 1, พ.ย.–มี.ค. = 2, เม.ย.–พ.ค. = 3 (ฤดูร้อน)
+// ปีการศึกษาของ ม.ค.–พ.ค. คือปีก่อนหน้า เช่น ก.พ. 2570 = ภาค 2/2569
+function termFromDate(d) {
+  var m = d.getMonth() + 1, y = d.getFullYear() + 543;
+  if (m >= 6 && m <= 10) return '1/' + y;
+  if (m >= 11) return '2/' + y;
+  if (m <= 3) return '2/' + (y - 1);
+  return '3/' + (y - 1);
+}
+
+// ภาคเรียนปัจจุบัน: ใช้ปี/ภาคที่แอดมินตั้งไว้ในการ์ดรายวิชาจากระบบทะเบียนก่อน ถ้าไม่มีค่อยคำนวณจากวันที่
+function currentTerm() {
+  try {
+    var cfg = getCatalogConfig();
+    if (cfg.enabled && /^\\d{4}$/.test(cfg.year) && /^[123]$/.test(cfg.semester)) return cfg.semester + '/' + cfg.year;
+  } catch (e) {}
+  return termFromDate(new Date());
+}
 
 function requestsSheet() {
   return getOrCreateSheet(SHEET_REQUESTS, REQUESTS_HEADERS);
@@ -1073,7 +1109,8 @@ function rowToRequest(row) {
     facebookProofFile: proofFile,
     courses: courses,
     notifyChannel: row[21] || undefined,
-    notifyContact: row[22] || undefined
+    notifyContact: row[22] || undefined,
+    term: String(row[26] || '') || undefined
   };
 }
 
@@ -1421,6 +1458,9 @@ function doGet(e) {
     if (action === 'getPublicSettings' || (action === 'getSettings' && !p.token)) {
       return jsonOut({ success: true, data: publicSettings() });
     }
+    if (action === 'getCourseCatalog') {
+      return jsonOut({ success: true, data: publicCatalogPayload() });
+    }
     if (action === 'adminStatus') {
       return jsonOut({ success: true, hasAdmins: !isBootstrapAllowed() });
     }
@@ -1473,6 +1513,45 @@ function doPost(e) {
     if (action === 'getSettings') return jsonOut({ success: true, data: readAllSettings() });
     if (action === 'getAuditLogs') return jsonOut({ success: true, data: readAuditLogs() });
     if (action === 'getProofImage') return handleGetProofImage(postData);
+    if (action === 'fetchRegCourses') {
+      try {
+        return jsonOut({ success: true, data: scrapeRegCourses(postData.year, postData.semester, postData.patterns) });
+      } catch (e) {
+        return jsonOut({ success: false, error: 'ดึงข้อมูลจากระบบทะเบียนไม่สำเร็จ: ' + e.message });
+      }
+    }
+    if (action === 'getCatalogConfig') {
+      var cfgOut = getCatalogConfig();
+      cfgOut.currentTerm = currentTerm();
+      return jsonOut({ success: true, data: cfgOut });
+    }
+    if (action === 'setCatalogAutoRefresh') {
+      handleSaveSettingsInternal({ catalog_auto_refresh: postData.autoRefresh ? 'true' : 'false' });
+      return jsonOut({ success: true });
+    }
+    if (action === 'saveCourseCatalog') {
+      var pats = normalizeRegPatterns(postData.patterns);
+      var codes = (postData.codes || []).map(function (c) { return String(c).toUpperCase().slice(0, 20); }).slice(0, 500);
+      handleSaveSettingsInternal({
+        catalog_enabled: postData.enabled === false ? 'false' : 'true',
+        catalog_year: String(postData.year || ''),
+        catalog_semester: String(postData.semester || ''),
+        catalog_patterns: pats.join(', '),
+        catalog_mode: postData.mode === 'selected' ? 'selected' : 'all',
+        catalog_codes: JSON.stringify(codes)
+      });
+      CacheService.getScriptCache().remove('catalog_public');
+      if (postData.enabled === false) return jsonOut({ success: true, count: 0 });
+      try {
+        ensureAppTriggers();
+        return jsonOut(refreshCourseCatalog());
+      } catch (e) {
+        return jsonOut({ success: false, error: 'บันทึกแล้ว แต่ดึงข้อมูลไม่สำเร็จ: ' + e.message });
+      }
+    }
+    if (action === 'refreshCourseCatalog') {
+      try { return jsonOut(refreshCourseCatalog()); } catch (e) { return jsonOut({ success: false, error: e.message }); }
+    }
     if (action === 'checkEmailQuota') {
       return jsonOut({ success: true, remainingDailyQuota: MailApp.getRemainingDailyQuota(), sentFromUser: Session.getEffectiveUser().getEmail(), timestamp: new Date().toISOString() });
     }
@@ -1631,8 +1710,10 @@ function handleSubmitRequest(data) {
     proofLink, 'รอดำเนินการ', '', summary.count, '', '', proofFileJSON, coursesJSONStr, notifyChan, contactEmail,
     "",             // 24. สถานะอีเมล
     coStudentsText, // 25. เพื่อนร่วมกลุ่ม
-    totalSeats      // 26. จำนวนที่นั่งรวม
+    totalSeats,     // 26. จำนวนที่นั่งรวม
+    currentTerm()   // 27. ภาคเรียน เช่น 2/2569
   ]);
+  if (!sheet.getRange(1, 27).getValue()) sheet.getRange(1, 27).setValue('ภาคเรียน');
   SpreadsheetApp.flush();
   bumpDataVersion();
   newRowIndex = sheet.getLastRow(); // อยู่ใน lock => ได้แถวของคำร้องนี้แน่นอน (เดิมอาจไปเขียนสถานะอีเมลทับแถวคนอื่น)
@@ -1711,16 +1792,22 @@ function installProofCleanupTrigger() {
   }
 }
 
-function ensureProofCleanupTrigger() {
-  var props = PropertiesService.getScriptProperties();
-  if (props.getProperty('CLEANUP_TRIGGER_OK') === 'true') return;
-  try {
-    installProofCleanupTrigger();
-    props.setProperty('CLEANUP_TRIGGER_OK', 'true');
-  } catch (e) {
-    Logger.log('Cannot install cleanup trigger: ' + e);
-  }
+// ตั้งเวลาทำงานอัตโนมัติทั้งหมด: ลบรูปเก่า (รายสัปดาห์) + อัปเดตรายวิชาจากระบบทะเบียน (รายวัน)
+// กด Run ฟังก์ชันนี้ครั้งเดียวหลังวางโค้ดใหม่
+function installAllTriggers() {
+  installProofCleanupTrigger();
+  installCatalogRefreshTrigger();
+  PropertiesService.getScriptProperties().setProperty('TRIGGERS_V2_OK', 'true');
+  Logger.log('ตั้งเวลาทำงานอัตโนมัติเรียบร้อย');
 }
+
+function ensureAppTriggers() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('TRIGGERS_V2_OK') === 'true') return;
+  try { installAllTriggers(); } catch (e) { Logger.log('Cannot install triggers: ' + e); }
+}
+
+function ensureProofCleanupTrigger() { ensureAppTriggers(); }
 
 // ส่งรูปหลักฐานให้แอดมินผ่าน Apps Script (สคริปต์รันในนามเจ้าของโฟลเดอร์ จึงเปิดไฟล์ได้เสมอ)
 // ใช้เมื่อเบราว์เซอร์ของแอดมินเปิดรูปจาก Drive ตรง ๆ ไม่ได้ เช่น ล็อกอิน Google คนละบัญชี
@@ -1745,6 +1832,251 @@ function handleGetProofImage(data) {
   } catch (e) {
     return jsonOut({ success: false, error: 'ไม่พบไฟล์ใน Google Drive (อาจถูกลบไปแล้ว หรือไม่ได้อยู่ในโฟลเดอร์หลักฐาน)' });
   }
+}
+
+// ======================================================================
+// รายวิชาจากระบบทะเบียน (reg.ftu.ac.th) — ดึงรหัส/ชื่อวิชา (ไทย+อังกฤษ), กลุ่ม, อาจารย์, ที่นั่ง
+// ======================================================================
+var REG_BASE = 'https://reg.ftu.ac.th/registrar/';
+var CATALOG_SHEET_NAME = 'CourseCatalog';
+
+function regStripTags(s) {
+  return String(s || '')
+    .replace(/<br\\s*\\/?>/gi, '\\n').replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'").replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/[ \\t]+/g, ' ').trim();
+}
+
+function regDecode(response) {
+  var blob = response.getBlob();
+  var names = ['windows-874', 'x-windows-874', 'TIS-620'];
+  for (var i = 0; i < names.length; i++) {
+    try { return blob.getDataAsString(names[i]); } catch (e) {}
+  }
+  return response.getContentText();
+}
+
+function regFetch(path) {
+  var res = UrlFetchApp.fetch(REG_BASE + path, { muteHttpExceptions: true, followRedirects: true });
+  if (res.getResponseCode() !== 200) throw new Error('reg.ftu.ac.th ตอบกลับ ' + res.getResponseCode());
+  return regDecode(res);
+}
+
+function parseRegList(html) {
+  var rows = [];
+  var trRe = /<TR[^>]*class='normaldetail'[^>]*>([\\s\\S]*?)<\\/TR>/gi, m;
+  while ((m = trRe.exec(html))) {
+    var cells = [];
+    var tdRe = /<TD[^>]*>([\\s\\S]*?)(?=<TD[^>]*>|$)/gi, c;
+    while ((c = tdRe.exec(m[1]))) cells.push(c[1]);
+    if (cells.length < 10) continue;
+    var codeM = cells[1].match(/courseid=(\\d+)[^>]*>\\s*([A-Z]{2,4}\\d{3,4}-\\d{2,4})/i);
+    if (!codeM) continue;
+    var nameCell = cells[2];
+    var noteM = nameCell.match(/<FONT color=#FF3300>([\\s\\S]*?)<\\/font>/i);
+    var instructors = (nameCell.match(/<LI>([^<]*)/gi) || [])
+      .map(function (x) { return regStripTags(x.replace(/<LI>/i, '')); })
+      .filter(function (x) { return !!x; });
+    rows.push({
+      courseId: codeM[1],
+      code: codeM[2].toUpperCase(),
+      nameTh: regStripTags(nameCell.split(/<br|<FONT|<LI/i)[0]),
+      note: noteM ? regStripTags(noteM[1]) : '',
+      instructors: instructors,
+      credit: regStripTags(cells[3]),
+      time: regStripTags(cells[4]),
+      section: regStripTags(cells[5]),
+      capacity: parseInt(regStripTags(cells[6]), 10) || 0,
+      enrolled: parseInt(regStripTags(cells[7]), 10) || 0,
+      remaining: parseInt(regStripTags(cells[8]), 10) || 0,
+      status: regStripTags(cells[9])
+    });
+  }
+  var nextM = html.match(/<A HREF=(class_info_1\\.asp\\?[^>\\s]+)>\\s*\\[หน้าต่อไป\\]/i);
+  return { rows: rows, next: nextM ? nextM[1] : null };
+}
+
+function parseRegDetail(html) {
+  var h = html.match(/<TR class='headerDetail'><TD>[^<]*(?:<\\/FONT>)?<\\/TD><TD COLSPAN=3>([\\s\\S]*?)<\\/TD><\\/TR>\\s*<TR class='headerDetail'><TD><\\/TD><TD COLSPAN=3>([\\s\\S]*?)<\\/TD>/i);
+  return h ? { nameEn: regStripTags(h[1]), nameTh: regStripTags(h[2]) } : null;
+}
+
+function normalizeRegPatterns(patterns) {
+  var list = Array.isArray(patterns) ? patterns : String(patterns || '').split(/[\\s,;]+/);
+  var out = [];
+  list.forEach(function (p) {
+    var s = String(p || '').trim().toUpperCase();
+    if (!s) return;
+    if (!/^[A-Z0-9\\-]{1,12}\\*?$/.test(s)) return;
+    if (s.indexOf('*') < 0 && !/-\\d/.test(s)) s += '*'; // "RD" => "RD*"
+    if (out.indexOf(s) < 0) out.push(s);
+  });
+  return out.slice(0, 10);
+}
+
+/** ดึงรายวิชาจากระบบทะเบียน คืนค่าเป็นรายการวิชา (รวมกลุ่มเรียนของวิชาเดียวกันไว้ด้วยกัน) */
+function scrapeRegCourses(year, semester, patterns) {
+  year = String(year || '').trim();
+  semester = String(semester || '').trim();
+  if (!/^\\d{4}$/.test(year) || !/^[123]$/.test(semester)) throw new Error('ปีการศึกษา/ภาคเรียนไม่ถูกต้อง');
+  var pats = normalizeRegPatterns(patterns);
+  if (!pats.length) throw new Error('กรุณาระบุรหัสวิชา เช่น IT*, DS*, RD*, SC*');
+
+  var sections = [];
+  pats.forEach(function (pat) {
+    var path = 'class_info_1.asp?backto=home&facultyid=all&acadyear=' + year + '&semester=' + semester +
+      '&CAMPUSID=&LEVELID=&CLASSSET=&coursename=&cmd=2&coursecode=' + encodeURIComponent(pat);
+    var pages = 0;
+    while (path && pages < 40) {
+      var parsed = parseRegList(regFetch(path));
+      sections = sections.concat(parsed.rows);
+      path = parsed.next;
+      pages++;
+    }
+  });
+
+  var byCode = {}, order = [];
+  sections.forEach(function (r) {
+    if (!byCode[r.code]) {
+      byCode[r.code] = { code: r.code, courseId: r.courseId, nameTh: r.nameTh, nameEn: '', credit: r.credit, sections: [] };
+      order.push(r.code);
+    }
+    var exists = byCode[r.code].sections.some(function (s) { return s.section === r.section; });
+    if (!exists) {
+      byCode[r.code].sections.push({
+        section: r.section, instructors: r.instructors, time: r.time, note: r.note,
+        capacity: r.capacity, enrolled: r.enrolled, remaining: r.remaining, status: r.status
+      });
+    }
+  });
+  var courses = order.map(function (k) { return byCode[k]; });
+
+  // ชื่อภาษาอังกฤษอยู่ในหน้ารายละเอียดของแต่ละวิชา: แคชไว้ 6 ชม. และดึงพร้อมกันทีเดียว
+  var cache = CacheService.getScriptCache();
+  var need = [];
+  courses.forEach(function (c) {
+    var hit = cache.get('regEn_' + c.courseId);
+    if (hit) c.nameEn = hit; else need.push(c);
+  });
+  for (var i = 0; i < need.length; i += 20) {
+    var chunk = need.slice(i, i + 20);
+    var responses = UrlFetchApp.fetchAll(chunk.map(function (c) {
+      return { url: REG_BASE + 'class_info_2.asp?backto=home&option=0&courseid=' + c.courseId + '&acadyear=' + year + '&semester=' + semester, muteHttpExceptions: true };
+    }));
+    responses.forEach(function (res, idx) {
+      try {
+        if (res.getResponseCode() !== 200) return;
+        var d = parseRegDetail(regDecode(res));
+        if (d && d.nameEn) {
+          chunk[idx].nameEn = d.nameEn;
+          if (d.nameTh) chunk[idx].nameTh = d.nameTh;
+          cache.put('regEn_' + chunk[idx].courseId, d.nameEn, 21600);
+        }
+      } catch (e) {}
+    });
+  }
+  courses.sort(function (a, b) { return a.code < b.code ? -1 : a.code > b.code ? 1 : 0; });
+  return courses;
+}
+
+// ---------- รายวิชาที่เปิดให้นักศึกษาเลือก (บันทึกในชีต CourseCatalog) ----------
+function catalogSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(CATALOG_SHEET_NAME);
+  if (!sh) {
+    sh = ss.insertSheet(CATALOG_SHEET_NAME);
+    sh.appendRow(['รหัสวิชา', 'ชื่อวิชา (ไทย)', 'ชื่อวิชา (อังกฤษ)', 'หน่วยกิต', 'กลุ่มเรียน (JSON)', 'อัปเดตล่าสุด']);
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function getCatalogConfig() {
+  var st = readAllSettings();
+  var codes = [];
+  try { codes = JSON.parse(st.catalog_codes || '[]'); } catch (e) {}
+  return {
+    year: st.catalog_year || '',
+    semester: st.catalog_semester || '',
+    patterns: st.catalog_patterns || 'IT*, DS*, RD*, SC*',
+    mode: st.catalog_mode || 'all',          // all = ทุกวิชาที่ตรงรหัส, selected = เฉพาะที่เลือก
+    codes: codes,
+    enabled: st.catalog_enabled === 'true',
+    autoRefresh: st.catalog_auto_refresh !== 'false',
+    updatedAt: st.catalog_updated_at || ''
+  };
+}
+
+function readCatalogFromSheet() {
+  var rows = catalogSheet().getDataRange().getValues();
+  var list = [];
+  for (var i = 1; i < rows.length; i++) {
+    if (!rows[i][0]) continue;
+    var secs = [];
+    try { secs = JSON.parse(rows[i][4] || '[]'); } catch (e) {}
+    list.push({ code: String(rows[i][0]), nameTh: String(rows[i][1]), nameEn: String(rows[i][2]), credit: String(rows[i][3]), sections: secs });
+  }
+  return list;
+}
+
+/** ดึงข้อมูลใหม่ตามการตั้งค่าที่บันทึกไว้ แล้วเขียนลงชีต (เรียกจากปุ่มแอดมิน หรือ trigger รายวัน) */
+function refreshCourseCatalog() {
+  var cfg = getCatalogConfig();
+  if (!cfg.enabled || !cfg.year || !cfg.semester) return { success: false, error: 'ยังไม่ได้ตั้งค่ารายวิชาจากระบบทะเบียน' };
+  var courses = scrapeRegCourses(cfg.year, cfg.semester, cfg.patterns);
+  if (cfg.mode === 'selected') {
+    courses = courses.filter(function (c) { return cfg.codes.indexOf(c.code) >= 0; });
+  }
+  var now = Utilities.formatDate(new Date(), 'GMT+7', 'dd/MM/yyyy HH:mm');
+  var sh = catalogSheet();
+  var last = sh.getLastRow();
+  if (last > 1) sh.getRange(2, 1, last - 1, 6).clearContent();
+  if (courses.length) {
+    sh.getRange(2, 1, courses.length, 6).setNumberFormat('@').setValues(courses.map(function (c) {
+      return [c.code, c.nameTh, c.nameEn, c.credit, JSON.stringify(c.sections), now];
+    }));
+  }
+  handleSaveSettingsInternal({ catalog_updated_at: new Date().toISOString() });
+  CacheService.getScriptCache().remove('catalog_public');
+  return { success: true, count: courses.length };
+}
+
+function publicCatalogPayload() {
+  var cache = CacheService.getScriptCache();
+  var hit = cache.get('catalog_public');
+  if (hit) { try { return JSON.parse(hit); } catch (e) {} }
+  var cfg = getCatalogConfig();
+  // prefixes: ใช้ในฟอร์มเพื่อเตือนเมื่อนักศึกษากรอกรหัสวิชาที่ไม่ใช่ของคณะ
+  var prefixes = normalizeRegPatterns(cfg.patterns).map(function (p) { return p.replace(/\\*$/, ''); });
+  var payload = { enabled: cfg.enabled, year: cfg.year, semester: cfg.semester, currentTerm: currentTerm(), updatedAt: cfg.updatedAt, prefixes: prefixes, courses: cfg.enabled ? readCatalogFromSheet() : [] };
+  try { cache.put('catalog_public', JSON.stringify(payload), 1800); } catch (e) {}
+  return payload;
+}
+
+function handleSaveSettingsInternal(map) {
+  var list = Object.keys(map).map(function (k) { return { key: k, value: map[k] }; });
+  return handleSaveSettings({ settings: list });
+}
+
+function installCatalogRefreshTrigger() {
+  var exists = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'scheduledCatalogRefresh'; });
+  if (!exists) ScriptApp.newTrigger('scheduledCatalogRefresh').timeBased().everyDays(1).atHour(6).create();
+}
+
+// trigger รายวัน (06:00) — อัปเดตชื่อวิชา อาจารย์ และจำนวนที่นั่งเหลือ
+function scheduledCatalogRefresh() {
+  if (!getCatalogConfig().autoRefresh) return; // แอดมินปิดการอัปเดตอัตโนมัติไว้
+  try { refreshCourseCatalog(); } catch (e) { Logger.log('scheduledCatalogRefresh: ' + e); }
+}
+
+// ทดสอบว่า Apps Script เข้าถึงระบบทะเบียนได้หรือไม่: เลือกฟังก์ชันนี้แล้วกด Run ดูผลใน "บันทึกการดำเนินการ"
+function testRegistrarFetch() {
+  var courses = scrapeRegCourses('2569', '2', 'IT*, DS*, RD*, SC*');
+  Logger.log('ดึงได้ ' + courses.length + ' วิชา');
+  courses.slice(0, 5).forEach(function (c) {
+    Logger.log(c.code + ' | ' + c.nameTh + ' | ' + c.nameEn + ' | ' + c.sections.length + ' กลุ่ม');
+  });
 }
 
 function runSubmitNotifications(ctx) {
@@ -2644,15 +2976,8 @@ function handleRecordAuditLog(data) {
       filtered = filtered.filter(req => req.status === statusFilter);
     }
 
-    // Filter by selected year BE (Buddhist Era)
-    filtered = filtered.filter(req => {
-      try {
-        const year = parseDateSafe(req.createdAt).getFullYear() + 543;
-        return year === selectedYear;
-      } catch (e) {
-        return selectedYear === currentBEYear;
-      }
-    });
+    // Filter by selected semester (e.g. 2/2569)
+    filtered = filtered.filter(inSelectedTerm);
 
     // Sort: Pending ("รอดำเนินการ") first, then newest submission dates
     return filtered.sort((a, b) => {
@@ -3070,19 +3395,23 @@ function handleRecordAuditLog(data) {
             )}
           </div>
 
-          {/* Year Selector */}
+          {/* Semester Selector */}
           <div className="relative">
             <select
-              value={selectedYear}
-              onChange={e => setSelectedYear(Number(e.target.value))}
+              value={selectedTerm}
+              onChange={e => setSelectedTerm(e.target.value)}
               className="w-full px-3 py-2 text-xs font-semibold font-sans rounded-lg border border-slate-200 bg-white text-slate-700 focus:outline-hidden focus:border-mangosteen focus:ring-1 focus:ring-mangosteen cursor-pointer"
               id="admin-year-selector"
             >
-              {availableYears.map(year => (
-                <option key={year} value={year}>
-                  ปี พ.ศ. {year} {year === currentBEYear ? '(ปีปัจจุบัน)' : ''}
-                </option>
-              ))}
+              {availableTerms.map(term => {
+                const [sem, yr] = term.split('/');
+                return (
+                  <option key={term} value={term}>
+                    ภาคเรียน {sem === '3' ? 'ฤดูร้อน' : sem} ปีการศึกษา {yr} {term === currentTermLabel ? '(ปัจจุบัน)' : ''}
+                  </option>
+                );
+              })}
+              <option value="all">ทุกภาคเรียน</option>
             </select>
           </div>
 
@@ -3106,15 +3435,9 @@ function handleRecordAuditLog(data) {
                 >
                   {tab}
                   <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-slate-150 text-slate-600 font-bold font-sans">
-                    {tab === 'ทั้งหมด' 
-                      ? requests.filter(r => {
-                          const year = parseDateSafe(r.createdAt).getFullYear() + 543;
-                          return year === selectedYear;
-                        }).length 
-                      : requests.filter(r => {
-                          const year = parseDateSafe(r.createdAt).getFullYear() + 543;
-                          return year === selectedYear && r.status === tab;
-                        }).length}
+                    {tab === 'ทั้งหมด'
+                      ? requests.filter(inSelectedTerm).length
+                      : requests.filter(r => inSelectedTerm(r) && r.status === tab).length}
                   </span>
                 </button>
               );
@@ -3325,7 +3648,7 @@ function handleRecordAuditLog(data) {
                             status: req.status,
                             rejectionReason: req.rejectionReason
                           }]).map((course, cIdx) => (
-                            <div key={cIdx} className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-2.5 transition-all hover:shadow-xs">
+                            <div key={cIdx} className={`bg-white p-3.5 rounded-xl border shadow-2xs space-y-2.5 transition-all hover:shadow-xs ${(!course.status || course.status === 'รอดำเนินการ') ? 'border-amber-300 ring-1 ring-amber-100' : course.status === 'อนุมัติแล้ว' ? 'border-emerald-200 bg-emerald-50/30' : 'border-rose-200 bg-rose-50/30'}`}>
                               <div className="flex items-start justify-between gap-1.5 flex-wrap">
                                 <div className="flex items-start gap-1.5 flex-wrap">
                                   {/* Highlights Course Code with instant copy button */}
@@ -3391,13 +3714,15 @@ function handleRecordAuditLog(data) {
                                   <div className="flex w-full items-center gap-2">
                                     <button
                                       onClick={() => handleApproveCourse(req.id, course.courseCode)}
-                                      className="flex-1 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold rounded-lg flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                                      className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                                      title={`อนุมัติวิชา ${course.courseCode}`}
                                     >
                                       <CheckCircle className="w-3.5 h-3.5" /> อนุมัติ
                                     </button>
                                     <button
                                       onClick={() => handleRejectCourseModalOpen(req.id, course.courseCode)}
-                                      className="flex-1 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-lg flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                                      className="flex-1 py-2 bg-white hover:bg-rose-50 active:scale-[0.98] border border-rose-300 text-rose-600 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                                      title={`ไม่อนุมัติวิชา ${course.courseCode}`}
                                     >
                                       <XCircle className="w-3.5 h-3.5" /> ไม่อนุมัติ
                                     </button>
@@ -3444,20 +3769,42 @@ function handleRecordAuditLog(data) {
                       <td className="py-4 px-4 font-sans text-center border-b border-slate-150 w-60">
                         <div className="flex flex-col gap-2 items-center justify-center" id={`action-panel-desktop-${req.id}`}>
                           {req.status === 'รอดำเนินการ' ? (
-                            <div className="w-full space-y-2">
-                              {/* Global action buttons for quick review */}
-                              <button
-                                onClick={() => handleApprove(req.id)}
-                                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white font-sans text-xs font-black rounded-lg cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-sm"
-                              >
-                                <CheckCircle className="w-4 h-4" /> อนุมัติทั้งหมด
-                              </button>
-                              <button
-                                onClick={() => handleOpenRejectModal(req.id)}
-                                className="w-full py-2.5 bg-rose-600 hover:bg-rose-700 active:scale-[0.98] text-white font-sans text-xs font-black rounded-lg cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-sm"
-                              >
-                                <XCircle className="w-4 h-4" /> ไม่อนุมัติทั้งหมด
-                              </button>
+                            <div className="w-full space-y-2 text-left">
+                              {(() => {
+                                const p = courseProgress(req);
+                                if (p.total === 0) {
+                                  // คำร้องรูปแบบเก่า (ไม่มีรายการรายวิชา) พิจารณาทั้งคำร้องได้เท่านั้น
+                                  return (
+                                    <>
+                                      <button onClick={() => handleApprove(req.id)} className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg cursor-pointer flex items-center justify-center gap-1.5">
+                                        <CheckCircle className="w-4 h-4" /> อนุมัติ
+                                      </button>
+                                      <button onClick={() => handleOpenRejectModal(req.id)} className="w-full py-2.5 bg-white border border-rose-300 text-rose-600 hover:bg-rose-50 text-xs font-bold rounded-lg cursor-pointer flex items-center justify-center gap-1.5">
+                                        <XCircle className="w-4 h-4" /> ไม่อนุมัติ
+                                      </button>
+                                    </>
+                                  );
+                                }
+                                const pct = Math.round(((p.approved + p.rejected) / p.total) * 100);
+                                return (
+                                  <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-2">
+                                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                                      <span>พิจารณาแล้ว</span>
+                                      <span>{p.approved + p.rejected}/{p.total} วิชา</span>
+                                    </div>
+                                    <div className="h-1.5 bg-white rounded-full overflow-hidden flex">
+                                      <div className="h-full bg-emerald-500" style={{ width: `${(p.approved / p.total) * 100}%` }} />
+                                      <div className="h-full bg-rose-400" style={{ width: `${(p.rejected / p.total) * 100}%` }} />
+                                    </div>
+                                    <div className="flex flex-wrap gap-1.5 text-[10px] font-bold">
+                                      {p.approved > 0 && <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">อนุมัติ {p.approved}</span>}
+                                      {p.rejected > 0 && <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700">ไม่อนุมัติ {p.rejected}</span>}
+                                      <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">รอ {p.pending}</span>
+                                    </div>
+                                    <p className="text-[10px] text-slate-500 leading-snug">{pct === 0 ? 'กดอนุมัติ / ไม่อนุมัติ ที่แต่ละรายวิชา' : 'พิจารณาวิชาที่เหลือ แล้วระบบจะส่งอีเมลสรุปผลให้นักศึกษา 1 ฉบับ'}</p>
+                                  </div>
+                                );
+                              })()}
                             </div>
                           ) : (
                             <div className="w-full space-y-2">
@@ -3475,7 +3822,7 @@ function handleRecordAuditLog(data) {
                                 onClick={() => handleResetToPending(req.id)}
                                 className="w-full py-2.5 text-xs font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-xs active:scale-[0.98]"
                               >
-                                <Edit className="w-3.5 h-3.5" /> แก้ไขสถานะกลับ
+                                <Edit className="w-3.5 h-3.5" /> รีเซ็ตทุกวิชาเป็นรอดำเนินการ
                               </button>
                             </div>
                           )}
@@ -3619,15 +3966,15 @@ function handleRecordAuditLog(data) {
                             <div className="flex items-center gap-2">
                               <button
                                 onClick={() => handleApproveCourse(req.id, course.courseCode)}
-                                className="flex-1 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-lg flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
                               >
-                                <CheckCircle className="w-3 h-3" /> อนุมัติ
+                                <CheckCircle className="w-4 h-4" /> อนุมัติ
                               </button>
                               <button
                                 onClick={() => handleRejectCourseModalOpen(req.id, course.courseCode)}
-                                className="flex-1 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[10px] font-bold rounded-lg flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                                className="flex-1 py-2.5 bg-white hover:bg-rose-50 active:scale-[0.98] border border-rose-300 text-rose-600 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                               >
-                                <XCircle className="w-3 h-3" /> ไม่อนุมัติ
+                                <XCircle className="w-4 h-4" /> ไม่อนุมัติ
                               </button>
                             </div>
                           ) : (
@@ -3734,26 +4081,36 @@ function handleRecordAuditLog(data) {
                 {/* Mobile action button bottom drawer */}
                 <div className="border-t border-slate-100 pt-3 flex flex-col gap-2" id={`action-panel-mobile-${req.id}`}>
                   {req.status === 'รอดำเนินการ' ? (
-                    <div className="flex flex-col gap-2">
-                      <button
-                        onClick={() => handleApprove(req.id)}
-                        className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-sm"
-                      >
-                        <CheckCircle className="w-4 h-4" /> อนุมัติคำร้องทั้งหมด
-                      </button>
-                      <button
-                        onClick={() => handleOpenRejectModal(req.id)}
-                        className="w-full py-2.5 bg-rose-600 hover:bg-rose-700 active:scale-[0.98] text-white text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-sm"
-                      >
-                        <XCircle className="w-4 h-4" /> ไม่อนุมัติคำร้องทั้งหมด
-                      </button>
-                    </div>
+                    (() => {
+                      const p = courseProgress(req);
+                      if (p.total === 0) {
+                        return (
+                          <div className="flex gap-2">
+                            <button onClick={() => handleApprove(req.id)} className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5">
+                              <CheckCircle className="w-4 h-4" /> อนุมัติ
+                            </button>
+                            <button onClick={() => handleOpenRejectModal(req.id)} className="flex-1 py-2.5 bg-white border border-rose-300 text-rose-600 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5">
+                              <XCircle className="w-4 h-4" /> ไม่อนุมัติ
+                            </button>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="flex items-center gap-3">
+                          <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden flex">
+                            <div className="h-full bg-emerald-500" style={{ width: `${(p.approved / p.total) * 100}%` }} />
+                            <div className="h-full bg-rose-400" style={{ width: `${(p.rejected / p.total) * 100}%` }} />
+                          </div>
+                          <span className="text-[11px] font-bold text-slate-600 whitespace-nowrap">พิจารณาแล้ว {p.approved + p.rejected}/{p.total} วิชา</span>
+                        </div>
+                      );
+                    })()
                   ) : (
                     <button
                       onClick={() => handleResetToPending(req.id)}
                       className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 text-center text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
                     >
-                      <Edit className="w-3.5 h-3.5" /> แก้ไขสถานะกลับเป็น รอดำเนินการ
+                      <Edit className="w-3.5 h-3.5" /> รีเซ็ตทุกวิชาเป็นรอดำเนินการ
                     </button>
                   )}
                 </div>
@@ -4096,6 +4453,8 @@ function handleRecordAuditLog(data) {
       </div>
     </form>
   )}
+
+  {activeAdminTab === 'schedule_settings' && <CourseCatalogSettings showToast={showToast} />}
 
   {/* --- TAB 4: AUDIT LOGS --- */}
   {activeAdminTab === 'audit_logs' && (

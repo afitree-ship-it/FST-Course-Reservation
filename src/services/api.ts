@@ -1,4 +1,4 @@
-import { ReservationRequest, AuditLog } from '../types';
+import { ReservationRequest, AuditLog, CourseCatalog, CatalogCourse, CatalogConfig } from '../types';
 
 const API_URL_KEY = 'gs_api_url';
 const ADMIN_TOKEN_KEY = 'admin_token';
@@ -47,9 +47,11 @@ function invalidateRequestsCache() {
 // ---------------------------------------------------------------------------
 const REQUEST_TIMEOUT_MS = 30_000;
 
+let timeoutOverrideMs = 0;
+
 async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), timeoutOverrideMs || REQUEST_TIMEOUT_MS);
   try {
     return await fetch(url, { ...options, signal: ctrl.signal });
   } finally {
@@ -660,5 +662,94 @@ export async function getProofImage(fileId: string): Promise<{ success: boolean;
     return { success: false, error: result.error === 'UNAUTHORIZED' ? 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่' : result.error };
   } catch {
     return { success: false, error: 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Course catalog from the registrar (reg.ftu.ac.th)
+// ---------------------------------------------------------------------------
+const CATALOG_CACHE_KEY = 'course_catalog_cache';
+const CATALOG_TTL = 10 * 60_000;
+let catalogPromise: Promise<CourseCatalog | null> | null = null;
+
+/** Public: the list of courses the admin opened for reservation (refreshed daily from the registrar). */
+export async function getCourseCatalog(forceRefresh = false): Promise<CourseCatalog | null> {
+  if (!forceRefresh) {
+    try {
+      const raw = sessionStorage.getItem(CATALOG_CACHE_KEY);
+      if (raw) {
+        const cached = JSON.parse(raw);
+        if (Date.now() - cached.time < CATALOG_TTL) return cached.data as CourseCatalog;
+      }
+    } catch { /* ignore */ }
+    if (catalogPromise) return catalogPromise;
+  }
+  catalogPromise = (async () => {
+    try {
+      const result = await gasGet({ action: 'getCourseCatalog' });
+      if (result.success && result.data) {
+        try { sessionStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify({ time: Date.now(), data: result.data })); } catch { /* ignore */ }
+        return result.data as CourseCatalog;
+      }
+    } catch (err) {
+      console.warn('Course catalog unavailable:', err);
+    } finally {
+      catalogPromise = null;
+    }
+    return null;
+  })();
+  return catalogPromise;
+}
+
+/** Admin: preview courses straight from the registrar (nothing is saved). */
+export async function fetchRegistrarCourses(year: string, semester: string, patterns: string): Promise<{ success: boolean; data?: CatalogCourse[]; error?: string }> {
+  try {
+    // ดึงจากระบบทะเบียนหลายหน้า + หน้ารายละเอียดทุกวิชา อาจใช้เวลาเกิน 30 วินาที
+    timeoutOverrideMs = 120_000;
+    const result = await adminCall('fetchRegCourses', { year, semester, patterns }, false, 1).finally(() => { timeoutOverrideMs = 0; });
+    if (result.success && Array.isArray(result.data)) return { success: true, data: result.data };
+    return { success: false, error: result.error === 'UNAUTHORIZED' ? 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่' : (result.error || 'ดึงข้อมูลไม่สำเร็จ') };
+  } catch {
+    return { success: false, error: 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ (ระบบทะเบียนอาจตอบช้า ลองใหม่อีกครั้ง)' };
+  }
+}
+
+export async function getCatalogConfig(): Promise<CatalogConfig | null> {
+  try {
+    const result = await adminCall('getCatalogConfig', {});
+    return result.success ? (result.data as CatalogConfig) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveCourseCatalog(cfg: { enabled: boolean; year: string; semester: string; patterns: string; mode: 'all' | 'selected'; codes: string[] }): Promise<{ success: boolean; count?: number; error?: string }> {
+  try {
+    timeoutOverrideMs = 120_000;
+    const result = await adminCall('saveCourseCatalog', cfg, false, 1).finally(() => { timeoutOverrideMs = 0; });
+    try { sessionStorage.removeItem(CATALOG_CACHE_KEY); } catch { /* ignore */ }
+    return { success: !!result.success, count: result.count, error: result.error };
+  } catch {
+    return { success: false, error: 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ' };
+  }
+}
+
+export async function refreshCourseCatalogNow(): Promise<{ success: boolean; count?: number; error?: string }> {
+  try {
+    timeoutOverrideMs = 120_000;
+    const result = await adminCall('refreshCourseCatalog', {}, false, 1).finally(() => { timeoutOverrideMs = 0; });
+    try { sessionStorage.removeItem(CATALOG_CACHE_KEY); } catch { /* ignore */ }
+    return { success: !!result.success, count: result.count, error: result.error };
+  } catch {
+    return { success: false, error: 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ' };
+  }
+}
+
+export async function setCatalogAutoRefresh(autoRefresh: boolean): Promise<boolean> {
+  try {
+    const result = await adminCall('setCatalogAutoRefresh', { autoRefresh });
+    return !!result.success;
+  } catch {
+    return false;
   }
 }

@@ -35,8 +35,27 @@ var REQUESTS_HEADERS = [
   'สถานะการตรวจสอบ', 'เหตุผลปฏิเสธสิทธิ์', 'จำนวนวิชาที่ยื่น',
   'วันที่ดำเนินการ', 'ผู้ดำเนินการ', 'ไฟล์หลักฐาน (JSON)', 'รายวิชาที่ยื่น (JSON)',
   'ช่องทางแจ้งเตือน', 'ช่องทางติดต่อ',
-  'สถานะการส่งอีเมล', 'รายชื่อเพื่อนร่วมกลุ่ม (ฝากกรอก)', 'จำนวนที่นั่งรวม'
+  'สถานะการส่งอีเมล', 'รายชื่อเพื่อนร่วมกลุ่ม (ฝากกรอก)', 'จำนวนที่นั่งรวม', 'ภาคเรียน'
 ];
+
+// ภาคเรียนจากวันที่ (ปฏิทิน ม.ฟาฏอนี โดยประมาณ): มิ.ย.–ต.ค. = 1, พ.ย.–มี.ค. = 2, เม.ย.–พ.ค. = 3 (ฤดูร้อน)
+// ปีการศึกษาของ ม.ค.–พ.ค. คือปีก่อนหน้า เช่น ก.พ. 2570 = ภาค 2/2569
+function termFromDate(d) {
+  var m = d.getMonth() + 1, y = d.getFullYear() + 543;
+  if (m >= 6 && m <= 10) return '1/' + y;
+  if (m >= 11) return '2/' + y;
+  if (m <= 3) return '2/' + (y - 1);
+  return '3/' + (y - 1);
+}
+
+// ภาคเรียนปัจจุบัน: ใช้ปี/ภาคที่แอดมินตั้งไว้ในการ์ดรายวิชาจากระบบทะเบียนก่อน ถ้าไม่มีค่อยคำนวณจากวันที่
+function currentTerm() {
+  try {
+    var cfg = getCatalogConfig();
+    if (cfg.enabled && /^\d{4}$/.test(cfg.year) && /^[123]$/.test(cfg.semester)) return cfg.semester + '/' + cfg.year;
+  } catch (e) {}
+  return termFromDate(new Date());
+}
 
 function requestsSheet() {
   return getOrCreateSheet(SHEET_REQUESTS, REQUESTS_HEADERS);
@@ -273,7 +292,8 @@ function rowToRequest(row) {
     facebookProofFile: proofFile,
     courses: courses,
     notifyChannel: row[21] || undefined,
-    notifyContact: row[22] || undefined
+    notifyContact: row[22] || undefined,
+    term: String(row[26] || '') || undefined
   };
 }
 
@@ -621,6 +641,9 @@ function doGet(e) {
     if (action === 'getPublicSettings' || (action === 'getSettings' && !p.token)) {
       return jsonOut({ success: true, data: publicSettings() });
     }
+    if (action === 'getCourseCatalog') {
+      return jsonOut({ success: true, data: publicCatalogPayload() });
+    }
     if (action === 'adminStatus') {
       return jsonOut({ success: true, hasAdmins: !isBootstrapAllowed() });
     }
@@ -673,6 +696,45 @@ function doPost(e) {
     if (action === 'getSettings') return jsonOut({ success: true, data: readAllSettings() });
     if (action === 'getAuditLogs') return jsonOut({ success: true, data: readAuditLogs() });
     if (action === 'getProofImage') return handleGetProofImage(postData);
+    if (action === 'fetchRegCourses') {
+      try {
+        return jsonOut({ success: true, data: scrapeRegCourses(postData.year, postData.semester, postData.patterns) });
+      } catch (e) {
+        return jsonOut({ success: false, error: 'ดึงข้อมูลจากระบบทะเบียนไม่สำเร็จ: ' + e.message });
+      }
+    }
+    if (action === 'getCatalogConfig') {
+      var cfgOut = getCatalogConfig();
+      cfgOut.currentTerm = currentTerm();
+      return jsonOut({ success: true, data: cfgOut });
+    }
+    if (action === 'setCatalogAutoRefresh') {
+      handleSaveSettingsInternal({ catalog_auto_refresh: postData.autoRefresh ? 'true' : 'false' });
+      return jsonOut({ success: true });
+    }
+    if (action === 'saveCourseCatalog') {
+      var pats = normalizeRegPatterns(postData.patterns);
+      var codes = (postData.codes || []).map(function (c) { return String(c).toUpperCase().slice(0, 20); }).slice(0, 500);
+      handleSaveSettingsInternal({
+        catalog_enabled: postData.enabled === false ? 'false' : 'true',
+        catalog_year: String(postData.year || ''),
+        catalog_semester: String(postData.semester || ''),
+        catalog_patterns: pats.join(', '),
+        catalog_mode: postData.mode === 'selected' ? 'selected' : 'all',
+        catalog_codes: JSON.stringify(codes)
+      });
+      CacheService.getScriptCache().remove('catalog_public');
+      if (postData.enabled === false) return jsonOut({ success: true, count: 0 });
+      try {
+        ensureAppTriggers();
+        return jsonOut(refreshCourseCatalog());
+      } catch (e) {
+        return jsonOut({ success: false, error: 'บันทึกแล้ว แต่ดึงข้อมูลไม่สำเร็จ: ' + e.message });
+      }
+    }
+    if (action === 'refreshCourseCatalog') {
+      try { return jsonOut(refreshCourseCatalog()); } catch (e) { return jsonOut({ success: false, error: e.message }); }
+    }
     if (action === 'checkEmailQuota') {
       return jsonOut({ success: true, remainingDailyQuota: MailApp.getRemainingDailyQuota(), sentFromUser: Session.getEffectiveUser().getEmail(), timestamp: new Date().toISOString() });
     }
@@ -831,8 +893,10 @@ function handleSubmitRequest(data) {
     proofLink, 'รอดำเนินการ', '', summary.count, '', '', proofFileJSON, coursesJSONStr, notifyChan, contactEmail,
     "",             // 24. สถานะอีเมล
     coStudentsText, // 25. เพื่อนร่วมกลุ่ม
-    totalSeats      // 26. จำนวนที่นั่งรวม
+    totalSeats,     // 26. จำนวนที่นั่งรวม
+    currentTerm()   // 27. ภาคเรียน เช่น 2/2569
   ]);
+  if (!sheet.getRange(1, 27).getValue()) sheet.getRange(1, 27).setValue('ภาคเรียน');
   SpreadsheetApp.flush();
   bumpDataVersion();
   newRowIndex = sheet.getLastRow(); // อยู่ใน lock => ได้แถวของคำร้องนี้แน่นอน (เดิมอาจไปเขียนสถานะอีเมลทับแถวคนอื่น)
@@ -911,16 +975,22 @@ function installProofCleanupTrigger() {
   }
 }
 
-function ensureProofCleanupTrigger() {
-  var props = PropertiesService.getScriptProperties();
-  if (props.getProperty('CLEANUP_TRIGGER_OK') === 'true') return;
-  try {
-    installProofCleanupTrigger();
-    props.setProperty('CLEANUP_TRIGGER_OK', 'true');
-  } catch (e) {
-    Logger.log('Cannot install cleanup trigger: ' + e);
-  }
+// ตั้งเวลาทำงานอัตโนมัติทั้งหมด: ลบรูปเก่า (รายสัปดาห์) + อัปเดตรายวิชาจากระบบทะเบียน (รายวัน)
+// กด Run ฟังก์ชันนี้ครั้งเดียวหลังวางโค้ดใหม่
+function installAllTriggers() {
+  installProofCleanupTrigger();
+  installCatalogRefreshTrigger();
+  PropertiesService.getScriptProperties().setProperty('TRIGGERS_V2_OK', 'true');
+  Logger.log('ตั้งเวลาทำงานอัตโนมัติเรียบร้อย');
 }
+
+function ensureAppTriggers() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('TRIGGERS_V2_OK') === 'true') return;
+  try { installAllTriggers(); } catch (e) { Logger.log('Cannot install triggers: ' + e); }
+}
+
+function ensureProofCleanupTrigger() { ensureAppTriggers(); }
 
 // ส่งรูปหลักฐานให้แอดมินผ่าน Apps Script (สคริปต์รันในนามเจ้าของโฟลเดอร์ จึงเปิดไฟล์ได้เสมอ)
 // ใช้เมื่อเบราว์เซอร์ของแอดมินเปิดรูปจาก Drive ตรง ๆ ไม่ได้ เช่น ล็อกอิน Google คนละบัญชี
@@ -945,6 +1015,251 @@ function handleGetProofImage(data) {
   } catch (e) {
     return jsonOut({ success: false, error: 'ไม่พบไฟล์ใน Google Drive (อาจถูกลบไปแล้ว หรือไม่ได้อยู่ในโฟลเดอร์หลักฐาน)' });
   }
+}
+
+// ======================================================================
+// รายวิชาจากระบบทะเบียน (reg.ftu.ac.th) — ดึงรหัส/ชื่อวิชา (ไทย+อังกฤษ), กลุ่ม, อาจารย์, ที่นั่ง
+// ======================================================================
+var REG_BASE = 'https://reg.ftu.ac.th/registrar/';
+var CATALOG_SHEET_NAME = 'CourseCatalog';
+
+function regStripTags(s) {
+  return String(s || '')
+    .replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'").replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/[ \t]+/g, ' ').trim();
+}
+
+function regDecode(response) {
+  var blob = response.getBlob();
+  var names = ['windows-874', 'x-windows-874', 'TIS-620'];
+  for (var i = 0; i < names.length; i++) {
+    try { return blob.getDataAsString(names[i]); } catch (e) {}
+  }
+  return response.getContentText();
+}
+
+function regFetch(path) {
+  var res = UrlFetchApp.fetch(REG_BASE + path, { muteHttpExceptions: true, followRedirects: true });
+  if (res.getResponseCode() !== 200) throw new Error('reg.ftu.ac.th ตอบกลับ ' + res.getResponseCode());
+  return regDecode(res);
+}
+
+function parseRegList(html) {
+  var rows = [];
+  var trRe = /<TR[^>]*class='normaldetail'[^>]*>([\s\S]*?)<\/TR>/gi, m;
+  while ((m = trRe.exec(html))) {
+    var cells = [];
+    var tdRe = /<TD[^>]*>([\s\S]*?)(?=<TD[^>]*>|$)/gi, c;
+    while ((c = tdRe.exec(m[1]))) cells.push(c[1]);
+    if (cells.length < 10) continue;
+    var codeM = cells[1].match(/courseid=(\d+)[^>]*>\s*([A-Z]{2,4}\d{3,4}-\d{2,4})/i);
+    if (!codeM) continue;
+    var nameCell = cells[2];
+    var noteM = nameCell.match(/<FONT color=#FF3300>([\s\S]*?)<\/font>/i);
+    var instructors = (nameCell.match(/<LI>([^<]*)/gi) || [])
+      .map(function (x) { return regStripTags(x.replace(/<LI>/i, '')); })
+      .filter(function (x) { return !!x; });
+    rows.push({
+      courseId: codeM[1],
+      code: codeM[2].toUpperCase(),
+      nameTh: regStripTags(nameCell.split(/<br|<FONT|<LI/i)[0]),
+      note: noteM ? regStripTags(noteM[1]) : '',
+      instructors: instructors,
+      credit: regStripTags(cells[3]),
+      time: regStripTags(cells[4]),
+      section: regStripTags(cells[5]),
+      capacity: parseInt(regStripTags(cells[6]), 10) || 0,
+      enrolled: parseInt(regStripTags(cells[7]), 10) || 0,
+      remaining: parseInt(regStripTags(cells[8]), 10) || 0,
+      status: regStripTags(cells[9])
+    });
+  }
+  var nextM = html.match(/<A HREF=(class_info_1\.asp\?[^>\s]+)>\s*\[หน้าต่อไป\]/i);
+  return { rows: rows, next: nextM ? nextM[1] : null };
+}
+
+function parseRegDetail(html) {
+  var h = html.match(/<TR class='headerDetail'><TD>[^<]*(?:<\/FONT>)?<\/TD><TD COLSPAN=3>([\s\S]*?)<\/TD><\/TR>\s*<TR class='headerDetail'><TD><\/TD><TD COLSPAN=3>([\s\S]*?)<\/TD>/i);
+  return h ? { nameEn: regStripTags(h[1]), nameTh: regStripTags(h[2]) } : null;
+}
+
+function normalizeRegPatterns(patterns) {
+  var list = Array.isArray(patterns) ? patterns : String(patterns || '').split(/[\s,;]+/);
+  var out = [];
+  list.forEach(function (p) {
+    var s = String(p || '').trim().toUpperCase();
+    if (!s) return;
+    if (!/^[A-Z0-9\-]{1,12}\*?$/.test(s)) return;
+    if (s.indexOf('*') < 0 && !/-\d/.test(s)) s += '*'; // "RD" => "RD*"
+    if (out.indexOf(s) < 0) out.push(s);
+  });
+  return out.slice(0, 10);
+}
+
+/** ดึงรายวิชาจากระบบทะเบียน คืนค่าเป็นรายการวิชา (รวมกลุ่มเรียนของวิชาเดียวกันไว้ด้วยกัน) */
+function scrapeRegCourses(year, semester, patterns) {
+  year = String(year || '').trim();
+  semester = String(semester || '').trim();
+  if (!/^\d{4}$/.test(year) || !/^[123]$/.test(semester)) throw new Error('ปีการศึกษา/ภาคเรียนไม่ถูกต้อง');
+  var pats = normalizeRegPatterns(patterns);
+  if (!pats.length) throw new Error('กรุณาระบุรหัสวิชา เช่น IT*, DS*, RD*, SC*');
+
+  var sections = [];
+  pats.forEach(function (pat) {
+    var path = 'class_info_1.asp?backto=home&facultyid=all&acadyear=' + year + '&semester=' + semester +
+      '&CAMPUSID=&LEVELID=&CLASSSET=&coursename=&cmd=2&coursecode=' + encodeURIComponent(pat);
+    var pages = 0;
+    while (path && pages < 40) {
+      var parsed = parseRegList(regFetch(path));
+      sections = sections.concat(parsed.rows);
+      path = parsed.next;
+      pages++;
+    }
+  });
+
+  var byCode = {}, order = [];
+  sections.forEach(function (r) {
+    if (!byCode[r.code]) {
+      byCode[r.code] = { code: r.code, courseId: r.courseId, nameTh: r.nameTh, nameEn: '', credit: r.credit, sections: [] };
+      order.push(r.code);
+    }
+    var exists = byCode[r.code].sections.some(function (s) { return s.section === r.section; });
+    if (!exists) {
+      byCode[r.code].sections.push({
+        section: r.section, instructors: r.instructors, time: r.time, note: r.note,
+        capacity: r.capacity, enrolled: r.enrolled, remaining: r.remaining, status: r.status
+      });
+    }
+  });
+  var courses = order.map(function (k) { return byCode[k]; });
+
+  // ชื่อภาษาอังกฤษอยู่ในหน้ารายละเอียดของแต่ละวิชา: แคชไว้ 6 ชม. และดึงพร้อมกันทีเดียว
+  var cache = CacheService.getScriptCache();
+  var need = [];
+  courses.forEach(function (c) {
+    var hit = cache.get('regEn_' + c.courseId);
+    if (hit) c.nameEn = hit; else need.push(c);
+  });
+  for (var i = 0; i < need.length; i += 20) {
+    var chunk = need.slice(i, i + 20);
+    var responses = UrlFetchApp.fetchAll(chunk.map(function (c) {
+      return { url: REG_BASE + 'class_info_2.asp?backto=home&option=0&courseid=' + c.courseId + '&acadyear=' + year + '&semester=' + semester, muteHttpExceptions: true };
+    }));
+    responses.forEach(function (res, idx) {
+      try {
+        if (res.getResponseCode() !== 200) return;
+        var d = parseRegDetail(regDecode(res));
+        if (d && d.nameEn) {
+          chunk[idx].nameEn = d.nameEn;
+          if (d.nameTh) chunk[idx].nameTh = d.nameTh;
+          cache.put('regEn_' + chunk[idx].courseId, d.nameEn, 21600);
+        }
+      } catch (e) {}
+    });
+  }
+  courses.sort(function (a, b) { return a.code < b.code ? -1 : a.code > b.code ? 1 : 0; });
+  return courses;
+}
+
+// ---------- รายวิชาที่เปิดให้นักศึกษาเลือก (บันทึกในชีต CourseCatalog) ----------
+function catalogSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(CATALOG_SHEET_NAME);
+  if (!sh) {
+    sh = ss.insertSheet(CATALOG_SHEET_NAME);
+    sh.appendRow(['รหัสวิชา', 'ชื่อวิชา (ไทย)', 'ชื่อวิชา (อังกฤษ)', 'หน่วยกิต', 'กลุ่มเรียน (JSON)', 'อัปเดตล่าสุด']);
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function getCatalogConfig() {
+  var st = readAllSettings();
+  var codes = [];
+  try { codes = JSON.parse(st.catalog_codes || '[]'); } catch (e) {}
+  return {
+    year: st.catalog_year || '',
+    semester: st.catalog_semester || '',
+    patterns: st.catalog_patterns || 'IT*, DS*, RD*, SC*',
+    mode: st.catalog_mode || 'all',          // all = ทุกวิชาที่ตรงรหัส, selected = เฉพาะที่เลือก
+    codes: codes,
+    enabled: st.catalog_enabled === 'true',
+    autoRefresh: st.catalog_auto_refresh !== 'false',
+    updatedAt: st.catalog_updated_at || ''
+  };
+}
+
+function readCatalogFromSheet() {
+  var rows = catalogSheet().getDataRange().getValues();
+  var list = [];
+  for (var i = 1; i < rows.length; i++) {
+    if (!rows[i][0]) continue;
+    var secs = [];
+    try { secs = JSON.parse(rows[i][4] || '[]'); } catch (e) {}
+    list.push({ code: String(rows[i][0]), nameTh: String(rows[i][1]), nameEn: String(rows[i][2]), credit: String(rows[i][3]), sections: secs });
+  }
+  return list;
+}
+
+/** ดึงข้อมูลใหม่ตามการตั้งค่าที่บันทึกไว้ แล้วเขียนลงชีต (เรียกจากปุ่มแอดมิน หรือ trigger รายวัน) */
+function refreshCourseCatalog() {
+  var cfg = getCatalogConfig();
+  if (!cfg.enabled || !cfg.year || !cfg.semester) return { success: false, error: 'ยังไม่ได้ตั้งค่ารายวิชาจากระบบทะเบียน' };
+  var courses = scrapeRegCourses(cfg.year, cfg.semester, cfg.patterns);
+  if (cfg.mode === 'selected') {
+    courses = courses.filter(function (c) { return cfg.codes.indexOf(c.code) >= 0; });
+  }
+  var now = Utilities.formatDate(new Date(), 'GMT+7', 'dd/MM/yyyy HH:mm');
+  var sh = catalogSheet();
+  var last = sh.getLastRow();
+  if (last > 1) sh.getRange(2, 1, last - 1, 6).clearContent();
+  if (courses.length) {
+    sh.getRange(2, 1, courses.length, 6).setNumberFormat('@').setValues(courses.map(function (c) {
+      return [c.code, c.nameTh, c.nameEn, c.credit, JSON.stringify(c.sections), now];
+    }));
+  }
+  handleSaveSettingsInternal({ catalog_updated_at: new Date().toISOString() });
+  CacheService.getScriptCache().remove('catalog_public');
+  return { success: true, count: courses.length };
+}
+
+function publicCatalogPayload() {
+  var cache = CacheService.getScriptCache();
+  var hit = cache.get('catalog_public');
+  if (hit) { try { return JSON.parse(hit); } catch (e) {} }
+  var cfg = getCatalogConfig();
+  // prefixes: ใช้ในฟอร์มเพื่อเตือนเมื่อนักศึกษากรอกรหัสวิชาที่ไม่ใช่ของคณะ
+  var prefixes = normalizeRegPatterns(cfg.patterns).map(function (p) { return p.replace(/\*$/, ''); });
+  var payload = { enabled: cfg.enabled, year: cfg.year, semester: cfg.semester, currentTerm: currentTerm(), updatedAt: cfg.updatedAt, prefixes: prefixes, courses: cfg.enabled ? readCatalogFromSheet() : [] };
+  try { cache.put('catalog_public', JSON.stringify(payload), 1800); } catch (e) {}
+  return payload;
+}
+
+function handleSaveSettingsInternal(map) {
+  var list = Object.keys(map).map(function (k) { return { key: k, value: map[k] }; });
+  return handleSaveSettings({ settings: list });
+}
+
+function installCatalogRefreshTrigger() {
+  var exists = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'scheduledCatalogRefresh'; });
+  if (!exists) ScriptApp.newTrigger('scheduledCatalogRefresh').timeBased().everyDays(1).atHour(6).create();
+}
+
+// trigger รายวัน (06:00) — อัปเดตชื่อวิชา อาจารย์ และจำนวนที่นั่งเหลือ
+function scheduledCatalogRefresh() {
+  if (!getCatalogConfig().autoRefresh) return; // แอดมินปิดการอัปเดตอัตโนมัติไว้
+  try { refreshCourseCatalog(); } catch (e) { Logger.log('scheduledCatalogRefresh: ' + e); }
+}
+
+// ทดสอบว่า Apps Script เข้าถึงระบบทะเบียนได้หรือไม่: เลือกฟังก์ชันนี้แล้วกด Run ดูผลใน "บันทึกการดำเนินการ"
+function testRegistrarFetch() {
+  var courses = scrapeRegCourses('2569', '2', 'IT*, DS*, RD*, SC*');
+  Logger.log('ดึงได้ ' + courses.length + ' วิชา');
+  courses.slice(0, 5).forEach(function (c) {
+    Logger.log(c.code + ' | ' + c.nameTh + ' | ' + c.nameEn + ' | ' + c.sections.length + ' กลุ่ม');
+  });
 }
 
 function runSubmitNotifications(ctx) {
