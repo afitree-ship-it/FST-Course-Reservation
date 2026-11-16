@@ -127,6 +127,7 @@ export interface CatalogConfig {
   codes: string[];
   enabled: boolean;
   autoRefresh: boolean;
+  followTerm?: boolean;
   currentTerm?: string;
   updatedAt: string;
 }

@@ -1522,7 +1522,7 @@ function doPost(e) {
     }
     if (action === 'getCatalogConfig') {
       var cfgOut = getCatalogConfig();
-      cfgOut.currentTerm = currentTerm();
+      cfgOut.currentTerm = termFromDate(new Date()); // ภาคเรียนตามปฏิทิน ณ วันนี้
       return jsonOut({ success: true, data: cfgOut });
     }
     if (action === 'setCatalogAutoRefresh') {
@@ -1538,6 +1538,7 @@ function doPost(e) {
         catalog_semester: String(postData.semester || ''),
         catalog_patterns: pats.join(', '),
         catalog_mode: postData.mode === 'selected' ? 'selected' : 'all',
+        catalog_follow_term: postData.followTerm === false ? 'false' : 'true',
         catalog_codes: JSON.stringify(codes)
       });
       CacheService.getScriptCache().remove('catalog_public');
@@ -1797,13 +1798,13 @@ function installProofCleanupTrigger() {
 function installAllTriggers() {
   installProofCleanupTrigger();
   installCatalogRefreshTrigger();
-  PropertiesService.getScriptProperties().setProperty('TRIGGERS_V2_OK', 'true');
+  PropertiesService.getScriptProperties().setProperty('TRIGGERS_V3_OK', 'true');
   Logger.log('ตั้งเวลาทำงานอัตโนมัติเรียบร้อย');
 }
 
 function ensureAppTriggers() {
   var props = PropertiesService.getScriptProperties();
-  if (props.getProperty('TRIGGERS_V2_OK') === 'true') return;
+  if (props.getProperty('TRIGGERS_V3_OK') === 'true') return;
   try { installAllTriggers(); } catch (e) { Logger.log('Cannot install triggers: ' + e); }
 }
 
@@ -1996,15 +1997,25 @@ function getCatalogConfig() {
   var st = readAllSettings();
   var codes = [];
   try { codes = JSON.parse(st.catalog_codes || '[]'); } catch (e) {}
+  // ค่าเริ่มต้นทำงานอัตโนมัติทั้งหมด: เปิดใช้งาน, ตามภาคเรียนปัจจุบัน, ทุกวิชาที่ตรงรหัส, อัปเดตทุกชั่วโมง
+  // แอดมินปิดหรือเปลี่ยนเองได้ในหน้าตั้งค่า (ค่าที่บันทึกไว้จะใช้แทนค่าเริ่มต้น)
+  var followTerm = st.catalog_follow_term !== 'false';
+  var year = st.catalog_year || '', semester = st.catalog_semester || '';
+  if (followTerm || !year || !semester) {
+    var t = termFromDate(new Date()).split('/');
+    semester = t[0]; year = t[1];
+  }
   return {
-    year: st.catalog_year || '',
-    semester: st.catalog_semester || '',
+    year: year,
+    semester: semester,
+    followTerm: followTerm,
     patterns: st.catalog_patterns || 'IT*, DS*, RD*, SC*',
     mode: st.catalog_mode || 'all',          // all = ทุกวิชาที่ตรงรหัส, selected = เฉพาะที่เลือก
     codes: codes,
-    enabled: st.catalog_enabled === 'true',
+    enabled: st.catalog_enabled !== 'false',
     autoRefresh: st.catalog_auto_refresh !== 'false',
-    updatedAt: st.catalog_updated_at || ''
+    updatedAt: st.catalog_updated_at || '',
+    loadedTerm: st.catalog_loaded_term || ''
   };
 }
 
@@ -2037,7 +2048,7 @@ function refreshCourseCatalog() {
       return [c.code, c.nameTh, c.nameEn, c.credit, JSON.stringify(c.sections), now];
     }));
   }
-  handleSaveSettingsInternal({ catalog_updated_at: new Date().toISOString() });
+  handleSaveSettingsInternal({ catalog_updated_at: new Date().toISOString(), catalog_loaded_term: cfg.semester + '/' + cfg.year });
   CacheService.getScriptCache().remove('catalog_public');
   return { success: true, count: courses.length };
 }
@@ -2047,10 +2058,24 @@ function publicCatalogPayload() {
   var hit = cache.get('catalog_public');
   if (hit) { try { return JSON.parse(hit); } catch (e) {} }
   var cfg = getCatalogConfig();
+  // ระบบสำรอง: ถ้าข้อมูลยังไม่เคยดึง / เก่าเกิน 3 ชั่วโมง / ขึ้นภาคเรียนใหม่แล้ว ให้ดึงใหม่ทันที
+  // (ปกติ trigger รายชั่วโมงจะอัปเดตไว้ก่อนแล้ว ส่วนนี้กันกรณี trigger ยังไม่ได้ติดตั้ง)
+  if (cfg.enabled && cfg.autoRefresh) {
+    var age = cfg.updatedAt ? Date.now() - new Date(cfg.updatedAt).getTime() : Infinity;
+    var termChanged = cfg.loadedTerm !== cfg.semester + '/' + cfg.year;
+    var neverLoaded = !cfg.updatedAt;
+    // นอกเวลา 08:00–16:30 ไม่ดึง ยกเว้นยังไม่เคยมีข้อมูลเลย หรือขึ้นภาคเรียนใหม่
+    var due = neverLoaded || termChanged || (inCatalogAutoWindow() && age > 3 * 60 * 60 * 1000);
+    if (due && !cache.get('catalog_refreshing')) {
+      cache.put('catalog_refreshing', '1', 120);
+      try { refreshCourseCatalog(); cfg = getCatalogConfig(); } catch (e) { Logger.log('inline catalog refresh: ' + e); }
+      cache.remove('catalog_refreshing');
+    }
+  }
   // prefixes: ใช้ในฟอร์มเพื่อเตือนเมื่อนักศึกษากรอกรหัสวิชาที่ไม่ใช่ของคณะ
   var prefixes = normalizeRegPatterns(cfg.patterns).map(function (p) { return p.replace(/\\*$/, ''); });
   var payload = { enabled: cfg.enabled, year: cfg.year, semester: cfg.semester, currentTerm: currentTerm(), updatedAt: cfg.updatedAt, prefixes: prefixes, courses: cfg.enabled ? readCatalogFromSheet() : [] };
-  try { cache.put('catalog_public', JSON.stringify(payload), 1800); } catch (e) {}
+  try { cache.put('catalog_public', JSON.stringify(payload), 600); } catch (e) {}
   return payload;
 }
 
@@ -2059,14 +2084,42 @@ function handleSaveSettingsInternal(map) {
   return handleSaveSettings({ settings: list });
 }
 
+// trigger รายชั่วโมง (ตัวฟังก์ชันจะเลือกดึงเฉพาะทุก 2 ชม. ช่วง 08:00–16:30) — แทนที่ trigger เดิมถ้ามี
 function installCatalogRefreshTrigger() {
-  var exists = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'scheduledCatalogRefresh'; });
-  if (!exists) ScriptApp.newTrigger('scheduledCatalogRefresh').timeBased().everyDays(1).atHour(6).create();
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'scheduledCatalogRefresh') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('scheduledCatalogRefresh').timeBased().everyHours(1).create();
 }
 
-// trigger รายวัน (06:00) — อัปเดตชื่อวิชา อาจารย์ และจำนวนที่นั่งเหลือ
+// อัปเดตรายวิชาใหม่ ชื่อวิชา อาจารย์ และจำนวนที่นั่งเหลือ
+// ช่วงเวลาดึงอัตโนมัติ: ทุก 2 ชั่วโมง ระหว่าง 08:00–16:30 น. (เวลาไทย)
+var CATALOG_AUTO_START = '08:00';
+var CATALOG_AUTO_END = '16:30';
+var CATALOG_AUTO_HOURS = [8, 10, 12, 14, 16];
+
+function bangkokNow() {
+  return {
+    hm: Utilities.formatDate(new Date(), 'Asia/Bangkok', 'HH:mm'),
+    hour: parseInt(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'H'), 10),
+    day: Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd')
+  };
+}
+
+function inCatalogAutoWindow() {
+  var t = bangkokNow().hm;
+  return t >= CATALOG_AUTO_START && t <= CATALOG_AUTO_END;
+}
+
+// trigger รันทุกชั่วโมง แต่ดึงจริงเฉพาะชั่วโมง 08, 10, 12, 14, 16 และไม่เกิน 16:30 (ไม่ขึ้นกับโซนเวลาของโปรเจกต์)
 function scheduledCatalogRefresh() {
   if (!getCatalogConfig().autoRefresh) return; // แอดมินปิดการอัปเดตอัตโนมัติไว้
+  var now = bangkokNow();
+  if (!inCatalogAutoWindow() || CATALOG_AUTO_HOURS.indexOf(now.hour) < 0) return;
+  var props = PropertiesService.getScriptProperties();
+  var slot = now.day + ' ' + now.hour;
+  if (props.getProperty('CATALOG_LAST_SLOT') === slot) return; // รอบนี้ดึงไปแล้ว
+  props.setProperty('CATALOG_LAST_SLOT', slot);
   try { refreshCourseCatalog(); } catch (e) { Logger.log('scheduledCatalogRefresh: ' + e); }
 }
 

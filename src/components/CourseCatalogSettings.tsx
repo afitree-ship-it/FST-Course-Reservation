@@ -37,6 +37,8 @@ export default function CourseCatalogSettings({ showToast }: { showToast: Toast 
   const [refreshing, setRefreshing] = useState(false);
   const [autoIncludeNew, setAutoIncludeNew] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [followTerm, setFollowTerm] = useState(true);
+  const [currentTerm, setCurrentTerm] = useState('');
   const [savingAuto, setSavingAuto] = useState(false);
 
   useEffect(() => {
@@ -51,9 +53,18 @@ export default function CourseCatalogSettings({ showToast }: { showToast: Toast 
       setSavedMode(cfg.mode);
       setAutoIncludeNew(cfg.mode !== 'selected');
       setAutoRefresh(cfg.autoRefresh !== false);
-      // เปิดหน้าตั้งค่าแล้วดึงรายวิชาล่าสุดจากระบบทะเบียนให้อัตโนมัติ (เห็นวิชาที่เพิ่งเปิดใหม่ทันที)
-      if (cfg.enabled && cfg.autoRefresh !== false && cfg.year && cfg.semester) {
-        handleFetch({ year: cfg.year, semester: cfg.semester, patterns: cfg.patterns, mode: cfg.mode, codes: cfg.codes || [], enabled: true, quiet: true });
+      setFollowTerm(cfg.followTerm !== false);
+      if (cfg.currentTerm) setCurrentTerm(cfg.currentTerm);
+      // ยังไม่เคยตั้งค่า: ใช้ภาคเรียนปัจจุบัน (เช่น 2/2569) เป็นค่าเริ่มต้น
+      let y = cfg.year, sem = cfg.semester;
+      if ((!y || !sem) && cfg.currentTerm && /^[123]\/\d{4}$/.test(cfg.currentTerm)) {
+        [sem, y] = cfg.currentTerm.split('/');
+        setYear(y);
+        setSemester(sem);
+      }
+      // สวิตช์ "ดึงอัตโนมัติ" เปิดอยู่ => ดึงรายวิชาล่าสุดจากระบบทะเบียนให้ทันทีที่เปิดหน้านี้ (รวมครั้งแรกที่ยังไม่เคยบันทึก)
+      if (cfg.autoRefresh !== false && y && sem) {
+        handleFetch({ year: y, semester: sem, patterns: cfg.patterns || 'IT*, DS*, RD*, SC*', mode: cfg.mode, codes: cfg.codes || [], enabled: cfg.enabled, quiet: true });
       }
     });
   }, []);
@@ -79,6 +90,7 @@ export default function CourseCatalogSettings({ showToast }: { showToast: Toast 
     const fresh = sameTerm ? res.data.filter(c => !codes.includes(c.code)).length : 0;
     if (!override?.quiet) showToast(`ดึงข้อมูลได้ ${res.data.length} รายวิชา`, 'success');
     else if (fresh > 0) showToast(`มีรายวิชาเปิดใหม่ ${fresh} วิชาที่ยังไม่ได้เลือก`, 'info');
+    else if (!isEnabled) showToast(`ดึงรายวิชาภาคเรียน ${sem}/${y} ให้แล้ว ${res.data.length} วิชา — เลือกแล้วกด "เปิดให้นักศึกษาเลือก"`, 'info');
   };
 
   const filtered = useMemo(() => {
@@ -112,7 +124,7 @@ export default function CourseCatalogSettings({ showToast }: { showToast: Toast 
     const everything = selected.size === courses.length;
     const mode: 'all' | 'selected' = everything && autoIncludeNew ? 'all' : 'selected';
     setSaving(true);
-    const res = await saveCourseCatalog({ enabled: true, year, semester, patterns, mode, codes: Array.from(selected) });
+    const res = await saveCourseCatalog({ enabled: true, year, semester, patterns, mode, codes: Array.from(selected), followTerm });
     setSaving(false);
     if (res.success) {
       setEnabled(true);
@@ -127,7 +139,7 @@ export default function CourseCatalogSettings({ showToast }: { showToast: Toast 
 
   const handleDisable = async () => {
     setSaving(true);
-    const res = await saveCourseCatalog({ enabled: false, year, semester, patterns, mode: savedMode, codes: savedCodes });
+    const res = await saveCourseCatalog({ enabled: false, year, semester, patterns, mode: savedMode, codes: savedCodes, followTerm });
     setSaving(false);
     if (res.success) {
       setEnabled(false);
@@ -144,7 +156,7 @@ export default function CourseCatalogSettings({ showToast }: { showToast: Toast 
     setSavingAuto(false);
     if (ok) {
       setAutoRefresh(next);
-      showToast(next ? 'เปิดการดึงรายวิชาอัตโนมัติแล้ว (ทุกวัน 06:00 น.)' : 'ปิดการดึงอัตโนมัติแล้ว รายวิชาจะเปลี่ยนเฉพาะเมื่อกดอัปเดตเอง', 'success');
+      showToast(next ? 'เปิดการดึงรายวิชาอัตโนมัติแล้ว (ทุก 2 ชม. ช่วง 08:00–16:30 น.)' : 'ปิดการดึงอัตโนมัติแล้ว รายวิชาจะเปลี่ยนเฉพาะเมื่อกดอัปเดตเอง', 'success');
     } else {
       showToast('บันทึกไม่สำเร็จ', 'error');
     }
@@ -173,7 +185,7 @@ export default function CourseCatalogSettings({ showToast }: { showToast: Toast 
           <h3 className="text-base font-extrabold text-slate-800">รายวิชาจากระบบทะเบียน (reg.ftu.ac.th)</h3>
         </div>
         <p className="text-xs text-slate-500">
-          ดึงรหัสวิชาและชื่อวิชา (ไทย/อังกฤษ) พร้อมกลุ่มเรียนและอาจารย์ผู้สอน แล้วเลือกรายวิชาที่จะให้นักศึกษาเลือกในฟอร์ม
+          ระบบดึงรหัสวิชา ชื่อวิชา (ไทย/อังกฤษ) กลุ่มเรียน และอาจารย์ผู้สอนจากระบบทะเบียนมาให้นักศึกษาเลือกในฟอร์มโดยอัตโนมัติ แอดมินเลือกปี/ภาคเรียน หรือเลือกเฉพาะบางวิชาเองได้ด้านล่าง
         </p>
       </div>
 
@@ -207,8 +219,10 @@ export default function CourseCatalogSettings({ showToast }: { showToast: Toast 
           <div className="font-bold text-slate-800">ดึงรายวิชาอัตโนมัติ</div>
           <div className="text-slate-500 mt-0.5">
             {autoRefresh
-              ? 'เปิดอยู่: อัปเดตชื่อวิชา กลุ่ม อาจารย์ และที่นั่งเหลือจากระบบทะเบียนทุกวัน 06:00 น. และดึงรายการล่าสุดให้เมื่อเปิดหน้านี้'
-              : 'ปิดอยู่: รายวิชาในฟอร์มคงเดิม จนกว่าจะกด "อัปเดตเดี๋ยวนี้" หรือ "ดึงรายวิชา" เอง'}
+              ? (enabled
+                  ? 'เปิดอยู่: ดึงจากระบบทะเบียนทุก 2 ชั่วโมง ช่วง 08:00–16:30 น. (ประมาณ 08, 10, 12, 14, 16 น.) วิชาที่เปิดใหม่ ชื่อวิชา กลุ่ม อาจารย์ และที่นั่งเหลือ จะขึ้นในฟอร์มนักศึกษาเอง'
+                  : 'เปิดอยู่ แต่ปิดการแสดงรายวิชาในฟอร์มไว้ — กด "เปิดให้นักศึกษาเลือก" เพื่อเปิดใช้งาน')
+              : 'ปิดอยู่ (โหมดทำเอง): รายวิชาในฟอร์มคงเดิม จนกว่าจะกด "อัปเดตเดี๋ยวนี้" หรือ "ดึงรายวิชา" แล้วบันทึกเอง'}
           </div>
         </div>
         <button
@@ -224,17 +238,38 @@ export default function CourseCatalogSettings({ showToast }: { showToast: Toast 
         </button>
       </div>
 
+      {/* follow current semester */}
+      <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={followTerm}
+          onChange={e => {
+            setFollowTerm(e.target.checked);
+            if (e.target.checked && /^[123]\/\d{4}$/.test(currentTerm)) {
+              const [sem, y] = currentTerm.split('/');
+              setSemester(sem);
+              setYear(y);
+            }
+          }}
+          className="w-4 h-4 mt-0.5 accent-mangosteen"
+        />
+        <span>
+          <strong>ใช้ภาคเรียนปัจจุบันอัตโนมัติ</strong>
+          <span className="text-slate-500"> — ขึ้นภาคเรียนใหม่แล้วระบบเปลี่ยนตามเอง (เอาเครื่องหมายออก ถ้าต้องการเลือกปี/ภาคเรียนเอง แล้วกดบันทึก)</span>
+        </span>
+      </label>
+
       {/* search form */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
         <div>
           <label className="block text-xs font-semibold text-slate-700 mb-1">ปีการศึกษา</label>
-          <select value={year} onChange={e => setYear(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white">
+          <select value={year} onChange={e => setYear(e.target.value)} disabled={followTerm} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white disabled:bg-slate-100 disabled:text-slate-500">
             {years.sort().map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
         <div>
           <label className="block text-xs font-semibold text-slate-700 mb-1">ภาคเรียน</label>
-          <select value={semester} onChange={e => setSemester(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white">
+          <select value={semester} onChange={e => setSemester(e.target.value)} disabled={followTerm} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white disabled:bg-slate-100 disabled:text-slate-500">
             <option value="1">1</option>
             <option value="2">2</option>
             <option value="3">3 (ฤดูร้อน)</option>
@@ -286,7 +321,16 @@ export default function CourseCatalogSettings({ showToast }: { showToast: Toast 
                     </div>
                     {c.nameEn && <div className="text-xs text-slate-500">{c.nameEn}</div>}
                     <div className="text-[11px] text-slate-400 mt-0.5">
-                      {c.credit} · {c.sections.length} กลุ่ม (กลุ่ม {c.sections.map(s => s.section).join(', ')}) · เหลือรวม {left} ที่นั่ง
+                      {c.credit} · {c.sections.length} กลุ่ม · เหลือรวม {left} ที่นั่ง
+                    </div>
+                    <div className="mt-1 space-y-0.5">
+                      {c.sections.map(s => (
+                        <div key={s.section} className="text-[11px] text-slate-600 flex flex-wrap gap-x-1.5">
+                          <span className="font-mono font-bold text-mangosteen">กลุ่ม {s.section}</span>
+                          <span>{s.instructors.length ? s.instructors.join(', ') : 'ยังไม่ระบุอาจารย์'}</span>
+                          <span className="text-slate-400">· เหลือ {s.remaining}/{s.capacity}{s.time ? ` · ${s.time}` : ''}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </label>

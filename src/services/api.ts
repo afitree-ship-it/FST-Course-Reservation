@@ -723,7 +723,7 @@ export async function getCatalogConfig(): Promise<CatalogConfig | null> {
   }
 }
 
-export async function saveCourseCatalog(cfg: { enabled: boolean; year: string; semester: string; patterns: string; mode: 'all' | 'selected'; codes: string[] }): Promise<{ success: boolean; count?: number; error?: string }> {
+export async function saveCourseCatalog(cfg: { enabled: boolean; year: string; semester: string; patterns: string; mode: 'all' | 'selected'; codes: string[]; followTerm?: boolean }): Promise<{ success: boolean; count?: number; error?: string }> {
   try {
     timeoutOverrideMs = 120_000;
     const result = await adminCall('saveCourseCatalog', cfg, false, 1).finally(() => { timeoutOverrideMs = 0; });
