@@ -1705,7 +1705,7 @@ function handleSubmitRequest(data) {
   lock.waitLock(20000);
   var newRowIndex;
   try {
-  sheet.appendRow([
+  sheet.appendRow(fitRow([
     id, formattedDate, studentIdStr, data.fullName || '', data.year || '', data.faculty || '', data.department || '',
     summary.courseCodes, summary.courseNames, summary.sections, summary.instructors, phoneStr, data.proofType || '',
     proofLink, 'รอดำเนินการ', '', summary.count, '', '', proofFileJSON, coursesJSONStr, notifyChan, contactEmail,
@@ -1713,7 +1713,7 @@ function handleSubmitRequest(data) {
     coStudentsText, // 25. เพื่อนร่วมกลุ่ม
     totalSeats,     // 26. จำนวนที่นั่งรวม
     currentTerm()   // 27. ภาคเรียน เช่น 2/2569
-  ]);
+  ]));
   if (!sheet.getRange(1, 27).getValue()) sheet.getRange(1, 27).setValue('ภาคเรียน');
   SpreadsheetApp.flush();
   bumpDataVersion();
@@ -2045,7 +2045,7 @@ function refreshCourseCatalog() {
   if (last > 1) sh.getRange(2, 1, last - 1, 6).clearContent();
   if (courses.length) {
     sh.getRange(2, 1, courses.length, 6).setNumberFormat('@').setValues(courses.map(function (c) {
-      return [c.code, c.nameTh, c.nameEn, c.credit, JSON.stringify(c.sections), now];
+      return [c.code, fitCell(c.nameTh), fitCell(c.nameEn), c.credit, fitCell(JSON.stringify(c.sections)), now];
     }));
   }
   handleSaveSettingsInternal({ catalog_updated_at: new Date().toISOString(), catalog_loaded_term: cfg.semester + '/' + cfg.year });
@@ -2267,8 +2267,9 @@ function handleSubmitFollowUp(data) {
 // ห้ามเขียนทับทั้งแถว: Google Sheets จะตีความค่าใหม่เหมือนพิมพ์เอง ทำให้รหัสนักศึกษา/เบอร์โทรที่เป็นข้อความ
 // กลายเป็นตัวเลข (เบอร์โทรหายเลข 0 นำหน้า) และวันที่ยื่นคำร้องอาจถูกแปลงผิดปี => คำร้องหายจากหน้าตรวจสอบสถานะ
 function writeDecisionColumns(sheet, rowNum, row) {
-  sheet.getRange(rowNum, 15, 1, 7).setValues([row.slice(14, 21)]); // O:U  สถานะ, เหตุผล, จำนวนวิชา, วันที่ดำเนินการ, ผู้ดำเนินการ, หลักฐาน JSON, รายวิชา JSON
-  sheet.getRange(rowNum, 24).setValue(row[23] || '');               // X    สถานะการส่งอีเมล
+  sheet.getRange(rowNum, 15, 1, 5).setValues([row.slice(14, 19).map(fitCell)]); // O:S  สถานะ, เหตุผล, จำนวนวิชา, วันที่ดำเนินการ, ผู้ดำเนินการ
+  sheet.getRange(rowNum, 21).setValue(fitCell(row[20]));                       // U    รายวิชา JSON (ไม่แตะคอลัมน์ T หลักฐาน)
+  sheet.getRange(rowNum, 24).setValue(fitCell(row[23] || ''));                 // X    สถานะการส่งอีเมล
 }
 
 // เวอร์ชันข้อมูล: เพิ่มทุกครั้งที่มีการเขียน ใช้ตัดสินว่าแคชผลค้นหารายนักศึกษายังใช้ได้ไหม
@@ -2280,6 +2281,15 @@ function getDataVersion() {
 function bumpDataVersion() {
   CacheService.getScriptCache().put('data_ver', Date.now() + '-' + Math.random().toString(36).slice(2), 21600);
 }
+
+// Google Sheets รับได้สูงสุด 50,000 ตัวอักษรต่อช่อง: ตัดส่วนเกินทิ้งแทนที่จะทำให้ทั้งคำสั่งล้มเหลว
+var CELL_LIMIT = 49000;
+function fitCell(v) {
+  if (typeof v !== 'string') return v;
+  return v.length > CELL_LIMIT ? v.slice(0, CELL_LIMIT) : v;
+}
+
+function fitRow(arr) { return arr.map(fitCell); }
 
 function normalizeId(v) {
   return String(v == null ? '' : v).replace(/\\D/g, '');
@@ -2421,7 +2431,7 @@ function handleUpdateStatus(data) {
   } else if (shouldEmail) {
     row[emailStatusCol] = (row[emailStatusCol] || '') + " | ⚠️ ไม่มีอีเมล";
   }
-  if (shouldEmail) sheet.getRange(rowNum, 24).setValue(row[emailStatusCol] || '');
+  if (shouldEmail) sheet.getRange(rowNum, 24).setValue(fitCell(String(row[emailStatusCol] || '').slice(-3000)));
 
   try {
     var statusAlertMsg = "\\n📢 [ผลการพิจารณาคำร้องสำรองที่นั่ง]\\n" +
@@ -2593,7 +2603,7 @@ function handleUpdateCourseStatus(data) {
 
     var sendRes3 = sendSafeEmail(studentEmail, emailSubject, textBody, htmlBody);
     row[emailStatusCol] = (row[emailStatusCol] || '') + (sendRes3.success ? " | ✅ แจ้งผลครบทุกวิชา (" + decisionSummary + ")" : " | ❌ แจ้งผลล้มเหลว: " + sendRes3.message);
-    sheet.getRange(rowNum, 24).setValue(row[emailStatusCol] || '');
+    sheet.getRange(rowNum, 24).setValue(fitCell(String(row[emailStatusCol] || '').slice(-3000)));
   }
 
   try {
@@ -2663,12 +2673,15 @@ function handleSaveSettings(data) {
       var key = String(it.key || '');
       if (!key) return;
       var val = it.value == null ? '' : String(it.value);
-      if (val.length > 49000) throw new Error('ค่าการตั้งค่า "' + key + '" ยาวเกินที่ Google Sheets รับได้ (50,000 ตัวอักษร/ช่อง)');
-      if (index[key] !== undefined) rows[index[key]][1] = val;
-      else appended.push([key, val]);
+      if (val.length > CELL_LIMIT) throw new Error('ค่าการตั้งค่า "' + key + '" ยาวเกินที่ Google Sheets รับได้ (50,000 ตัวอักษร/ช่อง)');
+      // เขียนเฉพาะแถวที่เปลี่ยน (เดิมเขียนทับทุกแถว รวมโลโก้ที่ยาวมาก ทำให้บางครั้งเกินขีดจำกัด 50,000 ตัวอักษร)
+      if (index[key] !== undefined) {
+        if (String(rows[index[key]][1]) !== val) sheet.getRange(index[key] + 1, 2).setNumberFormat('@').setValue(val);
+      } else {
+        appended.push([key, val]);
+      }
     });
-    if (rows.length > 1) sheet.getRange(2, 1, rows.length - 1, 2).setValues(rows.slice(1).map(function (r) { return [r[0], r[1]]; }));
-    if (appended.length) sheet.getRange(sheet.getLastRow() + 1, 1, appended.length, 2).setValues(appended);
+    if (appended.length) sheet.getRange(sheet.getLastRow() + 1, 1, appended.length, 2).setNumberFormat('@').setValues(appended);
     invalidateSettingsCache();
     return jsonOut({ success: true });
   } finally {
@@ -2693,7 +2706,7 @@ function handleRecordAuditLog(data) {
   var formattedDate = Utilities.formatDate(new Date(), "GMT+7", "dd/MM/yyyy HH:mm:ss");
   
   sheet.appendRow([
-    id, formattedDate, data.adminName || 'เจ้าหน้าที่', data.logAction || '', data.targetId || '', data.details || ''
+    id, formattedDate, String(data.adminName || 'เจ้าหน้าที่').slice(0, 100), String(data.logAction || '').slice(0, 200), String(data.targetId || '').slice(0, 100), String(data.details || '').slice(0, 2000)
   ]);
   return jsonOut({ success: true, data: { id: id, timestamp: new Date().toISOString() } });
 }
