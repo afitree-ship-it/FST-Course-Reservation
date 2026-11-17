@@ -621,7 +621,7 @@ export default function AdminSection({
     return m ? m[1] : null;
   };
   const openProof = (r: ReservationRequest) =>
-    setPreviewImage({ url: r.facebookProofFile?.dataUrl || r.facebookProofLink || '', rawLink: r.facebookProofLink, title: `ภาพหลักฐานจากคุณ ${r.fullName}` });
+    setPreviewImage({ url: r.facebookProofFile?.dataUrl || r.facebookProofLink || '', rawLink: r.facebookProofLink, title: `ภาพหลักฐานของ ${r.fullName}` });
 
   // ความคืบหน้าการพิจารณารายวิชาของคำร้อง
   const courseProgress = (r: ReservationRequest) => {
@@ -1886,6 +1886,22 @@ function handleGetProofImage(data) {
     var blob = file.getBlob();
     var type = blob.getContentType() || 'image/jpeg';
     if (type.indexOf('image/') !== 0) return jsonOut({ success: false, error: 'ไฟล์นี้ไม่ใช่รูปภาพ' });
+    // รูปย่อสำหรับแสดงในรายการ (data.size = ความกว้างเป็นพิกเซล) — ไฟล์เล็กกว่าต้นฉบับหลายสิบเท่า
+    var size = Math.min(Math.max(parseInt(data.size, 10) || 0, 0), 1600);
+    if (size) {
+      try {
+        var auth = { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() };
+        var metaRes = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?fields=thumbnailLink', { headers: auth, muteHttpExceptions: true });
+        var meta = JSON.parse(metaRes.getContentText() || '{}');
+        if (meta.thumbnailLink) {
+          var thumbRes = UrlFetchApp.fetch(String(meta.thumbnailLink).replace(/=s[0-9]+$/, '=w' + size), { headers: auth, muteHttpExceptions: true });
+          if (thumbRes.getResponseCode() === 200) {
+            var tb = thumbRes.getBlob();
+            return jsonOut({ success: true, thumb: true, dataUrl: 'data:' + (tb.getContentType() || 'image/jpeg') + ';base64,' + Utilities.base64Encode(tb.getBytes()) });
+          }
+        }
+      } catch (thumbErr) { /* ใช้ไฟล์ต้นฉบับแทน */ }
+    }
     var bytes = blob.getBytes();
     if (bytes.length > 15 * 1024 * 1024) return jsonOut({ success: false, error: 'ไฟล์ใหญ่เกินไป' });
     return jsonOut({ success: true, dataUrl: 'data:' + type + ';base64,' + Utilities.base64Encode(bytes) });
@@ -3115,6 +3131,114 @@ function handleRecordAuditLog(data) {
 
   const processedRequests = getProcessedRequests();
 
+  // คำร้องที่ขอหลายวิชา (3 วิชาขึ้นไป): แสดงเป็นรายการกระชับ 1 แถวต่อ 1 วิชา ปุ่มอนุมัติอยู่ท้ายแถว
+  const renderCompactCourses = (req: ReservationRequest) => {
+    const list = req.courses || [];
+    const pendingN = list.filter(c => !c.status || c.status === 'รอดำเนินการ').length;
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden font-sans">
+        <div className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200 text-[12px] font-bold text-slate-700">
+          <span>ขอทั้งหมด {list.length} รายวิชา</span>
+          <span className={pendingN ? 'text-amber-700' : 'text-emerald-700'}>{pendingN ? `รอพิจารณา ${pendingN} วิชา` : 'พิจารณาครบแล้ว'}</span>
+        </div>
+        <ul className="divide-y divide-slate-100">
+          {list.map((course, i) => {
+            const st = course.status || 'รอดำเนินการ';
+            const pending = st === 'รอดำเนินการ';
+            const groupN = course.coStudents?.length || 0;
+            return (
+              <li key={i} className={`px-3 py-2.5 ${pending ? 'bg-amber-50/50' : st === 'อนุมัติแล้ว' ? 'bg-emerald-50/60' : 'bg-rose-50/60'}`}>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <span className="w-5 text-[11px] font-mono font-bold text-slate-400 shrink-0">{i + 1}.</span>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyCourseCode(course.courseCode)}
+                    title="คลิกเพื่อคัดลอกรหัสวิชา"
+                    className={`shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-md font-mono text-[11px] font-extrabold cursor-pointer transition-colors ${copiedKey === course.courseCode ? 'bg-emerald-600 text-white' : 'bg-mangosteen text-white hover:bg-mangosteen-hover'}`}
+                  >
+                    {course.courseCode}
+                    {copiedKey === course.courseCode ? <Check className="w-3 h-3" /> : <Copy className="w-2.5 h-2.5 opacity-80" />}
+                  </button>
+                  <div className="min-w-[180px] flex-1">
+                    <div className="text-[13px] font-bold text-slate-800 leading-snug line-clamp-2" title={course.courseName}>{course.courseName}</div>
+                    <div className="text-[11px] text-slate-500 truncate" title={course.instructor}>
+                      กลุ่ม <b className="text-mangosteen font-mono">{course.section || '-'}</b> · {course.instructor || 'ไม่ระบุผู้สอน'}
+                      {groupN > 0 && <span className="ml-1 text-sky-700 font-bold">· ยื่นเป็นกลุ่ม {1 + groupN} คน</span>}
+                    </div>
+                  </div>
+                  {pending ? (
+                    <div className="flex gap-1.5 shrink-0 ml-auto">
+                      <button
+                        type="button"
+                        onClick={() => handleApproveCourse(req.id, course.courseCode)}
+                        className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg inline-flex items-center gap-1 cursor-pointer active:scale-[0.98]"
+                        title={`อนุมัติวิชา ${course.courseCode}`}
+                      >
+                        <CheckCircle className="w-3.5 h-3.5" /> อนุมัติ
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRejectCourseModalOpen(req.id, course.courseCode)}
+                        className="h-8 px-3 bg-white hover:bg-rose-50 border border-rose-300 text-rose-600 text-xs font-bold rounded-lg inline-flex items-center gap-1 cursor-pointer active:scale-[0.98]"
+                        title={`ไม่อนุมัติวิชา ${course.courseCode}`}
+                      >
+                        <XCircle className="w-3.5 h-3.5" /> ไม่อนุมัติ
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                      <span className={`text-xs px-2 py-1 rounded-md font-bold inline-flex items-center gap-1 ${st === 'อนุมัติแล้ว' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                        {st === 'อนุมัติแล้ว' ? <CheckCircle className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
+                        {st}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleResetCourseToPending(req.id, course.courseCode)}
+                        className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white rounded-md cursor-pointer"
+                        title="แก้ไขสถานะกลับเป็น รอดำเนินการ"
+                        aria-label="แก้ไขสถานะกลับเป็น รอดำเนินการ"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {!pending && (course.processedBy || course.rejectionReason) && (
+                  <div className="pl-8 mt-1 text-[11px] text-slate-600">
+                    {course.processedBy && <>พิจารณาโดย <b className="text-slate-800">{course.processedBy}</b>{course.processedAt ? ` · ${fmtDateTime(course.processedAt)}` : ''}</>}
+                    {course.rejectionReason && <span className="text-rose-600"> · เหตุผล: {course.rejectionReason}</span>}
+                  </div>
+                )}
+                {groupN > 0 && (
+                  <details className="pl-8 mt-1.5">
+                    <summary className="text-[11px] font-bold text-mangosteen cursor-pointer select-none">ดูรายชื่อในกลุ่ม ({1 + groupN} ที่นั่ง)</summary>
+                    <div className="flex flex-col gap-1 mt-1.5">
+                      {[{ studentId: req.studentId, fullName: req.fullName, lead: true }, ...(course.coStudents || []).map(cs => ({ studentId: cs.studentId, fullName: cs.fullName, lead: false }))].map((m, mIdx) => (
+                        <div key={mIdx} className={`flex items-center gap-2 rounded-lg p-0.5 pr-2 border ${m.lead ? 'bg-mangosteen/5 border-mangosteen/25' : 'bg-slate-50 border-slate-200'}`}>
+                          <button
+                            type="button"
+                            onClick={() => copyText(m.studentId, 'รหัสนักศึกษา')}
+                            title="คลิกเพื่อคัดลอกรหัสนักศึกษา"
+                            className={`inline-flex items-center gap-1.5 h-7 px-2 rounded-md font-mono text-xs font-black cursor-pointer shrink-0 ${copiedKey === m.studentId ? 'bg-emerald-600 text-white border border-emerald-600' : 'bg-white text-slate-900 border border-slate-300 hover:border-mangosteen'}`}
+                          >
+                            {m.studentId}
+                            {copiedKey === m.studentId ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3 opacity-60" />}
+                          </button>
+                          <span className="text-xs text-slate-700 font-medium">{m.fullName}</span>
+                          {m.lead && <span className="text-[10px] font-bold text-mangosteen bg-white border border-mangosteen/30 px-1.5 py-0.5 rounded">ผู้ยื่นหลัก</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    );
+  };
+
   const getStatusRowColor = (status: RequestStatus) => {
     switch (status) {
       case 'รอดำเนินการ': return 'bg-amber-50/40 hover:bg-amber-50/60 transition-colors';
@@ -3729,7 +3853,7 @@ function handleRecordAuditLog(data) {
                       {/* row header */}
                       <div className="flex items-center gap-3 px-5 pt-4 font-sans">
                         <span className="w-8 h-8 rounded-full bg-slate-800 text-white font-mono font-bold text-sm flex items-center justify-center shrink-0">{idx + 1}</span>
-                        <span className="font-extrabold text-slate-800 text-sm">คุณ{req.fullName}</span>
+                        <span className="font-extrabold text-slate-800 text-sm">{req.fullName}</span>
                         <span className="flex-1 h-px bg-slate-200" />
                         <span className={`text-xs font-bold px-3 py-1 rounded-full border ${pill}`}>
                           {req.status === 'รอดำเนินการ' && p.total > 0 ? `รอดำเนินการ · ${p.approved + p.rejected}/${p.total} วิชา` : req.status}
@@ -3762,7 +3886,7 @@ function handleRecordAuditLog(data) {
                             {req.studentId}
                             {copiedKey === req.studentId ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3 opacity-70" />}
                           </button>
-                          <div className="font-extrabold text-slate-800 text-sm leading-snug">คุณ{req.fullName}</div>
+                          <div className="font-extrabold text-slate-800 text-sm leading-snug">{req.fullName}</div>
                           <div className="border-t border-slate-200 pt-2 space-y-0.5 leading-relaxed">
                             <div className="text-slate-800 font-bold text-[12px]">{req.faculty || 'คณะวิทยาศาสตร์และเทคโนโลยี'}</div>
                             <div className="text-slate-700 text-[12px]" title={req.department}>สาขา: {req.department}</div>
@@ -3811,7 +3935,7 @@ function handleRecordAuditLog(data) {
 
                         {/* courses */}
                         <div className="space-y-2.5 font-sans min-w-0">
-                          {((req.courses && req.courses.length > 0) ? req.courses : [{
+                          {(req.courses?.length || 0) >= 3 ? renderCompactCourses(req) : ((req.courses && req.courses.length > 0) ? req.courses : [{
                             courseCode: req.courseCode || '',
                             courseName: req.courseName || '',
                             section: req.section || '',
@@ -4075,7 +4199,7 @@ function handleRecordAuditLog(data) {
                         {copiedKey === req.studentId ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3 opacity-70" />}
                       </button>
                       <div className="text-sm font-extrabold text-slate-800 pt-1">
-                        คุณ{req.fullName} <span className="text-[11px] text-slate-400 font-bold">(ชั้นปีที่ {req.year})</span>
+                        {req.fullName} <span className="text-[11px] text-slate-400 font-bold">(ชั้นปีที่ {req.year})</span>
                       </div>
                     </div>
                     
@@ -4093,7 +4217,7 @@ function handleRecordAuditLog(data) {
                   {/* Highlight Course Details */}
                   <div className="space-y-2.5">
                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">วิชาที่ยื่นคำร้องสำรองที่นั่ง:</div>
-                    {((req.courses && req.courses.length > 0) ? req.courses : [{
+                    {(req.courses?.length || 0) >= 3 ? renderCompactCourses(req) : ((req.courses && req.courses.length > 0) ? req.courses : [{
                       courseCode: req.courseCode || '',
                       courseName: req.courseName || '',
                       section: req.section || '',
@@ -4226,7 +4350,7 @@ function handleRecordAuditLog(data) {
                             setPreviewImage({
                               url: targetUrl,
                               rawLink: req.facebookProofLink,
-                              title: `หลักฐาน Facebook ของคุณ ${req.fullName}`
+                              title: `หลักฐาน Facebook ของ ${req.fullName}`
                             });
                           }}
                           className="bg-slate-100 border border-slate-200 hover:border-mangosteen text-mangosteen hover:bg-white px-2.5 py-1 rounded-lg text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer active:scale-95 transition-all shadow-3xs"

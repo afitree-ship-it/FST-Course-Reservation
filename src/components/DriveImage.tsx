@@ -17,20 +17,49 @@ import { getProofImage } from '../services/api';
  * admin list doesn't fire dozens of requests at once. Server results are cached per file for
  * the session, so opening the full view after the thumbnail is instant.
  */
+type ServerResult = { success: boolean; dataUrl?: string; error?: string };
 const serverCache = new Map<string, string>();
-const serverInflight = new Map<string, Promise<{ success: boolean; dataUrl?: string; error?: string }>>();
+const serverInflight = new Map<string, Promise<ServerResult>>();
 
-function fetchViaServer(driveId: string) {
-  const cached = serverCache.get(driveId);
+// ส่งคำขอไปที่ Apps Script พร้อมกันได้ไม่เกิน 3 รูป เพื่อไม่ให้เซิร์ฟเวอร์ติดคิว
+const MAX_PARALLEL = 3;
+let running = 0;
+const waiting: (() => void)[] = [];
+function withSlot<T>(job: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const start = () => {
+      running++;
+      job().then(resolve, reject).finally(() => {
+        running--;
+        const next = waiting.shift();
+        if (next) next();
+      });
+    };
+    if (running < MAX_PARALLEL) start(); else waiting.push(start);
+  });
+}
+
+const cacheKey = (driveId: string, thumbSize?: number) => (thumbSize ? `${driveId}@${thumbSize}` : driveId);
+const getCached = (driveId: string, thumbSize?: number) =>
+  serverCache.get(cacheKey(driveId, thumbSize)) || serverCache.get(driveId) || null;
+
+function fetchViaServer(driveId: string, thumbSize?: number): Promise<ServerResult> {
+  const key = cacheKey(driveId, thumbSize);
+  const cached = getCached(driveId, thumbSize);
   if (cached) return Promise.resolve({ success: true, dataUrl: cached });
-  let p = serverInflight.get(driveId);
+  let p = serverInflight.get(key);
   if (!p) {
-    p = getProofImage(driveId).then(res => {
-      if (res.success && res.dataUrl) serverCache.set(driveId, res.dataUrl);
-      serverInflight.delete(driveId);
-      return res;
-    });
-    serverInflight.set(driveId, p);
+    const timeout = new Promise<ServerResult>(resolve =>
+      setTimeout(() => resolve({ success: false, error: 'โหลดรูปนานเกินไป ลองกดเปิดดูอีกครั้ง' }), 60000)
+    );
+    p = withSlot(() => Promise.race([getProofImage(driveId, thumbSize), timeout]))
+      .catch(() => ({ success: false, error: 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ' }))
+      .then(res => {
+        if (res.success && res.dataUrl) serverCache.set(key, res.dataUrl);
+        serverInflight.delete(key);
+        return res;
+      });
+    serverInflight.set(key, p);
   }
   return p;
 }
@@ -62,7 +91,7 @@ export default function DriveImage({
     ...(viaServer ? [] : [`https://drive.google.com/thumbnail?id=${driveId}&sz=w${size}`])
   ];
   const [index, setIndex] = useState(0);
-  const [serverUrl, setServerUrl] = useState<string | null>(() => serverCache.get(driveId) || null);
+  const [serverUrl, setServerUrl] = useState<string | null>(() => getCached(driveId, size < 1600 ? size : undefined));
   const [serverState, setServerState] = useState<'idle' | 'loading' | 'failed'>('idle');
   const [serverError, setServerError] = useState('');
   const [visible, setVisible] = useState(!lazy);
@@ -70,7 +99,7 @@ export default function DriveImage({
 
   useEffect(() => {
     setIndex(0);
-    setServerUrl(serverCache.get(driveId) || null);
+    setServerUrl(getCached(driveId, size < 1600 ? size : undefined));
     setServerState('idle');
     setServerError('');
   }, [driveId]);
@@ -86,13 +115,15 @@ export default function DriveImage({
   }, [visible]);
 
   const directFailed = index >= directSources.length;
+  const thumbSize = size < 1600 ? size : undefined;
 
   useEffect(() => {
-    if (!visible || !directFailed || !viaServer || serverUrl || serverState !== 'idle') return;
-    let cancelled = false;
+    if (!visible || !directFailed || !viaServer) return;
+    if (getCached(driveId, thumbSize)) { setServerUrl(getCached(driveId, thumbSize)); return; }
+    let alive = true;
     setServerState('loading');
-    fetchViaServer(driveId).then(res => {
-      if (cancelled) return;
+    fetchViaServer(driveId, thumbSize).then(res => {
+      if (!alive) return;
       if (res.success && res.dataUrl) {
         setServerUrl(res.dataUrl);
       } else {
@@ -100,8 +131,8 @@ export default function DriveImage({
         setServerError(res.error || '');
       }
     });
-    return () => { cancelled = true; };
-  }, [visible, directFailed, viaServer, serverUrl, serverState, driveId]);
+    return () => { alive = false; };
+  }, [visible, directFailed, viaServer, driveId, thumbSize]);
 
   const viewUrl = `https://drive.google.com/file/d/${driveId}/view`;
 

@@ -651,12 +651,14 @@ export async function getEmailQuota(): Promise<ApiResult> {
 const proofImageCache: Record<string, string> = {};
 
 /** Admin-only: load a proof image through Apps Script when Drive won't serve it to this browser. */
-export async function getProofImage(fileId: string): Promise<{ success: boolean; dataUrl?: string; error?: string }> {
-  if (proofImageCache[fileId]) return { success: true, dataUrl: proofImageCache[fileId] };
+export async function getProofImage(fileId: string, size?: number): Promise<{ success: boolean; dataUrl?: string; error?: string }> {
+  const key = size ? `${fileId}@${size}` : fileId;
+  if (proofImageCache[key]) return { success: true, dataUrl: proofImageCache[key] };
+  if (size && proofImageCache[fileId]) return { success: true, dataUrl: proofImageCache[fileId] };
   try {
-    const result = await adminCall('getProofImage', { fileId });
+    const result = await adminCall('getProofImage', size ? { fileId, size } : { fileId });
     if (result.success && result.dataUrl) {
-      proofImageCache[fileId] = result.dataUrl;
+      proofImageCache[key] = result.dataUrl;
       return { success: true, dataUrl: result.dataUrl };
     }
     return { success: false, error: result.error === 'UNAUTHORIZED' ? 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่' : result.error };
