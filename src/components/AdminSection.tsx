@@ -37,7 +37,7 @@ import {
   Users,
   Mail
 } from 'lucide-react';
-import { ReservationRequest, RequestStatus, AuditLog, termFromDate, compareTermsDesc } from '../types';
+import { ReservationRequest, RequestStatus, AuditLog, termFromDate } from '../types';
 import { compressImage } from '../imageUtils';
 import { adminLogin, addAdminPassword, getSavedAdminPasswords, removeAdminPassword, getAllRequests, updateStatus, updateCourseStatus, saveApiUrl, getApiUrl, isApiConfigured, getLoggedInAdminName, adminLogout, hashString, syncAdminPasswordsWithGoogleSheets, getRemoteSettings, saveRemoteSetting, saveRemoteSettings, getAuditLogs, getEmailQuota } from '../services/api';
 import DriveImage from './DriveImage';
@@ -272,14 +272,7 @@ export default function AdminSection({
     showToast('ลบรหัสผ่านออกจากอุปกรณ์นี้แล้ว', 'success');
   };
 
-  const handleCopyCourseCode = (code: string) => {
-    try {
-      navigator.clipboard.writeText(code);
-      showToast(`คัดลอกรหัสวิชา ${code} เรียบร้อยแล้ว!`, 'success');
-    } catch (err) {
-      showToast('ไม่สามารถคัดลอกรหัสวิชาได้', 'error');
-    }
-  };
+  const handleCopyCourseCode = (code: string) => copyText(code, 'รหัสวิชา');
 
   // Analytics Filter State (Buddhist Era or 'all')
   const [analyticsYear, setAnalyticsYear] = useState<number | 'all'>('all');
@@ -556,13 +549,34 @@ export default function AdminSection({
     if (r.term && /^[123]\/\d{4}$/.test(r.term)) return r.term;
     try { return termFromDate(parseDateSafe(r.createdAt)); } catch { return currentTermLabel; }
   };
-  const [selectedTerm, setSelectedTerm] = useState<string>(currentTermLabel);
-  const availableTerms = React.useMemo(() => {
-    const set = new Set<string>([currentTermLabel]);
-    requests.forEach(r => set.add(getReqTerm(r)));
-    return Array.from(set).sort(compareTermsDesc);
+  // แยกตัวเลือก "ภาคเรียน" กับ "ปีการศึกษา" ('all' = ทั้งหมด)
+  const [selSem, setSelSem] = useState<string>(currentTermLabel.split('/')[0]);
+  const [selYear, setSelYear] = useState<string>(currentTermLabel.split('/')[1]);
+  const termYears = React.useMemo(() => {
+    const set = new Set<string>([currentTermLabel.split('/')[1]]);
+    requests.forEach(r => set.add(getReqTerm(r).split('/')[1]));
+    return Array.from(set).sort((a, b) => Number(b) - Number(a));
   }, [requests, currentTermLabel]);
-  const inSelectedTerm = (r: ReservationRequest) => selectedTerm === 'all' || getReqTerm(r) === selectedTerm;
+  const inSelectedTerm = (r: ReservationRequest) => {
+    const [s, y] = getReqTerm(r).split('/');
+    return (selSem === 'all' || s === selSem) && (selYear === 'all' || y === selYear);
+  };
+  const semLabel = (s: string) => (s === 'all' ? 'ทุกภาคเรียน' : s === '3' ? 'ภาคฤดูร้อน' : `ภาคเรียนที่ ${s}`);
+  const selectedTermText = `${semLabel(selSem)} · ${selYear === 'all' ? 'ทุกปีการศึกษา' : `ปีการศึกษา ${selYear}`}`;
+  const isCurrentTermSelected = `${selSem}/${selYear}` === currentTermLabel;
+
+  // คัดลอกด้วยคลิกเดียว (รหัสนักศึกษา / รหัสวิชา) พร้อมแสดงเครื่องหมายถูกชั่วคราว
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const copyText = (text: string, what: string) => {
+    try {
+      navigator.clipboard.writeText(text);
+      setCopiedKey(text);
+      setTimeout(() => setCopiedKey(k => (k === text ? null : k)), 1600);
+      showToast(`คัดลอก${what} ${text} แล้ว`, 'success');
+    } catch {
+      showToast(`ไม่สามารถคัดลอก${what}ได้`, 'error');
+    }
+  };
 
   // วันและเวลาที่ยื่นคำร้อง (เวลาไทย) + เวลาที่ผ่านมา
   const formatSubmitted = (r: ReservationRequest) => {
@@ -578,6 +592,36 @@ export default function AdminSection({
     else if (mins < 43200) ago = `${Math.floor(mins / 1440)} วันที่แล้ว`;
     return { date, time, ago };
   };
+
+  const fmtDateTime = (iso?: string) => {
+    if (!iso) return '';
+    const d = parseDateSafe(iso);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' }) + ' น.';
+  };
+  const isStale = (r: ReservationRequest) => {
+    const d = parseDateSafe(r.createdAt);
+    return r.status === 'รอดำเนินการ' && !isNaN(d.getTime()) && Date.now() - d.getTime() > 2 * 86400000;
+  };
+  // ผู้พิจารณาของคำร้อง (รวมจากทุกรายวิชา)
+  const requestReviewers = (r: ReservationRequest) => {
+    const done = (r.courses || []).filter(c => c.processedBy && c.status && c.status !== 'รอดำเนินการ');
+    const names = Array.from(new Set(done.map(c => c.processedBy as string)));
+    if (!names.length && r.processedBy && r.status !== 'รอดำเนินการ') names.push(r.processedBy);
+    const times = done.map(c => c.processedAt).filter(Boolean) as string[];
+    if (!times.length && r.processedAt && r.status !== 'รอดำเนินการ') times.push(r.processedAt);
+    const latest = times.sort((a, b) => parseDateSafe(b).getTime() - parseDateSafe(a).getTime())[0];
+    return { names: names.join(', '), at: fmtDateTime(latest) };
+  };
+  const hasProofImage = (r: ReservationRequest) =>
+    r.proofType === 'file' || !!r.facebookProofFile || !!(r.facebookProofLink && r.facebookProofLink.includes('drive.google.com'));
+  const getProofDriveId = (r: ReservationRequest) => {
+    const u = r.facebookProofLink || '';
+    const m = u.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || u.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    return m ? m[1] : null;
+  };
+  const openProof = (r: ReservationRequest) =>
+    setPreviewImage({ url: r.facebookProofFile?.dataUrl || r.facebookProofLink || '', rawLink: r.facebookProofLink, title: `ภาพหลักฐานจากคุณ ${r.fullName}` });
 
   // ความคืบหน้าการพิจารณารายวิชาของคำร้อง
   const courseProgress = (r: ReservationRequest) => {
@@ -699,7 +743,7 @@ export default function AdminSection({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `FST_Reservations_${selectedTerm === 'all' ? 'all' : selectedTerm.replace('/', '-')}_${statusFilter}.csv`);
+    link.setAttribute('download', `FST_Reservations_${selSem === 'all' ? 'all' : selSem}-${selYear}_${statusFilter}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -3366,17 +3410,59 @@ function handleRecordAuditLog(data) {
       {/* --- TAB 1: REQUESTS LISTING & MANAGEMENT --- */}
       {activeAdminTab === 'requests' && (
         <div className="space-y-6">
-          {/* Filters and search panel */}
-          <div className="bg-white/85 backdrop-blur-2xl rounded-2xl p-6 border border-white/90 shadow-md">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4" id="admin-filters-bar">
-          {/* Searching */}
-          <div className="relative" ref={comboboxRef}>
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-              <Search className="w-4 h-4" />
-            </div>
+          {/* Status zone: รอดำเนินการ / อนุมัติแล้ว / ไม่อนุมัติ / ทั้งหมด */}
+          {(() => {
+            const inTerm = requests.filter(inSelectedTerm);
+            const cnt = (st: RequestStatus) => inTerm.filter(r => r.status === st).length;
+            const stale = inTerm.filter(isStale).length;
+            const todayKey = new Date().toDateString();
+            const doneToday = (st: RequestStatus) => inTerm.filter(r => r.status === st && r.processedAt && parseDateSafe(r.processedAt).toDateString() === todayKey).length;
+            const cards: { key: 'ทั้งหมด' | RequestStatus; count: number; sub: string; on: string; text: string; dot: string }[] = [
+              { key: 'รอดำเนินการ', count: cnt('รอดำเนินการ'), sub: stale ? `ค้างเกิน 2 วัน ${stale} คำร้อง` : 'ไม่มีคำร้องค้างนาน', on: 'bg-amber-50 border-amber-400', text: 'text-amber-800', dot: 'bg-amber-500' },
+              { key: 'อนุมัติแล้ว', count: cnt('อนุมัติแล้ว'), sub: `อนุมัติวันนี้ ${doneToday('อนุมัติแล้ว')} คำร้อง`, on: 'bg-emerald-50 border-emerald-400', text: 'text-emerald-800', dot: 'bg-emerald-500' },
+              { key: 'ไม่อนุมัติ', count: cnt('ไม่อนุมัติ'), sub: `ไม่อนุมัติวันนี้ ${doneToday('ไม่อนุมัติ')} คำร้อง`, on: 'bg-rose-50 border-rose-400', text: 'text-rose-800', dot: 'bg-rose-500' },
+              { key: 'ทั้งหมด', count: inTerm.length, sub: 'ทุกสถานะในภาคเรียนที่เลือก', on: 'bg-slate-100 border-slate-400', text: 'text-slate-800', dot: 'bg-slate-500' }
+            ];
+            return (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" id="admin-status-zone" role="tablist" aria-label="สถานะการดำเนินการ">
+                {cards.map(c => {
+                  const active = statusFilter === c.key;
+                  return (
+                    <button
+                      key={c.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => setStatusFilter(c.key)}
+                      id={`btn-filter-status-${c.key}`}
+                      className={`text-left rounded-2xl border-2 px-4 py-3.5 transition-all cursor-pointer shadow-sm ${active ? c.on : 'bg-white/90 border-transparent hover:border-slate-200'}`}
+                    >
+                      <div className={`flex items-center gap-2 text-sm font-extrabold font-sans ${c.text}`}>
+                        <span className={`w-2.5 h-2.5 rounded-full ${c.dot}`} />
+                        {c.key}
+                        {active && <span className="ml-auto text-[10px] font-bold text-slate-500">กำลังแสดง</span>}
+                      </div>
+                      <div className={`font-mono text-3xl font-black leading-tight mt-1 ${c.text}`}>{c.count}</div>
+                      <div className="text-[11px] text-slate-600 font-sans">{c.sub}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
+
+          {/* Search + term filters */}
+          <div className="bg-white/90 backdrop-blur-2xl rounded-2xl p-4 sm:p-5 border border-white/90 shadow-md" id="admin-filters-bar">
+            <div className="flex flex-col md:flex-row gap-3 md:items-end">
+              <div className="flex-1 min-w-0">
+                <label htmlFor="admin-search-query" className="block text-xs font-extrabold text-slate-700 font-sans mb-1.5">ค้นหาคำร้อง</label>
+                <div className="relative" ref={comboboxRef}>
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-mangosteen">
+                    <Search className="w-5 h-5" />
+                  </div>
             <input
               type="text"
-              placeholder="รหัสอ้างอิง, รหัสนักศึกษา, ชื่อ หรือวิชา..."
+              placeholder="พิมพ์รหัสนักศึกษา ชื่อ รหัสวิชา หรือรหัสคำร้อง"
               value={searchQuery}
               onChange={e => {
                 setSearchQuery(e.target.value);
@@ -3412,7 +3498,7 @@ function handleRecordAuditLog(data) {
                   setComboboxOpen(false);
                 }
               }}
-              className="w-full pl-9 pr-8 py-2 text-xs font-sans rounded-lg border border-slate-200 focus:outline-hidden focus:border-mangosteen focus:ring-1 focus:ring-mangosteen"
+              className="w-full h-12 pl-11 pr-10 text-sm font-sans rounded-xl border-2 border-mangosteen/30 bg-mangosteen/[0.03] text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:border-mangosteen focus:bg-white focus:ring-4 focus:ring-mangosteen/10 transition-colors"
               id="admin-search-query"
               autoComplete="off"
             />
@@ -3423,9 +3509,9 @@ function handleRecordAuditLog(data) {
                   setSearchQuery('');
                   setComboboxOpen(false);
                 }}
-                className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition-colors cursor-pointer" aria-label="ล้างคำค้นหา"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-4 h-4" />
               </button>
             )}
 
@@ -3476,56 +3562,41 @@ function handleRecordAuditLog(data) {
             )}
           </div>
 
-          {/* Semester Selector */}
-          <div className="relative">
-            <select
-              value={selectedTerm}
-              onChange={e => setSelectedTerm(e.target.value)}
-              className="w-full px-3 py-2 text-xs font-semibold font-sans rounded-lg border border-slate-200 bg-white text-slate-700 focus:outline-hidden focus:border-mangosteen focus:ring-1 focus:ring-mangosteen cursor-pointer"
-              id="admin-year-selector"
-            >
-              {availableTerms.map(term => {
-                const [sem, yr] = term.split('/');
-                return (
-                  <option key={term} value={term}>
-                    ภาคเรียน {sem === '3' ? 'ฤดูร้อน' : sem} ปีการศึกษา {yr} {term === currentTermLabel ? '(ปัจจุบัน)' : ''}
-                  </option>
-                );
-              })}
-              <option value="all">ทุกภาคเรียน</option>
-            </select>
+              </div>
+              <div className="flex gap-3">
+                <div>
+                  <label htmlFor="admin-sem-selector" className="block text-xs font-extrabold text-slate-700 font-sans mb-1.5">ภาคเรียน</label>
+                  <select
+                    id="admin-sem-selector"
+                    value={selSem}
+                    onChange={e => setSelSem(e.target.value)}
+                    className="h-12 min-w-[150px] px-3 text-sm font-semibold font-sans rounded-xl border border-slate-300 bg-white text-slate-800 focus:outline-hidden focus:border-mangosteen focus:ring-2 focus:ring-mangosteen/20 cursor-pointer"
+                  >
+                    <option value="all">ทุกภาคเรียน</option>
+                    <option value="1">ภาคเรียนที่ 1</option>
+                    <option value="2">ภาคเรียนที่ 2</option>
+                    <option value="3">ภาคฤดูร้อน</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="admin-year-selector" className="block text-xs font-extrabold text-slate-700 font-sans mb-1.5">ปีการศึกษา</label>
+                  <select
+                    id="admin-year-selector"
+                    value={selYear}
+                    onChange={e => setSelYear(e.target.value)}
+                    className="h-12 min-w-[130px] px-3 text-sm font-semibold font-sans rounded-xl border border-slate-300 bg-white text-slate-800 focus:outline-hidden focus:border-mangosteen focus:ring-2 focus:ring-mangosteen/20 cursor-pointer"
+                  >
+                    {termYears.map(y => <option key={y} value={y}>{y}</option>)}
+                    <option value="all">ทุกปี</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 text-xs text-slate-600 font-sans flex flex-wrap items-center gap-2">
+              <span>กำลังแสดง: <strong className="text-slate-800">{selectedTermText}</strong></span>
+              {isCurrentTermSelected && <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-bold text-[10px]">ภาคเรียนปัจจุบัน</span>}
+            </div>
           </div>
-
-          {/* Tab Filter Button Row */}
-          <div className="flex bg-slate-50 p-1 rounded-lg md:col-span-2 overflow-x-auto gap-1 border border-slate-100">
-            {(['ทั้งหมด', 'รอดำเนินการ', 'อนุมัติแล้ว', 'ไม่อนุมัติ'] as const).map(tab => {
-              const active = statusFilter === tab;
-              let labelColor = 'text-slate-500 hover:text-slate-800';
-              if (active) {
-                if (tab === 'ทั้งหมด') labelColor = 'bg-white text-mangosteen font-bold shadow-sm';
-                else if (tab === 'รอดำเนินการ') labelColor = 'bg-white text-amber-700 font-bold shadow-sm border-b border-amber-400';
-                else if (tab === 'อนุมัติแล้ว') labelColor = 'bg-white text-emerald-700 font-bold shadow-sm border-b border-emerald-400';
-                else if (tab === 'ไม่อนุมัติ') labelColor = 'bg-white text-rose-700 font-bold shadow-sm border-b border-rose-400';
-              }
-              return (
-                <button
-                  key={tab}
-                  onClick={() => setStatusFilter(tab)}
-                  className={`flex-1 py-1.5 px-3 rounded text-xs font-medium font-sans text-center transition-all whitespace-nowrap cursor-pointer ${labelColor}`}
-                  id={`btn-filter-status-${tab}`}
-                >
-                  {tab}
-                  <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-slate-150 text-slate-600 font-bold font-sans">
-                    {tab === 'ทั้งหมด'
-                      ? requests.filter(inSelectedTerm).length
-                      : requests.filter(r => inSelectedTerm(r) && r.status === tab).length}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
 
       {/* Browser Notification Permission Banner */}
       {notificationPermission && notificationPermission !== 'granted' && (
@@ -3634,104 +3705,112 @@ function handleRecordAuditLog(data) {
       ) : (
         /* Main Results Showcase: Desktop Table & Mobile Cards */
         <div id="admin-results-display">
-          {/* DESKTOP TABLE VIEW */}
-          <div className="hidden lg:block bg-white/85 backdrop-blur-2xl rounded-2xl border border-white/90 overflow-hidden shadow-[0_25px_60px_-15px_rgba(0,0,0,0.15),_0_15px_30px_-15px_rgba(0,0,0,0.1)]">
+          {/* DESKTOP LIST VIEW — แต่ละคำร้องแยกด้วยแถวสลับสี + เลขลำดับ + เส้นคั่นหนา */}
+          <div className="hidden lg:block bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-[0_25px_60px_-15px_rgba(0,0,0,0.15),_0_15px_30px_-15px_rgba(0,0,0,0.1)]" id="admin-requests-table">
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse" id="admin-requests-table">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 font-sans text-xs font-bold uppercase tracking-wider">
-                    <th className="py-3 px-4 w-32">รหัสคำร้อง / วันที่ยื่น</th>
-                    <th className="py-3 px-4">ข้อมูลนักศึกษา</th>
-                    <th className="py-3 px-4">สาขาวิชา/รุ่นปี</th>
-                    <th className="py-3 px-4">ช่องทางติดต่อ</th>
-                    <th className="py-3 px-4">รายวิชาที่ลง</th>
-                    <th className="py-3 px-4 text-center">จัดการคำขอ</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {processedRequests.map(req => (
-                    <tr key={req.id} className={`text-xs text-slate-600 align-top transition-colors ${getStatusRowColor(req.status)}`}>
-                      {/* Tracking ID string */}
-                      <td className="py-4 px-4 border-b border-slate-150 pt-4.5 align-top">
-                        <div className="font-mono font-bold text-slate-500 select-all">{req.id}</div>
-                        {(() => {
-                          const f = formatSubmitted(req);
-                          if (!f) return null;
-                          return (
-                            <div className="mt-2 font-sans leading-tight" title={`ยื่นคำร้อง ${f.date} ${f.time}`}>
-                              <div className="text-[11px] font-bold text-slate-700">{f.date}</div>
-                              <div className="text-[11px] text-slate-600">{f.time}</div>
-                              {f.ago && <div className="text-[10px] text-slate-400 mt-0.5">{f.ago}</div>}
+              <div className="min-w-[1180px]">
+                <div className="grid grid-cols-[150px_240px_180px_minmax(0,1fr)_230px] gap-5 px-5 py-3 bg-slate-800 text-white text-[13px] font-bold font-sans">
+                  <span>รหัสคำร้อง / วันที่ยื่น</span>
+                  <span>ข้อมูลนักศึกษา</span>
+                  <span>ติดต่อ / หลักฐาน</span>
+                  <span>รายวิชาที่ลง</span>
+                  <span>จัดการคำขอ</span>
+                </div>
+                {processedRequests.map((req, idx) => {
+                  const f = formatSubmitted(req);
+                  const p = courseProgress(req);
+                  const rv = requestReviewers(req);
+                  const pill = req.status === 'รอดำเนินการ'
+                    ? 'bg-amber-50 text-amber-800 border-amber-300'
+                    : req.status === 'อนุมัติแล้ว' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-rose-50 text-rose-800 border-rose-300';
+                  const proofId = getProofDriveId(req);
+                  return (
+                    <div key={req.id} className={`${idx > 0 ? 'border-t-[6px] border-slate-200' : ''} ${idx % 2 ? 'bg-[#F8F5F3]' : 'bg-white'}`}>
+                      {/* row header */}
+                      <div className="flex items-center gap-3 px-5 pt-4 font-sans">
+                        <span className="w-8 h-8 rounded-full bg-slate-800 text-white font-mono font-bold text-sm flex items-center justify-center shrink-0">{idx + 1}</span>
+                        <span className="font-extrabold text-slate-800 text-sm">คุณ{req.fullName}</span>
+                        <span className="flex-1 h-px bg-slate-200" />
+                        <span className={`text-xs font-bold px-3 py-1 rounded-full border ${pill}`}>
+                          {req.status === 'รอดำเนินการ' && p.total > 0 ? `รอดำเนินการ · ${p.approved + p.rejected}/${p.total} วิชา` : req.status}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-[150px_240px_180px_minmax(0,1fr)_230px] gap-5 px-5 py-4 items-start text-xs text-slate-600">
+                        {/* id + submitted */}
+                        <div className="space-y-2 font-sans">
+                          <div className="font-mono font-bold text-slate-500 select-all text-[12px]">{req.id}</div>
+                          {f && (
+                            <div className="rounded-lg bg-white border border-slate-200 px-2.5 py-2 leading-tight" title={`ยื่นคำร้อง ${f.date} ${f.time}`}>
+                              <div className="text-[10px] text-slate-500">ยื่นเมื่อ</div>
+                              <div className="text-[12px] font-bold text-slate-800">{f.date}</div>
+                              <div className="text-[12px] text-slate-700">{f.time}</div>
+                              {f.ago && <div className={`text-[11px] mt-0.5 font-semibold ${isStale(req) ? 'text-rose-600' : 'text-slate-500'}`}>{f.ago}</div>}
                             </div>
-                          );
-                        })()}
-                      </td>
+                          )}
+                        </div>
 
-                      {/* Highlight Student Info: Student ID and Name */}
-                      <td className="py-4 px-4 font-sans space-y-2 border-b border-slate-150">
-                        {/* Highlights Student ID */}
-                        <div className="flex flex-col gap-1">
-                          <span className="self-start inline-flex items-center gap-1.5 px-2 py-1 bg-slate-800 text-slate-100 font-mono text-[11px] font-extrabold rounded-md shadow-xs select-all">
-                            <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full"></span>
+                        {/* student */}
+                        <div className="space-y-2 font-sans">
+                          <button
+                            type="button"
+                            onClick={() => copyText(req.studentId, 'รหัสนักศึกษา')}
+                            title="คลิกเพื่อคัดลอกรหัสนักศึกษา"
+                            aria-label={`คัดลอกรหัสนักศึกษา ${req.studentId}`}
+                            className={`inline-flex items-center gap-1.5 px-2 py-1 font-mono text-[12px] font-extrabold rounded-md shadow-xs cursor-pointer transition-colors ${copiedKey === req.studentId ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-100 hover:bg-slate-700'}`}
+                          >
                             {req.studentId}
-                          </span>
-                          <span className="font-extrabold text-slate-800 text-sm block">คุณ{req.fullName}</span>
-                        </div>
-                      </td>
-
-                      {/* Dept & Session Year Info */}
-                      <td className="py-4 px-4 font-sans space-y-1.5 border-b border-slate-150">
-                        <div className="text-slate-800 font-extrabold text-[11px] uppercase tracking-wide">
-                          {req.faculty || 'คณะวิทยาศาสตร์และเทคโนโลยี'}
-                        </div>
-                        <div className="text-slate-700 font-semibold text-xs leading-relaxed" title={req.department}>
-                          สาขา: {req.department}
-                        </div>
-                        <div className="text-slate-400 font-medium text-[10px]">ชั้นปีที่ {req.year}</div>
-                      </td>
-
-                      {/* Contact Channel & Proof */}
-                      <td className="py-4 px-4 font-sans border-b border-slate-150">
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-1.5 text-slate-700">
-                            <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                            <a href={`tel:${req.phone}`} className="hover:text-mangosteen underline font-bold select-all">{req.phone}</a>
-                          </div>
-                          <div>
-                            {(req.proofType === 'file' || req.facebookProofFile || (req.facebookProofLink && req.facebookProofLink.includes('drive.google.com'))) ? (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const targetUrl = req.facebookProofFile?.dataUrl || req.facebookProofLink || '';
-                                  setPreviewImage({
-                                    url: targetUrl,
-                                    rawLink: req.facebookProofLink,
-                                    title: `ภาพแคปเจอร์สิทธิ์การเข้าร่วม Facebook จากคุณ ${req.fullName}`
-                                  });
-                                }}
-                                className="bg-slate-100 border border-slate-200 hover:border-mangosteen hover:bg-white text-mangosteen px-2 py-1.5 rounded-lg text-[10px] inline-flex items-center gap-1.5 transition-colors font-bold cursor-pointer shadow-3xs active:scale-95"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                                ภาพหลักฐาน FB
-                              </button>
-                            ) : (
-                              <a
-                                href={req.facebookProofLink}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="bg-slate-100 border border-slate-200 hover:border-sky-500 hover:bg-white text-sky-700 px-2 py-1.5 rounded-lg text-[10px] inline-flex items-center gap-1.5 transition-colors font-bold shadow-3xs"
-                              >
-                                <ExternalLink className="w-3.5 h-3.5" />
-                                ลิงก์กลุ่ม FB
-                              </a>
-                            )}
+                            {copiedKey === req.studentId ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3 opacity-70" />}
+                          </button>
+                          <div className="font-extrabold text-slate-800 text-sm leading-snug">คุณ{req.fullName}</div>
+                          <div className="border-t border-slate-200 pt-2 space-y-0.5 leading-relaxed">
+                            <div className="text-slate-800 font-bold text-[12px]">{req.faculty || 'คณะวิทยาศาสตร์และเทคโนโลยี'}</div>
+                            <div className="text-slate-700 text-[12px]" title={req.department}>สาขา: {req.department}</div>
+                            <div className="text-slate-500 text-[11px]">ชั้นปีที่ {req.year}</div>
                           </div>
                         </div>
-                      </td>
 
-                      {/* Highlight Courses: Code, Name, Section, Instructor */}
-                      <td className="py-4 px-4 font-sans max-w-sm border-b border-slate-150">
-                        <div className="space-y-2">
+                        {/* contact + proof thumbnail */}
+                        <div className="space-y-2.5 font-sans">
+                          {req.phone ? (
+                            <div className="flex items-center gap-1.5 text-slate-700">
+                              <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <a href={`tel:${req.phone}`} className="hover:text-mangosteen underline font-bold select-all text-[13px]">{req.phone}</a>
+                            </div>
+                          ) : (
+                            <div className="text-[11px] text-slate-400">ไม่ได้ระบุเบอร์โทร</div>
+                          )}
+                          {hasProofImage(req) ? (
+                            <button
+                              type="button"
+                              onClick={() => openProof(req)}
+                              title="คลิกเพื่อดูภาพหลักฐานขนาดเต็ม"
+                              className="group relative block w-full rounded-xl overflow-hidden border border-slate-200 bg-white hover:border-mangosteen cursor-zoom-in transition-colors"
+                            >
+                              {proofId ? (
+                                <DriveImage driveId={proofId} alt={`ภาพหลักฐานของ ${req.fullName}`} size={480} lazy compact viaServer className="block w-full h-auto max-h-[300px] object-contain" />
+                              ) : req.facebookProofFile?.dataUrl ? (
+                                <img src={req.facebookProofFile.dataUrl} alt={`ภาพหลักฐานของ ${req.fullName}`} loading="lazy" decoding="async" className="block w-full h-auto max-h-[300px] object-contain" />
+                              ) : (
+                                <div className="flex items-center justify-center gap-1.5 py-6 text-mangosteen text-[11px] font-bold"><Eye className="w-4 h-4" /> ภาพหลักฐาน</div>
+                              )}
+                              <span className="absolute right-1.5 bottom-1.5 text-[10px] font-bold bg-slate-900/75 text-white px-2 py-0.5 rounded-full">ขยาย</span>
+                            </button>
+                          ) : (
+                            <a
+                              href={req.facebookProofLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="bg-slate-100 border border-slate-200 hover:border-sky-500 hover:bg-white text-sky-700 px-2 py-1.5 rounded-lg text-[11px] inline-flex items-center gap-1.5 transition-colors font-bold"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              ลิงก์กลุ่ม FB
+                            </a>
+                          )}
+                        </div>
+
+                        {/* courses */}
+                        <div className="space-y-2.5 font-sans min-w-0">
                           {((req.courses && req.courses.length > 0) ? req.courses : [{
                             courseCode: req.courseCode || '',
                             courseName: req.courseName || '',
@@ -3750,7 +3829,7 @@ function handleRecordAuditLog(data) {
                                     title="คลิกเพื่อคัดลอกรหัสวิชาทันที"
                                   >
                                     <span>{course.courseCode}</span>
-                                    <Copy className="w-2.5 h-2.5 opacity-80 shrink-0" />
+                                    {copiedKey === course.courseCode ? <Check className="w-3 h-3 shrink-0" /> : <Copy className="w-2.5 h-2.5 opacity-80 shrink-0" />}
                                   </button>
                                   {/* Highlights Course Name */}
                                   <span className="text-xs sm:text-sm font-extrabold text-slate-850 leading-tight block">
@@ -3785,16 +3864,22 @@ function handleRecordAuditLog(data) {
                                     <Users className="w-3.5 h-3.5 text-mangosteen" />
                                     <span>รายชื่อนักศึกษาในกลุ่มนี้ (ขอรวมทั้งหมด {1 + course.coStudents.length} ที่นั่ง):</span>
                                   </div>
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {/* ป้ายผู้ยื่นหลัก (ให้เห็นรวมในแก๊งเดียวกัน) */}
-                                    <span className="bg-mangosteen/10 text-mangosteen text-[11px] px-2 py-0.5 rounded-md border border-mangosteen/30 font-sans font-medium">
-                                      <strong className="font-mono text-mangosteen font-black">{req.studentId}</strong> {req.fullName} <span className="opacity-80 font-bold">(ผู้ยื่นหลัก)</span>
-                                    </span>
-                                    {/* ป้ายเพื่อนร่วมกลุ่ม */}
-                                    {course.coStudents.map((cs, csIdx) => (
-                                      <span key={csIdx} className="bg-slate-100 text-slate-700 text-[11px] px-2 py-0.5 rounded-md border border-slate-200 font-sans font-medium">
-                                        <strong className="font-mono text-slate-900 font-black">{cs.studentId}</strong> {cs.fullName}
-                                      </span>
+                                  <div className="flex flex-col gap-1">
+                                    {[{ studentId: req.studentId, fullName: req.fullName, lead: true }, ...course.coStudents.map(cs => ({ studentId: cs.studentId, fullName: cs.fullName, lead: false }))].map((m, mIdx) => (
+                                      <div key={mIdx} className={`flex items-center gap-2 rounded-lg p-0.5 pr-2 border ${m.lead ? 'bg-mangosteen/5 border-mangosteen/25' : 'bg-slate-50 border-slate-200'}`}>
+                                        <button
+                                          type="button"
+                                          onClick={() => copyText(m.studentId, 'รหัสนักศึกษา')}
+                                          title="คลิกเพื่อคัดลอกรหัสนักศึกษา"
+                                          aria-label={`คัดลอกรหัสนักศึกษา ${m.studentId}`}
+                                          className={`inline-flex items-center gap-1.5 h-7 px-2 rounded-md font-mono text-xs font-black cursor-pointer transition-colors shrink-0 ${copiedKey === m.studentId ? 'bg-emerald-600 text-white border border-emerald-600' : 'bg-white text-slate-900 border border-slate-300 hover:border-mangosteen'}`}
+                                        >
+                                          {m.studentId}
+                                          {copiedKey === m.studentId ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3 opacity-60" />}
+                                        </button>
+                                        <span className="text-xs text-slate-700 font-medium font-sans">{m.fullName}</span>
+                                        {m.lead && <span className="text-[10px] font-bold text-mangosteen bg-white border border-mangosteen/30 px-1.5 py-0.5 rounded font-sans">ผู้ยื่นหลัก</span>}
+                                      </div>
                                     ))}
                                   </div>
                                 </div>
@@ -3847,19 +3932,18 @@ function handleRecordAuditLog(data) {
 
                               {/* Processor attribution per course */}
                               {course.status && course.status !== 'รอดำเนินการ' && course.processedBy && (
-                                <div className="text-[10px] text-slate-400 font-sans flex items-center gap-1 mt-1.5 justify-end">
-                                  <User className="w-2.5 h-2.5" />
-                                  <span>ผู้ปรับสถานะ: {course.processedBy}</span>
+                                <div className="text-[11px] text-slate-600 font-sans flex items-center gap-1 mt-1.5 bg-white/70 rounded-md px-2 py-1">
+                                  <User className="w-3 h-3 text-slate-400" />
+                                  <span>พิจารณาโดย <strong className="text-slate-800">{course.processedBy}</strong>{course.processedAt ? ` · ${fmtDateTime(course.processedAt)}` : ''}</span>
                                 </div>
                               )}
                             </div>
                           ))}
                         </div>
-                      </td>
 
-                      {/* Action columns */}
-                      <td className="py-4 px-4 font-sans text-center border-b border-slate-150 w-60">
-                        <div className="flex flex-col gap-2 items-center justify-center" id={`action-panel-desktop-${req.id}`}>
+                        {/* manage + reviewer */}
+                        <div className="font-sans text-center space-y-2">
+                          <div className="flex flex-col gap-2 items-center justify-center" id={`action-panel-desktop-${req.id}`}>
                           {req.status === 'รอดำเนินการ' ? (
                             <div className="w-full space-y-2 text-left">
                               {(() => {
@@ -3900,15 +3984,6 @@ function handleRecordAuditLog(data) {
                             </div>
                           ) : (
                             <div className="w-full space-y-2">
-                              <div className="text-[10px] font-bold text-slate-400 space-y-0.5">
-                                <div>พิจารณาแล้ว {req.processedAt ? new Date(req.processedAt).toLocaleDateString('th-TH') : ''}</div>
-                                {req.processedBy && (
-                                  <div className="text-[9px] text-mangosteen font-semibold flex items-center justify-center gap-1 mt-0.5">
-                                    <User className="w-2.5 h-2.5" />
-                                    <span>โดย: {req.processedBy}</span>
-                                  </div>
-                                )}
-                              </div>
                               {/* Removed rejection reason box here as requested */}
                               <button
                                 onClick={() => handleResetToPending(req.id)}
@@ -3919,11 +3994,17 @@ function handleRecordAuditLog(data) {
                             </div>
                           )}
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                          <div className="rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] leading-relaxed">
+                            <div className="text-slate-500 font-semibold">ผู้พิจารณา</div>
+                            <div className="font-extrabold text-slate-800 text-[12px]">{rv.names || 'ยังไม่มีผู้พิจารณา'}</div>
+                            {rv.at && <div className="text-slate-500">ล่าสุด {rv.at}</div>}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
@@ -3984,9 +4065,15 @@ function handleRecordAuditLog(data) {
                   {/* Highlights Student Info */}
                   <div className="space-y-2.5 bg-slate-50 p-3.5 rounded-xl border border-slate-200/50 font-sans">
                     <div className="flex flex-col gap-1">
-                      <span className="self-start inline-flex items-center gap-1 px-2 py-0.5 bg-slate-800 text-slate-100 font-mono text-[10px] font-extrabold rounded shadow-xs select-all">
-                        รหัสนักศึกษา: {req.studentId}
-                      </span>
+                      <button
+                        type="button"
+                        onClick={() => copyText(req.studentId, 'รหัสนักศึกษา')}
+                        aria-label={`คัดลอกรหัสนักศึกษา ${req.studentId}`}
+                        className={`self-start inline-flex items-center gap-1.5 px-2.5 py-1 font-mono text-[11px] font-extrabold rounded shadow-xs cursor-pointer ${copiedKey === req.studentId ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-100'}`}
+                      >
+                        {req.studentId}
+                        {copiedKey === req.studentId ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3 opacity-70" />}
+                      </button>
                       <div className="text-sm font-extrabold text-slate-800 pt-1">
                         คุณ{req.fullName} <span className="text-[11px] text-slate-400 font-bold">(ชั้นปีที่ {req.year})</span>
                       </div>
@@ -4049,17 +4136,23 @@ function handleRecordAuditLog(data) {
                               <Users className="w-3 h-3 text-mangosteen" />
                               <span>รายชื่อนักศึกษาในกลุ่มนี้ (รวม {1 + course.coStudents.length} ที่นั่ง):</span>
                             </div>
-                            <div className="flex flex-wrap gap-1.5">
-                              {/* ป้ายผู้ยื่นหลัก */}
-                              <span className="bg-mangosteen/10 text-mangosteen text-[10px] px-2 py-0.5 rounded-md border border-mangosteen/30 font-sans font-medium">
-                                <strong className="font-mono text-mangosteen font-black">{req.studentId}</strong> {req.fullName} <span className="opacity-80 font-bold">(ผู้ยื่นหลัก)</span>
-                              </span>
-                              {/* ป้ายเพื่อนร่วมกลุ่ม */}
-                              {course.coStudents.map((cs, csIdx) => (
-                                <span key={csIdx} className="bg-slate-100 text-slate-700 text-[10px] px-2 py-0.5 rounded-md border border-slate-200 font-sans font-medium">
-                                  <strong className="font-mono text-slate-900 font-black">{cs.studentId}</strong> {cs.fullName}
-                                </span>
-                              ))}
+                            <div className="flex flex-col gap-1">
+                                    {[{ studentId: req.studentId, fullName: req.fullName, lead: true }, ...course.coStudents.map(cs => ({ studentId: cs.studentId, fullName: cs.fullName, lead: false }))].map((m, mIdx) => (
+                                      <div key={mIdx} className={`flex items-center gap-2 rounded-lg p-0.5 pr-2 border ${m.lead ? 'bg-mangosteen/5 border-mangosteen/25' : 'bg-slate-50 border-slate-200'}`}>
+                                        <button
+                                          type="button"
+                                          onClick={() => copyText(m.studentId, 'รหัสนักศึกษา')}
+                                          title="คลิกเพื่อคัดลอกรหัสนักศึกษา"
+                                          aria-label={`คัดลอกรหัสนักศึกษา ${m.studentId}`}
+                                          className={`inline-flex items-center gap-1.5 h-7 px-2 rounded-md font-mono text-xs font-black cursor-pointer transition-colors shrink-0 ${copiedKey === m.studentId ? 'bg-emerald-600 text-white border border-emerald-600' : 'bg-white text-slate-900 border border-slate-300 hover:border-mangosteen'}`}
+                                        >
+                                          {m.studentId}
+                                          {copiedKey === m.studentId ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3 opacity-60" />}
+                                        </button>
+                                        <span className="text-xs text-slate-700 font-medium font-sans">{m.fullName}</span>
+                                        {m.lead && <span className="text-[10px] font-bold text-mangosteen bg-white border border-mangosteen/30 px-1.5 py-0.5 rounded font-sans">ผู้ยื่นหลัก</span>}
+                                      </div>
+                                    ))}
                             </div>
                           </div>
                         )}
