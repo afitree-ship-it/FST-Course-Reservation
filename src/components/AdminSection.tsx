@@ -38,6 +38,7 @@ import {
   Mail
 } from 'lucide-react';
 import { ReservationRequest, RequestStatus, AuditLog, termFromDate } from '../types';
+import LinkifiedText from './LinkifiedText';
 import { compressImage } from '../imageUtils';
 import { adminLogin, addAdminPassword, getSavedAdminPasswords, removeAdminPassword, getAllRequests, updateStatus, updateCourseStatus, saveApiUrl, getApiUrl, isApiConfigured, getLoggedInAdminName, adminLogout, hashString, syncAdminPasswordsWithGoogleSheets, getRemoteSettings, saveRemoteSetting, saveRemoteSettings, getAuditLogs, getEmailQuota } from '../services/api';
 import DriveImage from './DriveImage';
@@ -3206,7 +3207,7 @@ function handleRecordAuditLog(data) {
                 {!pending && (course.processedBy || course.rejectionReason) && (
                   <div className="pl-8 mt-1 text-[11px] text-slate-600">
                     {course.processedBy && <>พิจารณาโดย <b className="text-slate-800">{course.processedBy}</b>{course.processedAt ? ` · ${fmtDateTime(course.processedAt)}` : ''}</>}
-                    {course.rejectionReason && <span className="text-rose-600"> · เหตุผล: {course.rejectionReason}</span>}
+                    {course.rejectionReason && <span className="text-rose-600 break-words"> · เหตุผล: <LinkifiedText text={course.rejectionReason} /></span>}
                   </div>
                 )}
                 {groupN > 0 && (
@@ -4050,7 +4051,7 @@ function handleRecordAuditLog(data) {
                               {/* Rejection Reason Per Course */}
                               {course.status === 'ไม่อนุมัติ' && course.rejectionReason && (
                                 <div className="mt-1 text-xs text-rose-600 bg-rose-50 p-1.5 rounded-md border border-rose-100">
-                                  <strong>เหตุผล:</strong> {course.rejectionReason}
+                                  <strong>เหตุผล:</strong> <LinkifiedText text={course.rejectionReason} />
                                 </div>
                               )}
 
@@ -4319,7 +4320,7 @@ function handleRecordAuditLog(data) {
                         
                         {course.status === 'ไม่อนุมัติ' && course.rejectionReason && (
                           <div className="mt-1 text-[9px] text-rose-600 bg-rose-50 p-1.5 rounded-md border border-rose-100">
-                            <strong>เหตุผล:</strong> {course.rejectionReason}
+                            <strong>เหตุผล:</strong> <LinkifiedText text={course.rejectionReason} />
                           </div>
                         )}
 
@@ -4377,7 +4378,7 @@ function handleRecordAuditLog(data) {
                     <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-lg text-[10px] font-sans text-slate-700 space-y-1.5">
                       <div>
                         <strong className="text-slate-500 block mb-0.5">📝 บันทึกหมายเหตุจากเจ้าหน้าที่:</strong>
-                        <span className="font-semibold whitespace-pre-wrap">{req.rejectionReason}</span>
+                        <span className="font-semibold whitespace-pre-wrap break-words"><LinkifiedText text={req.rejectionReason} /></span>
                       </div>
                       {req.processedBy && (
                         <div className="text-[9px] text-mangosteen font-semibold flex items-center gap-1 border-t border-slate-200/60 pt-1">

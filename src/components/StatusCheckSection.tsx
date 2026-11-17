@@ -22,9 +22,12 @@ import {
   ChevronDown,
   ChevronUp,
   Filter,
-  Users
+  Users,
+  ExternalLink,
+  Info
 } from 'lucide-react';
 import { ReservationRequest, RequestStatus } from '../types';
+import LinkifiedText from './LinkifiedText';
 import { getStatusByStudentId, getCachedRequestsByStudentId } from '../services/api';
 
 interface StatusCheckSectionProps {
@@ -420,6 +423,28 @@ const getStatusBadge = (status: RequestStatus) => {
                       </div>
                     </div>
 
+                    {/* หมายเหตุ: อนุมัติแล้วต้องไปเพิ่มรายวิชาเองที่ระบบทะเบียน */}
+                    <div className="flex gap-3 items-start rounded-xl border border-sky-200 bg-sky-50 p-3.5 text-sm text-sky-900" role="note" id="reg-add-course-notice">
+                      <Info className="w-5 h-5 text-sky-600 shrink-0 mt-0.5" />
+                      <div className="space-y-1.5">
+                        <p className="font-bold">
+                          {isTh ? 'หากรายวิชาได้รับการอนุมัติแล้ว กรุณาเข้าไปเพิ่มรายวิชานั้นด้วยตนเองในระบบทะเบียน' : 'Once a course is approved, please add it yourself in the registration system.'}
+                        </p>
+                        <p className="text-xs text-sky-800">
+                          {isTh ? 'การอนุมัติในระบบนี้เป็นการสำรองที่นั่งเท่านั้น ยังไม่ใช่การลงทะเบียน' : 'Approval here only reserves your seat — it does not register you for the course.'}
+                        </p>
+                        <a
+                          href="https://reg.ftu.ac.th"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold transition-colors"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          {isTh ? 'ไปที่ reg.ftu.ac.th' : 'Go to reg.ftu.ac.th'}
+                        </a>
+                      </div>
+                    </div>
+
                     {/* Status Filter Tabs / Pills */}
                     <div className="flex flex-wrap gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/60" id="status-filter-tabs">
                       {(['ทั้งหมด', 'รอดำเนินการ', 'อนุมัติแล้ว', 'ไม่อนุมัติ'] as const).map((tab) => {
@@ -589,11 +614,26 @@ const getStatusBadge = (status: RequestStatus) => {
                                       )}
 
                                       {/* Course level notes */}
+                                      {courseStatus === 'อนุมัติแล้ว' && (
+                                        <div className="text-xs font-medium text-emerald-900 bg-emerald-50 border border-emerald-200 p-2.5 rounded-lg flex gap-1.5 items-start">
+                                          <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                                          <div>
+                                            {isTh ? (
+                                              <>ได้รับการอนุมัติแล้ว กรุณาเข้าไปเพิ่มรายวิชา <b className="font-mono">{course.courseCode}</b> กลุ่ม <b className="font-mono">{course.section}</b> ด้วยตนเองที่ </>
+                                            ) : (
+                                              <>Approved — please add <b className="font-mono">{course.courseCode}</b> section <b className="font-mono">{course.section}</b> yourself at </>
+                                            )}
+                                            <a href="https://reg.ftu.ac.th" target="_blank" rel="noopener noreferrer" className="font-bold text-emerald-700 underline inline-flex items-center gap-0.5">
+                                              reg.ftu.ac.th <ExternalLink className="w-3 h-3" />
+                                            </a>
+                                          </div>
+                                        </div>
+                                      )}
                                       {courseStatus === 'ไม่อนุมัติ' && course.rejectionReason && (
                                         <div className="text-xs font-medium text-rose-800 bg-rose-50/50 border border-rose-100 p-2 rounded-lg flex gap-1.5 items-start">
                                           <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
                                           <div>
-                                            <span className="font-bold">{isTh ? 'หมายเหตุ:' : 'Remark:'}</span> {course.rejectionReason}
+                                            <span className="font-bold">{isTh ? 'หมายเหตุ:' : 'Remark:'}</span> <LinkifiedText text={course.rejectionReason} />
                                           </div>
                                         </div>
                                       )}
@@ -608,7 +648,7 @@ const getStatusBadge = (status: RequestStatus) => {
                                   <AlertCircle className="w-4.5 h-4.5 text-rose-500 shrink-0 mt-0.5" />
                                   <div>
                                     <span className="font-bold block mb-0.5 text-rose-900 text-xs">{isTh ? 'หมายเหตุจากเจ้าหน้าที่ (ภาพรวม):' : 'Officer Rejection Comment (Overall):'}</span>
-                                    <div className="text-rose-950 font-semibold">{request.rejectionReason}</div>
+                                    <div className="text-rose-950 font-semibold break-words"><LinkifiedText text={request.rejectionReason} /></div>
                                   </div>
                                 </div>
                               )}
@@ -619,7 +659,7 @@ const getStatusBadge = (status: RequestStatus) => {
                                   <AlertCircle className="w-4.5 h-4.5 text-slate-400 shrink-0 mt-0.5" />
                                   <div>
                                     <span className="font-bold block mb-0.5 text-slate-600 text-xs">{isTh ? 'บันทึกเพิ่มเติมจากเจ้าหน้าที่:' : 'Additional Note:'}</span>
-                                    <div className="text-slate-800 font-medium">{request.rejectionReason}</div>
+                                    <div className="text-slate-800 font-medium break-words"><LinkifiedText text={request.rejectionReason} /></div>
                                   </div>
                                 </div>
                               )}

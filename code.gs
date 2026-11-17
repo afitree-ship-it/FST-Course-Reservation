@@ -1010,6 +1010,22 @@ function handleGetProofImage(data) {
     var blob = file.getBlob();
     var type = blob.getContentType() || 'image/jpeg';
     if (type.indexOf('image/') !== 0) return jsonOut({ success: false, error: 'ไฟล์นี้ไม่ใช่รูปภาพ' });
+    // รูปย่อสำหรับแสดงในรายการ (data.size = ความกว้างเป็นพิกเซล) — ไฟล์เล็กกว่าต้นฉบับหลายสิบเท่า
+    var size = Math.min(Math.max(parseInt(data.size, 10) || 0, 0), 1600);
+    if (size) {
+      try {
+        var auth = { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() };
+        var metaRes = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?fields=thumbnailLink', { headers: auth, muteHttpExceptions: true });
+        var meta = JSON.parse(metaRes.getContentText() || '{}');
+        if (meta.thumbnailLink) {
+          var thumbRes = UrlFetchApp.fetch(String(meta.thumbnailLink).replace(/=s[0-9]+$/, '=w' + size), { headers: auth, muteHttpExceptions: true });
+          if (thumbRes.getResponseCode() === 200) {
+            var tb = thumbRes.getBlob();
+            return jsonOut({ success: true, thumb: true, dataUrl: 'data:' + (tb.getContentType() || 'image/jpeg') + ';base64,' + Utilities.base64Encode(tb.getBytes()) });
+          }
+        }
+      } catch (thumbErr) { /* ใช้ไฟล์ต้นฉบับแทน */ }
+    }
     var bytes = blob.getBytes();
     if (bytes.length > 15 * 1024 * 1024) return jsonOut({ success: false, error: 'ไฟล์ใหญ่เกินไป' });
     return jsonOut({ success: true, dataUrl: 'data:' + type + ';base64,' + Utilities.base64Encode(bytes) });
