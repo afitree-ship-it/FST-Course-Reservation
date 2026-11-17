@@ -564,6 +564,21 @@ export default function AdminSection({
   }, [requests, currentTermLabel]);
   const inSelectedTerm = (r: ReservationRequest) => selectedTerm === 'all' || getReqTerm(r) === selectedTerm;
 
+  // วันและเวลาที่ยื่นคำร้อง (เวลาไทย) + เวลาที่ผ่านมา
+  const formatSubmitted = (r: ReservationRequest) => {
+    const d = parseDateSafe(r.createdAt);
+    if (!r.createdAt || isNaN(d.getTime())) return null;
+    const date = d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' });
+    const time = d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' }) + ' น.';
+    const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+    let ago = '';
+    if (mins < 1) ago = 'เมื่อสักครู่';
+    else if (mins < 60) ago = `${mins} นาทีที่แล้ว`;
+    else if (mins < 1440) ago = `${Math.floor(mins / 60)} ชั่วโมงที่แล้ว`;
+    else if (mins < 43200) ago = `${Math.floor(mins / 1440)} วันที่แล้ว`;
+    return { date, time, ago };
+  };
+
   // ความคืบหน้าการพิจารณารายวิชาของคำร้อง
   const courseProgress = (r: ReservationRequest) => {
     const list = r.courses || [];
@@ -3625,7 +3640,7 @@ function handleRecordAuditLog(data) {
               <table className="w-full text-left border-collapse" id="admin-requests-table">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 font-sans text-xs font-bold uppercase tracking-wider">
-                    <th className="py-3 px-4 w-28">รหัสคำร้อง</th>
+                    <th className="py-3 px-4 w-32">รหัสคำร้อง / วันที่ยื่น</th>
                     <th className="py-3 px-4">ข้อมูลนักศึกษา</th>
                     <th className="py-3 px-4">สาขาวิชา/รุ่นปี</th>
                     <th className="py-3 px-4">ช่องทางติดต่อ</th>
@@ -3637,8 +3652,19 @@ function handleRecordAuditLog(data) {
                   {processedRequests.map(req => (
                     <tr key={req.id} className={`text-xs text-slate-600 align-top transition-colors ${getStatusRowColor(req.status)}`}>
                       {/* Tracking ID string */}
-                      <td className="py-4 px-4 font-mono font-bold text-slate-500 select-all border-b border-slate-150 pt-4.5">
-                        {req.id}
+                      <td className="py-4 px-4 border-b border-slate-150 pt-4.5 align-top">
+                        <div className="font-mono font-bold text-slate-500 select-all">{req.id}</div>
+                        {(() => {
+                          const f = formatSubmitted(req);
+                          if (!f) return null;
+                          return (
+                            <div className="mt-2 font-sans leading-tight" title={`ยื่นคำร้อง ${f.date} ${f.time}`}>
+                              <div className="text-[11px] font-bold text-slate-700">{f.date}</div>
+                              <div className="text-[11px] text-slate-600">{f.time}</div>
+                              {f.ago && <div className="text-[10px] text-slate-400 mt-0.5">{f.ago}</div>}
+                            </div>
+                          );
+                        })()}
                       </td>
 
                       {/* Highlight Student Info: Student ID and Name */}
@@ -3923,7 +3949,19 @@ function handleRecordAuditLog(data) {
                 {/* Card Title info */}
                 <div className="space-y-4 pt-1">
                   <div className="flex justify-between items-start gap-3">
-                    <span className="font-mono text-[10px] text-slate-400 font-extrabold bg-slate-100 px-2 py-0.5 rounded">ID: {req.id}</span>
+                    <div className="flex flex-col gap-1">
+                      <span className="self-start font-mono text-[10px] text-slate-400 font-extrabold bg-slate-100 px-2 py-0.5 rounded">ID: {req.id}</span>
+                      {(() => {
+                        const f = formatSubmitted(req);
+                        if (!f) return null;
+                        return (
+                          <span className="text-[11px] text-slate-600 font-sans">
+                            ยื่นเมื่อ <span className="font-bold text-slate-700">{f.date} {f.time}</span>
+                            {f.ago && <span className="text-slate-400"> · {f.ago}</span>}
+                          </span>
+                        );
+                      })()}
+                    </div>
                     <div>
                       {req.status === 'รอดำเนินการ' && (
                         <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-50 text-amber-700 border border-amber-200">
