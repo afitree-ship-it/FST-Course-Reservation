@@ -28,7 +28,8 @@ import { CloudUpload,
 import { YEARS, ReservationRequest, CoStudent, CourseInput, CourseCatalog, CatalogCourse } from '../types';
 import { submitRequest, getStatusByStudentId, getCachedRequestsByStudentId, getRemoteSettings, getCourseCatalog } from '../services/api';
 import { useTranslation } from '../contexts/LanguageContext';
-import { Calendar, Bell, Lock, ShieldAlert, Users, UserPlus } from 'lucide-react';
+import { Calendar, Bell, Lock, ShieldAlert, Users, UserPlus, BookOpen } from 'lucide-react';
+import CourseCatalogBrowser from './CourseCatalogBrowser';
 import ScrambleText from './ScrambleText';
 import DriveImage from './DriveImage';
 
@@ -323,7 +324,31 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     return map;
   }, [catalog]);
 
-  const catalogCourseName = (c: CatalogCourse) => (c.nameEn ? `${c.nameTh} (${c.nameEn})` : c.nameTh);
+  // ชื่อวิชาที่บันทึก: มีทั้งไทยและอังกฤษเสมอ เรียงตามภาษาที่นักศึกษาใช้ (แอดมินเห็นครบทั้งสองภาษา)
+  const catalogCourseName = (c: CatalogCourse, th: boolean = isTh) => {
+    if (!c.nameEn) return c.nameTh;
+    return th ? `${c.nameTh} (${c.nameEn})` : `${c.nameEn} (${c.nameTh})`;
+  };
+  const [browseFor, setBrowseFor] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!catalog) return;
+    setCourses(prev => {
+      let changed = false;
+      const next = prev.map(row => {
+        const c = catalogByCode[row.courseCode.toUpperCase()];
+        if (!c || !c.nameEn) return row;
+        const want = catalogCourseName(c, isTh);
+        if (row.courseName !== want && row.courseName === catalogCourseName(c, !isTh)) {
+          changed = true;
+          return { ...row, courseName: want };
+        }
+        return row;
+      });
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTh, catalog]);
 
   const catalogSuggestions = (text: string) => {
     if (!catalog) return [];
@@ -383,9 +408,9 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
             onMouseDown={e => { e.preventDefault(); applyCatalogCourse(index, c); }}
             className={`w-full text-left px-3 py-2.5 hover:bg-mangosteen/5 border-b border-slate-100 last:border-0 cursor-pointer ${c.code === currentCode ? 'bg-mangosteen/5' : ''}`}
           >
-            <div className="text-sm"><span className="font-mono font-bold text-slate-800">{c.code}</span> <span className="text-slate-700">{c.nameTh}</span></div>
+            <div className="text-sm"><span className="font-mono font-bold text-slate-800">{c.code}</span> <span className="text-slate-700">{isTh ? c.nameTh : (c.nameEn || c.nameTh)}</span></div>
             <div className="text-xs text-slate-500">
-              {c.nameEn ? c.nameEn + ' · ' : ''}{isTh ? 'กลุ่ม' : 'Sec'} {c.sections.map(x => x.section).join(', ')}
+              {(isTh ? c.nameEn : (c.nameEn ? c.nameTh : '')) ? (isTh ? c.nameEn : c.nameTh) + ' · ' : ''}{isTh ? 'กลุ่ม' : 'Sec'} {c.sections.map(x => x.section).join(', ')}
             </div>
           </button>
         ))}
@@ -1673,8 +1698,20 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                       </button>
                     )}
 
-                    <div className="text-xs font-bold text-slate-400 font-sans tracking-wider uppercase mb-1">
-                      {isTh ? `วิชาที่ ${index + 1}` : `Course #${index + 1}`}
+                    <div className={`flex flex-wrap items-center justify-between gap-2 mb-1 ${courses.length > 1 ? 'pr-10' : ''}`}>
+                      <div className="text-xs font-bold text-slate-400 font-sans tracking-wider uppercase">
+                        {isTh ? `วิชาที่ ${index + 1}` : `Course #${index + 1}`}
+                      </div>
+                      {catalog && (
+                        <button
+                          type="button"
+                          onClick={() => setBrowseFor(index)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-mangosteen/30 text-mangosteen hover:bg-mangosteen hover:text-white text-xs font-bold transition-colors cursor-pointer shadow-xs"
+                        >
+                          <BookOpen className="w-3.5 h-3.5" />
+                          {isTh ? `ดูรายวิชาทั้งหมดของคณะ (${catalog.courses.length})` : `Browse all faculty courses (${catalog.courses.length})`}
+                        </button>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1738,16 +1775,21 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                           {isTh ? 'ชื่อรายวิชา' : 'Course Name'} <span className="text-rose-500">*</span>
                         </label>
                         <div className="relative">
-                        <input
-                          type="text"
+                        {/* textarea ที่ขึ้นบรรทัดใหม่เอง: ชื่อวิชาไทย (อังกฤษ) ยาว จะเห็นครบทั้งสองภาษา ไม่ถูกตัด */}
+                        <textarea
                           id={`input-courseName_${index}`}
                           value={course.courseName}
                           autoComplete="off"
-                          onChange={e => { handleCourseChange(index, 'courseName', e.target.value); openSuggest(index, 'name'); }}
+                          rows={1}
+                          ref={el => {
+                            if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px`; }
+                          }}
+                          onKeyDown={e => { if (e.key === 'Enter') e.preventDefault(); }}
+                          onChange={e => { handleCourseChange(index, 'courseName', e.target.value.replace(/[\r\n]+/g, ' ')); openSuggest(index, 'name'); }}
                           onFocus={() => openSuggest(index, 'name')}
                           onBlur={() => { handleBlur(`courseName_${index}`); closeSuggestLater(index, 'name'); }}
                           placeholder={catalog ? (isTh ? 'พิมพ์ชื่อวิชา (ไทย/อังกฤษ) แล้วเลือกจากรายการ' : 'Type a course name (TH/EN), then pick') : (isTh ? 'เช่น การออกแบบระบบข้อมูล' : 'e.g., Database Systems Design')}
-                          className={`w-full px-4 py-3 rounded-xl border-2 bg-slate-50 hover:bg-white text-sm font-medium font-sans transition-all focus:outline-hidden focus:ring-4 ${
+                          className={`block w-full px-4 py-3 rounded-xl border-2 bg-slate-50 hover:bg-white text-sm font-medium font-sans leading-snug resize-none overflow-hidden transition-all focus:outline-hidden focus:ring-4 ${
                             touched[`courseName_${index}`] && validationErrors[`courseName_${index}`]
                               ? 'border-rose-300 focus:ring-rose-200 focus:border-rose-400 bg-rose-50/20 text-rose-700'
                               : 'border-slate-200 focus:border-mangosteen focus:ring-mangosteen/20 text-slate-700'
@@ -1755,6 +1797,15 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                         />
                         {renderCatalogDropdown(index, 'name', course.courseName, course.courseCode)}
                         </div>
+                        {(() => {
+                          const c = catalogByCode[course.courseCode.toUpperCase()];
+                          if (!c) return null;
+                          return (
+                            <p className="mt-1 text-[11px] text-emerald-700 font-sans">
+                              ✓ {isTh ? 'รายวิชาจากระบบทะเบียน' : 'From the registrar'} · {isTh ? 'หน่วยกิต' : 'Credits'} {c.credit}
+                            </p>
+                          );
+                        })()}
                         {touched[`courseName_${index}`] && validationErrors[`courseName_${index}`] && (
                           <p className="mt-1 text-xs text-rose-500 font-sans font-medium">{validationErrors[`courseName_${index}`]}</p>
                         )}
@@ -1981,6 +2032,20 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                 ))}
 
                 {/* ปุ่มเพิ่มวิชา */}
+                {catalog && browseFor !== null && (
+                  <CourseCatalogBrowser
+                    catalog={catalog}
+                    isTh={isTh}
+                    onClose={() => setBrowseFor(null)}
+                    onPick={(c, sec) => {
+                      const i = browseFor;
+                      applyCatalogCourse(i, c);
+                      if (sec) applyCatalogSection(i, sec.section);
+                      setBrowseFor(null);
+                      setTimeout(() => document.getElementById(`input-courseCode_${i}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
+                    }}
+                  />
+                )}
                 <button
                   type="button"
                   onClick={addCourseField}
