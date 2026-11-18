@@ -166,16 +166,6 @@ export default function CourseCatalogBrowser({
                       const missing = timed.filter(t => t.slots.length === 0).length;
                       return (
                         <>
-                          {timed.some(t => t.slots.length > 0) && (
-                            <div className="text-[11px] text-slate-600 mt-1 flex items-start gap-1">
-                              <Clock className="w-3 h-3 mt-0.5 text-slate-400 shrink-0" />
-                              <span className="line-clamp-2">
-                                {timed.filter(t => t.slots.length > 0).map(t =>
-                                  `${isTh ? 'กลุ่ม' : 'Sec'} ${t.s.section}: ${t.slots.map(x => (isTh ? x.th : x.en)).join(', ')}`
-                                ).join(' | ')}
-                              </span>
-                            </div>
-                          )}
                           {missing > 0 && (
                             <div className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">
                               <AlertTriangle className="w-3 h-3" />

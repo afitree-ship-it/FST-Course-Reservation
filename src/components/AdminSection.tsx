@@ -1940,22 +1940,23 @@ function regFetch(path) {
   return regDecode(res);
 }
 
-/** ดึงหน้าเดียวกันแบบภาษาอังกฤษ (ระบบทะเบียนสลับภาษาด้วยคุกกี้ CKLANG=1 + POST กลับหน้าเดิม) */
-function regFetchEn(path) {
-  var url = REG_BASE + path;
-  var res = UrlFetchApp.fetch(url, { method: 'post', payload: { lang: '1' }, headers: { Cookie: 'CKLANG=1' }, muteHttpExceptions: true, followRedirects: true });
-  var html = res.getResponseCode() === 200 ? regDecode(res) : '';
-  var firstLi = (html.match(/<LI>([^<]*)/i) || ['', ''])[1];
-  if (html && !/[ก-๙]/.test(firstLi)) return html;
-  // บางเซิร์ฟเวอร์จำภาษาไว้ในเซสชัน: ใช้คุกกี้เซสชันที่ได้มาขอหน้าเดิมอีกครั้ง
-  var setCookie = res.getAllHeaders()['Set-Cookie'];
-  var sess = [].concat(setCookie || []).map(function (c) { return String(c).split(';')[0]; })
-    .filter(function (c) { return /^ASPSESSIONID/i.test(c); }).join('; ');
-  if (sess) {
-    var res2 = UrlFetchApp.fetch(url, { headers: { Cookie: 'CKLANG=1; ' + sess }, muteHttpExceptions: true, followRedirects: true });
-    if (res2.getResponseCode() === 200) return regDecode(res2);
-  }
-  return html;
+/**
+ * ภาษาอังกฤษ: ระบบทะเบียนจะส่งหน้าอังกฤษก็ต่อเมื่อมีเซสชันอยู่แล้ว + คุกกี้ CKLANG=1
+ * (ถ้าไม่มีเซสชัน เซิร์ฟเวอร์จะตั้ง CKLANG=0 ทับให้) จึงขอหน้าแรกเพื่อเอาคุกกี้เซสชันก่อน
+ */
+function regEnCookie() {
+  var res = UrlFetchApp.fetch(REG_BASE + 'class_info_1.asp?backto=home', { muteHttpExceptions: true, followRedirects: false });
+  var headers = res.getAllHeaders();
+  var raw = headers['Set-Cookie'] || headers['set-cookie'] || [];
+  var sess = [].concat(raw).map(function (c) { return String(c).split(';')[0].trim(); })
+    .filter(function (c) { return /^ASPSESSIONID/i.test(c); });
+  return sess.length ? 'CKLANG=1; ' + sess.join('; ') : '';
+}
+
+function regFetchEn(path, cookie) {
+  if (!cookie) return '';
+  var res = UrlFetchApp.fetch(REG_BASE + path, { headers: { Cookie: cookie }, muteHttpExceptions: true, followRedirects: true });
+  return res.getResponseCode() === 200 ? regDecode(res) : '';
 }
 
 /** "Assistant ProfessorSA-AD ASAE" -> "Asst. Prof. Sa-Ad Asae" */
@@ -2055,12 +2056,13 @@ function scrapeRegCourses(year, semester, patterns) {
   // ชื่อวิชาและชื่ออาจารย์ภาษาอังกฤษ: ดึงหน้ารายการเดิมแบบภาษาอังกฤษ (ถ้าไม่สำเร็จก็ใช้ภาษาไทยต่อไป)
   var enMap = {};
   try {
-    pats.forEach(function (pat) {
+    var enCookie = regEnCookie();
+    if (enCookie) pats.forEach(function (pat) {
       var path = 'class_info_1.asp?backto=home&facultyid=all&acadyear=' + year + '&semester=' + semester +
         '&CAMPUSID=&LEVELID=&CLASSSET=&coursename=&cmd=2&coursecode=' + encodeURIComponent(pat);
       var pages = 0;
       while (path && pages < 40) {
-        var parsed = parseRegList(regFetchEn(path));
+        var parsed = parseRegList(regFetchEn(path, enCookie));
         parsed.rows.forEach(function (r) {
           enMap[r.courseId + '|' + r.section] = {
             name: /[ก-๙]/.test(r.nameTh) ? '' : r.nameTh,
