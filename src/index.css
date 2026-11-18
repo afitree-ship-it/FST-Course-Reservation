@@ -11,8 +11,16 @@
   --color-mangosteen-dark: #5C151F;
   --color-mangosteen-light: #942E3D;
   --color-mangosteen-hover: #8C2331;
-  --font-sans: "Prompt", "Kanit", "Sarabun", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-mono: "Inter", "Prompt", "Kanit", ui-monospace, sans-serif;
+  /* เนื้อหา/ฟอร์ม/ป้าย: ฟอนต์ไทยมีหัว ตัวโปร่ง อ่านง่ายบนจอมือถือ */
+  --font-sans: "Noto Sans Thai Looped", "Noto Sans Thai", "Sarabun", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  /* หัวข้อใหญ่: Prompt (โหลดถึงน้ำหนัก 700 เท่านั้น ตัวหนาจัดจะไม่บีบจนอ่านยาก) */
+  --font-display: "Prompt", "Noto Sans Thai Looped", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Inter", "Noto Sans Thai Looped", ui-monospace, sans-serif;
+}
+
+/* หัวข้อหลักใช้ Prompt ส่วนข้อความอื่นใช้ Noto Sans Thai Looped */
+h1, h2 {
+  font-family: var(--font-display);
 }
 
 /* Smooth Scrolling & Base Polishing */
