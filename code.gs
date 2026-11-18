@@ -1063,6 +1063,45 @@ function regFetch(path) {
   return regDecode(res);
 }
 
+/** ดึงหน้าเดียวกันแบบภาษาอังกฤษ (ระบบทะเบียนสลับภาษาด้วยคุกกี้ CKLANG=1 + POST กลับหน้าเดิม) */
+function regFetchEn(path) {
+  var url = REG_BASE + path;
+  var res = UrlFetchApp.fetch(url, { method: 'post', payload: { lang: '1' }, headers: { Cookie: 'CKLANG=1' }, muteHttpExceptions: true, followRedirects: true });
+  var html = res.getResponseCode() === 200 ? regDecode(res) : '';
+  var firstLi = (html.match(/<LI>([^<]*)/i) || ['', ''])[1];
+  if (html && !/[ก-๙]/.test(firstLi)) return html;
+  // บางเซิร์ฟเวอร์จำภาษาไว้ในเซสชัน: ใช้คุกกี้เซสชันที่ได้มาขอหน้าเดิมอีกครั้ง
+  var setCookie = res.getAllHeaders()['Set-Cookie'];
+  var sess = [].concat(setCookie || []).map(function (c) { return String(c).split(';')[0]; })
+    .filter(function (c) { return /^ASPSESSIONID/i.test(c); }).join('; ');
+  if (sess) {
+    var res2 = UrlFetchApp.fetch(url, { headers: { Cookie: 'CKLANG=1; ' + sess }, muteHttpExceptions: true, followRedirects: true });
+    if (res2.getResponseCode() === 200) return regDecode(res2);
+  }
+  return html;
+}
+
+/** "Assistant ProfessorSA-AD ASAE" -> "Asst. Prof. Sa-Ad Asae" */
+function regCleanEnName(s) {
+  s = String(s || '').trim();
+  var titles = [['Assistant Professor', 'Asst. Prof.'], ['Associate Professor', 'Assoc. Prof.'], ['Professor', 'Prof.'],
+    ['Ajarn', 'Aj.'], ['Acharn', 'Aj.'], ['Doctor', 'Dr.'], ['Dr.', 'Dr.'], ['Dr', 'Dr.'], ['Mrs.', 'Mrs.'], ['Mr.', 'Mr.'], ['Ms.', 'Ms.'], ['Miss', 'Miss']];
+  var out = [], found = true;
+  while (found) {
+    found = false;
+    for (var i = 0; i < titles.length; i++) {
+      if (s.toLowerCase().indexOf(titles[i][0].toLowerCase()) === 0) {
+        out.push(titles[i][1]);
+        s = s.slice(titles[i][0].length).trim();
+        found = true;
+        break;
+      }
+    }
+  }
+  var name = s.toLowerCase().replace(/(^|[ '-])([a-z])/g, function (m, p, c) { return p + c.toUpperCase(); });
+  return (out.length ? out.join(' ') + ' ' : '') + name;
+}
+
 function parseRegList(html) {
   var rows = [];
   var trRe = /<TR[^>]*class='normaldetail'[^>]*>([\s\S]*?)<\/TR>/gi, m;
@@ -1136,16 +1175,41 @@ function scrapeRegCourses(year, semester, patterns) {
     }
   });
 
+  // ชื่อวิชาและชื่ออาจารย์ภาษาอังกฤษ: ดึงหน้ารายการเดิมแบบภาษาอังกฤษ (ถ้าไม่สำเร็จก็ใช้ภาษาไทยต่อไป)
+  var enMap = {};
+  try {
+    pats.forEach(function (pat) {
+      var path = 'class_info_1.asp?backto=home&facultyid=all&acadyear=' + year + '&semester=' + semester +
+        '&CAMPUSID=&LEVELID=&CLASSSET=&coursename=&cmd=2&coursecode=' + encodeURIComponent(pat);
+      var pages = 0;
+      while (path && pages < 40) {
+        var parsed = parseRegList(regFetchEn(path));
+        parsed.rows.forEach(function (r) {
+          enMap[r.courseId + '|' + r.section] = {
+            name: /[ก-๙]/.test(r.nameTh) ? '' : r.nameTh,
+            instructors: r.instructors.filter(function (x) { return !/[ก-๙]/.test(x); }).map(regCleanEnName)
+          };
+        });
+        path = parsed.next;
+        pages++;
+      }
+    });
+  } catch (enErr) { /* ภาษาอังกฤษเป็นข้อมูลเสริม */ }
+
   var byCode = {}, order = [];
   sections.forEach(function (r) {
     if (!byCode[r.code]) {
       byCode[r.code] = { code: r.code, courseId: r.courseId, nameTh: r.nameTh, nameEn: '', credit: r.credit, sections: [] };
       order.push(r.code);
     }
+    var en = enMap[r.courseId + '|' + r.section];
+    if (en && en.name && !byCode[r.code].nameEn) byCode[r.code].nameEn = en.name;
     var exists = byCode[r.code].sections.some(function (s) { return s.section === r.section; });
     if (!exists) {
       byCode[r.code].sections.push({
-        section: r.section, instructors: r.instructors, time: r.time, note: r.note,
+        section: r.section, instructors: r.instructors,
+        instructorsEn: en && en.instructors.length === r.instructors.length ? en.instructors : [],
+        time: r.time, note: r.note,
         capacity: r.capacity, enrolled: r.enrolled, remaining: r.remaining, status: r.status
       });
     }
@@ -1156,6 +1220,7 @@ function scrapeRegCourses(year, semester, patterns) {
   var cache = CacheService.getScriptCache();
   var need = [];
   courses.forEach(function (c) {
+    if (c.nameEn) return;
     var hit = cache.get('regEn_' + c.courseId);
     if (hit) c.nameEn = hit; else need.push(c);
   });

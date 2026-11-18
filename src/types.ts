@@ -92,6 +92,8 @@ export interface AppState {
 export interface CatalogSection {
   section: string;
   instructors: string[];
+  /** ชื่อผู้สอนภาษาอังกฤษ (ลำดับเดียวกับ instructors) */
+  instructorsEn?: string[];
   time: string;
   note: string;
   capacity: number;

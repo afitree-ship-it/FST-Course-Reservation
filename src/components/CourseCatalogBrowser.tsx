@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { BookOpen, Search, X, Check, ChevronDown, Users, Clock, AlertTriangle } from 'lucide-react';
 import { parseClassTime } from '../utils/classTime';
+import { sectionGender, genderLabel, sectionInstructors } from '../utils/catalog';
 import { CourseCatalog, CatalogCourse, CatalogSection } from '../types';
 
 /**
@@ -47,7 +48,7 @@ export default function CourseCatalogBrowser({
         c.code.toLowerCase().includes(q) ||
         c.nameTh.toLowerCase().includes(q) ||
         c.nameEn.toLowerCase().includes(q) ||
-        c.sections.some(s => s.instructors.some(i => i.toLowerCase().includes(q)))
+        c.sections.some(s => [...s.instructors, ...(s.instructorsEn || [])].some(i => i.toLowerCase().includes(q)))
       );
     });
   }, [catalog, query, prefix]);
@@ -99,6 +100,17 @@ export default function CourseCatalogBrowser({
               placeholder={isTh ? 'ค้นหารหัสวิชา ชื่อวิชา (ไทย/อังกฤษ) หรือชื่ออาจารย์' : 'Search code, course name (TH/EN) or instructor'}
               className="w-full pl-9 pr-3 py-2.5 rounded-xl border-2 border-slate-200 focus:border-mangosteen focus:outline-hidden text-sm"
             />
+          </div>
+
+          <div className="flex items-start gap-2 rounded-xl bg-sky-50 border border-sky-200 px-3 py-2 text-xs text-sky-900" role="note">
+            <Users className="w-4 h-4 mt-0.5 text-sky-600 shrink-0" />
+            <span>
+              {isTh ? (
+                <><b>กลุ่มเลขคี่</b> (01, 03, 05…) สำหรับนักศึกษา<b>ชาย</b> · <b>กลุ่มเลขคู่</b> (02, 04, 06…) สำหรับนักศึกษา<b>หญิง</b></>
+              ) : (
+                <><b>Odd-numbered sections</b> (01, 03, 05…) are for <b>male</b> students · <b>even-numbered sections</b> (02, 04, 06…) are for <b>female</b> students</>
+              )}
+            </span>
           </div>
 
           {prefixes.length > 1 && (
@@ -186,6 +198,11 @@ export default function CourseCatalogBrowser({
                         <div className="min-w-0 flex-1 text-xs space-y-0.5">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="font-mono font-bold text-mangosteen text-sm">{isTh ? 'กลุ่ม' : 'Sec'} {s.section}</span>
+                            {sectionGender(s.section) && (
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${sectionGender(s.section) === 'male' ? 'bg-sky-100 text-sky-800' : 'bg-pink-100 text-pink-800'}`}>
+                                {isTh ? 'สำหรับ' : 'For'} {genderLabel(sectionGender(s.section)!, isTh)}
+                              </span>
+                            )}
                             <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${s.remaining > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
                               {s.remaining > 0
                                 ? (isTh ? `เหลือ ${s.remaining}/${s.capacity}` : `${s.remaining}/${s.capacity} left`)
@@ -194,7 +211,7 @@ export default function CourseCatalogBrowser({
                           </div>
                           <div className="text-slate-700 flex items-start gap-1">
                             <Users className="w-3.5 h-3.5 mt-0.5 text-slate-400 shrink-0" />
-                            <span>{s.instructors.length ? s.instructors.join(', ') : (isTh ? 'ยังไม่ระบุอาจารย์' : 'Instructor TBA')}</span>
+                            <span>{s.instructors.length ? sectionInstructors(s, isTh).join(', ') : (isTh ? 'ยังไม่ระบุอาจารย์' : 'Instructor TBA')}</span>
                           </div>
                           {(() => {
                             const slots = parseClassTime(s.time);
@@ -213,7 +230,7 @@ export default function CourseCatalogBrowser({
                                 </div>
                               );
                             }
-                            const who = s.instructors.length ? s.instructors.join(', ') : (isTh ? 'อาจารย์ผู้สอนรายวิชานี้' : 'the course instructor');
+                            const who = s.instructors.length ? sectionInstructors(s, isTh).join(', ') : (isTh ? 'อาจารย์ผู้สอนรายวิชานี้' : 'the course instructor');
                             return (
                               <div className="mt-1 flex items-start gap-1.5 rounded-md bg-amber-50 border border-amber-200 px-2 py-1.5 text-amber-900">
                                 <AlertTriangle className="w-3.5 h-3.5 mt-0.5 text-amber-600 shrink-0" />

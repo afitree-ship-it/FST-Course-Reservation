@@ -26,6 +26,8 @@ import { CloudUpload,
   ExternalLink
 } from 'lucide-react';
 import { YEARS, ReservationRequest, CoStudent, CourseInput, CourseCatalog, CatalogCourse } from '../types';
+import { parseClassTime } from '../utils/classTime';
+import { sectionGender, genderLabel, genderFromName, sectionInstructors } from '../utils/catalog';
 import { submitRequest, getStatusByStudentId, getCachedRequestsByStudentId, getRemoteSettings, getCourseCatalog } from '../services/api';
 import { useTranslation } from '../contexts/LanguageContext';
 import { Calendar, Bell, Lock, ShieldAlert, Users, UserPlus, BookOpen } from 'lucide-react';
@@ -337,13 +339,19 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       let changed = false;
       const next = prev.map(row => {
         const c = catalogByCode[row.courseCode.toUpperCase()];
-        if (!c || !c.nameEn) return row;
-        const want = catalogCourseName(c, isTh);
-        if (row.courseName !== want && row.courseName === catalogCourseName(c, !isTh)) {
-          changed = true;
-          return { ...row, courseName: want };
+        if (!c) return row;
+        let out = row;
+        if (c.nameEn) {
+          const want = catalogCourseName(c, isTh);
+          if (row.courseName !== want && row.courseName === catalogCourseName(c, !isTh)) out = { ...out, courseName: want };
         }
-        return row;
+        const sec = c.sections.find(s => s.section === row.section);
+        if (sec && sec.instructorsEn && sec.instructorsEn.length) {
+          const wantI = sectionInstructors(sec, isTh).join(', ');
+          if (row.instructor !== wantI && row.instructor === sectionInstructors(sec, !isTh).join(', ')) out = { ...out, instructor: wantI };
+        }
+        if (out !== row) changed = true;
+        return out;
       });
       return changed ? next : prev;
     });
@@ -369,7 +377,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
         courseCode: c.code,
         courseName: catalogCourseName(c),
         section: onlyOne ? onlyOne.section : '',
-        instructor: onlyOne ? onlyOne.instructors.join(', ') : ''
+        instructor: onlyOne ? sectionInstructors(onlyOne, isTh).join(', ') : ''
       };
       return updated;
     });
@@ -418,6 +426,27 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     );
   };
 
+  // กลุ่มเลขคี่ = ชาย, เลขคู่ = หญิง — แจ้งเตือนเมื่อเลือกกลุ่มไม่ตรงกับคำนำหน้าชื่อ
+  const renderSectionGenderHint = (section: string) => {
+    const g = sectionGender(section);
+    const me = genderFromName(fullName);
+    const mismatch = g && me && g !== me;
+    return (
+      <p className={`mt-1.5 text-[11px] font-sans rounded-lg px-2 py-1.5 border flex items-start gap-1.5 ${mismatch ? 'bg-rose-50 border-rose-200 text-rose-800 font-semibold' : 'bg-sky-50 border-sky-200 text-sky-900'}`}>
+        <Users className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+        <span>
+          {mismatch
+            ? (isTh
+                ? `กลุ่ม ${section} เป็นกลุ่มสำหรับนักศึกษา${genderLabel(g!, true)} กรุณาตรวจสอบกลุ่มอีกครั้ง (กลุ่มเลขคี่ = ชาย, เลขคู่ = หญิง)`
+                : `Section ${section} is for ${genderLabel(g!, false).toLowerCase()} students — please check your section (odd = male, even = female)`)
+            : (isTh
+                ? 'กลุ่มเลขคี่สำหรับนักศึกษาชาย · กลุ่มเลขคู่สำหรับนักศึกษาหญิง'
+                : 'Odd-numbered sections are for male students · even-numbered sections are for female students')}
+        </span>
+      </p>
+    );
+  };
+
   const applyCatalogSection = (index: number, sectionNo: string) => {
     if (sectionNo === '__other__') {
       setManualSection(prev => ({ ...prev, [index]: true }));
@@ -437,7 +466,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
       updated[index] = {
         ...updated[index],
         section: sectionNo,
-        instructor: sec && sec.instructors.length ? sec.instructors.join(', ') : updated[index].instructor
+        instructor: sec && sec.instructors.length ? sectionInstructors(sec, isTh).join(', ') : updated[index].instructor
       };
       return updated;
     });
@@ -1832,9 +1861,13 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                             <option value="">{isTh ? '— เลือกกลุ่ม —' : '— Select section —'}</option>
                             {catalogByCode[course.courseCode.toUpperCase()].sections.map(sec => (
                               <option key={sec.section} value={sec.section}>
-                                {isTh
-                                  ? `กลุ่ม ${sec.section} · เหลือ ${sec.remaining}/${sec.capacity} ที่นั่ง${sec.time ? ' · ' + sec.time : ''}`
-                                  : `Sec ${sec.section} · ${sec.remaining}/${sec.capacity} seats left${sec.time ? ' · ' + sec.time : ''}`}
+                                {(() => {
+                                  const g = sectionGender(sec.section);
+                                  const slots = parseClassTime(sec.time).map(x => (isTh ? x.th : x.en)).join(', ');
+                                  return isTh
+                                    ? `กลุ่ม ${sec.section}${g ? ` (${genderLabel(g, true)})` : ''} · เหลือ ${sec.remaining}/${sec.capacity} ที่นั่ง${slots ? ' · ' + slots : ' · ยังไม่มีวันเวลาเรียน'}`
+                                    : `Sec ${sec.section}${g ? ` (${genderLabel(g, false)})` : ''} · ${sec.remaining}/${sec.capacity} seats left${slots ? ' · ' + slots : ' · no schedule yet'}`;
+                                })()}
                               </option>
                             ))}
                             <option value="__other__">{isTh ? 'อื่น ๆ (กรอกกลุ่มเอง)' : 'Other (type a section)'}</option>
@@ -1865,6 +1898,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                               </p>
                             );
                           })()}
+                          {renderSectionGenderHint(course.section)}
                           </>
                         ) : (
                         <input
@@ -1884,6 +1918,7 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                           }`}
                         />
                         )}
+                        {!catalogByCode[course.courseCode.toUpperCase()] && renderSectionGenderHint(course.section)}
                         {touched[`section_${index}`] && validationErrors[`section_${index}`] && (
                           <p className="mt-1 text-xs text-rose-500 font-sans font-medium">{validationErrors[`section_${index}`]}</p>
                         )}
