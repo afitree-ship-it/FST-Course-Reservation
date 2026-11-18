@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import { ReservationRequest, RequestStatus, AuditLog, termFromDate } from '../types';
 import LinkifiedText from './LinkifiedText';
+import { extraOverallRemark } from '../utils/remarks';
 import { compressImage } from '../imageUtils';
 import { adminLogin, addAdminPassword, getSavedAdminPasswords, removeAdminPassword, getAllRequests, updateStatus, updateCourseStatus, saveApiUrl, getApiUrl, isApiConfigured, getLoggedInAdminName, adminLogout, hashString, syncAdminPasswordsWithGoogleSheets, getRemoteSettings, saveRemoteSetting, saveRemoteSettings, getAuditLogs, getEmailQuota } from '../services/api';
 import DriveImage from './DriveImage';
@@ -4441,11 +4442,11 @@ function handleRecordAuditLog(data) {
                   </div>
 
                   {/* Unified Remarks/Comment display on mobile card */}
-                  {req.rejectionReason ? (
+                  {extraOverallRemark(req) ? (
                     <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-lg text-[10px] font-sans text-slate-700 space-y-1.5">
                       <div>
                         <strong className="text-slate-500 block mb-0.5">📝 บันทึกหมายเหตุจากเจ้าหน้าที่:</strong>
-                        <span className="font-semibold whitespace-pre-wrap break-words"><LinkifiedText text={req.rejectionReason} /></span>
+                        <span className="font-semibold whitespace-pre-wrap break-words"><LinkifiedText text={extraOverallRemark(req)} /></span>
                       </div>
                       {req.processedBy && (
                         <div className="text-[9px] text-mangosteen font-semibold flex items-center gap-1 border-t border-slate-200/60 pt-1">

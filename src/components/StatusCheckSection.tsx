@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { ReservationRequest, RequestStatus } from '../types';
 import LinkifiedText from './LinkifiedText';
+import { extraOverallRemark } from '../utils/remarks';
 import { getStatusByStudentId, getCachedRequestsByStudentId } from '../services/api';
 
 interface StatusCheckSectionProps {
@@ -643,23 +644,23 @@ const getStatusBadge = (status: RequestStatus) => {
                               </div>
 
                               {/* Overall rejection reason if entire request was rejected */}
-                              {request.status === 'ไม่อนุมัติ' && request.rejectionReason && (
+                              {request.status === 'ไม่อนุมัติ' && extraOverallRemark(request) && (
                                 <div className="text-xs font-medium text-rose-800 bg-rose-50/50 border border-rose-200/50 p-3 rounded-xl flex gap-2 items-start ml-2">
                                   <AlertCircle className="w-4.5 h-4.5 text-rose-500 shrink-0 mt-0.5" />
                                   <div>
                                     <span className="font-bold block mb-0.5 text-rose-900 text-xs">{isTh ? 'หมายเหตุจากเจ้าหน้าที่ (ภาพรวม):' : 'Officer Rejection Comment (Overall):'}</span>
-                                    <div className="text-rose-950 font-semibold break-words"><LinkifiedText text={request.rejectionReason} /></div>
+                                    <div className="text-rose-950 font-semibold break-words whitespace-pre-line"><LinkifiedText text={extraOverallRemark(request)} /></div>
                                   </div>
                                 </div>
                               )}
 
                               {/* Overall additional notes if request is pending or approved but has extra feedback */}
-                              {request.status !== 'ไม่อนุมัติ' && request.rejectionReason && (
+                              {request.status !== 'ไม่อนุมัติ' && extraOverallRemark(request) && (
                                 <div className="text-xs font-medium text-slate-700 bg-slate-50/80 border border-slate-200/50 p-3 rounded-xl flex gap-2 items-start ml-2">
                                   <AlertCircle className="w-4.5 h-4.5 text-slate-400 shrink-0 mt-0.5" />
                                   <div>
                                     <span className="font-bold block mb-0.5 text-slate-600 text-xs">{isTh ? 'บันทึกเพิ่มเติมจากเจ้าหน้าที่:' : 'Additional Note:'}</span>
-                                    <div className="text-slate-800 font-medium break-words"><LinkifiedText text={request.rejectionReason} /></div>
+                                    <div className="text-slate-800 font-medium break-words whitespace-pre-line"><LinkifiedText text={extraOverallRemark(request)} /></div>
                                   </div>
                                 </div>
                               )}
