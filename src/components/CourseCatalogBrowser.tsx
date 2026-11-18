@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { BookOpen, Search, X, Check, ChevronDown, Users } from 'lucide-react';
+import { BookOpen, Search, X, Check, ChevronDown, Users, Clock, AlertTriangle } from 'lucide-react';
+import { parseClassTime } from '../utils/classTime';
 import { CourseCatalog, CatalogCourse, CatalogSection } from '../types';
 
 /**
@@ -145,9 +146,35 @@ export default function CourseCatalogBrowser({
                       <span className="text-sm font-semibold text-slate-800">{primaryName(c)}</span>
                     </div>
                     {secondaryName(c) && <div className="text-xs text-slate-500">{secondaryName(c)}</div>}
-                    <div className="text-[11px] text-slate-400 mt-0.5">
+                    <div className="text-[11px] text-slate-500 mt-0.5">
                       {c.credit} · {c.sections.length} {isTh ? 'กลุ่ม' : 'sections'} ({c.sections.map(s => s.section).join(', ')}) · {isTh ? `เหลือรวม ${left} ที่นั่ง` : `${left} seats left`}
                     </div>
+                    {(() => {
+                      const timed = c.sections.map(s => ({ s, slots: parseClassTime(s.time) }));
+                      const missing = timed.filter(t => t.slots.length === 0).length;
+                      return (
+                        <>
+                          {timed.some(t => t.slots.length > 0) && (
+                            <div className="text-[11px] text-slate-600 mt-1 flex items-start gap-1">
+                              <Clock className="w-3 h-3 mt-0.5 text-slate-400 shrink-0" />
+                              <span className="line-clamp-2">
+                                {timed.filter(t => t.slots.length > 0).map(t =>
+                                  `${isTh ? 'กลุ่ม' : 'Sec'} ${t.s.section}: ${t.slots.map(x => (isTh ? x.th : x.en)).join(', ')}`
+                                ).join(' | ')}
+                              </span>
+                            </div>
+                          )}
+                          {missing > 0 && (
+                            <div className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">
+                              <AlertTriangle className="w-3 h-3" />
+                              {missing === c.sections.length
+                                ? (isTh ? 'ยังไม่มีวันเวลาเรียน · สอบถามอาจารย์ผู้สอน' : 'No class schedule yet · ask the instructor')
+                                : (isTh ? `${missing} กลุ่มยังไม่มีวันเวลาเรียน · สอบถามอาจารย์ผู้สอน` : `${missing} section(s) without a schedule · ask the instructor`)}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                   <ChevronDown className={`w-4 h-4 text-slate-400 mt-1 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
                 </button>
@@ -169,7 +196,34 @@ export default function CourseCatalogBrowser({
                             <Users className="w-3.5 h-3.5 mt-0.5 text-slate-400 shrink-0" />
                             <span>{s.instructors.length ? s.instructors.join(', ') : (isTh ? 'ยังไม่ระบุอาจารย์' : 'Instructor TBA')}</span>
                           </div>
-                          {s.time && <div className="text-slate-500">{s.time}</div>}
+                          {(() => {
+                            const slots = parseClassTime(s.time);
+                            if (slots.length) {
+                              return (
+                                <div className="mt-1 space-y-1">
+                                  {slots.map((x, i) => (
+                                    <div key={i} className="flex items-start gap-1.5 rounded-md bg-slate-50 border border-slate-200 px-2 py-1">
+                                      <Clock className="w-3.5 h-3.5 mt-0.5 text-mangosteen shrink-0" />
+                                      <div>
+                                        <div className="font-semibold text-slate-800">{isTh ? x.th : x.en}</div>
+                                        <div className="text-[11px] text-slate-500">{isTh ? x.en : x.th}</div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            }
+                            const who = s.instructors.length ? s.instructors.join(', ') : (isTh ? 'อาจารย์ผู้สอนรายวิชานี้' : 'the course instructor');
+                            return (
+                              <div className="mt-1 flex items-start gap-1.5 rounded-md bg-amber-50 border border-amber-200 px-2 py-1.5 text-amber-900">
+                                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 text-amber-600 shrink-0" />
+                                <div>
+                                  <div className="font-semibold">{isTh ? 'ยังไม่มีวันและเวลาเรียนในระบบทะเบียน' : 'No class day/time in the registrar yet'}</div>
+                                  <div className="text-[11px]">{isTh ? `กรุณาสอบถามวันเวลาเรียนกับ ${who}` : `Please ask ${who} for the class schedule`}</div>
+                                </div>
+                              </div>
+                            );
+                          })()}
                           {s.note && <div className="text-amber-700">{s.note}</div>}
                         </div>
                         <button
