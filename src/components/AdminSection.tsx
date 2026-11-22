@@ -44,6 +44,7 @@ import { compressImage } from '../imageUtils';
 import { adminLogin, addAdminPassword, getSavedAdminPasswords, removeAdminPassword, getAllRequests, updateStatus, updateCourseStatus, saveApiUrl, getApiUrl, isApiConfigured, getLoggedInAdminName, adminLogout, hashString, syncAdminPasswordsWithGoogleSheets, getRemoteSettings, saveRemoteSetting, saveRemoteSettings, getAuditLogs, getEmailQuota } from '../services/api';
 import DriveImage from './DriveImage';
 import CourseCatalogSettings from './CourseCatalogSettings';
+import BlockedCoursesSettings from './BlockedCoursesSettings';
 import { BarChart2, PieChart, Calendar, Shield, Bell, FileText, Download } from 'lucide-react';
 
 interface AdminSectionProps {
@@ -1069,7 +1070,33 @@ function handleAdminLogin(data) {
 }
 
 // ---------- Settings (cache + แยก public/private) ----------
-var PUBLIC_SETTING_KEYS = ['custom_logo', 'custom_favicon', 'system_opening_mode', 'system_open_start', 'system_open_end', 'system_closed_message'];
+var PUBLIC_SETTING_KEYS = ['custom_logo', 'custom_favicon', 'system_opening_mode', 'system_open_start', 'system_open_end', 'system_closed_message', 'blocked_courses'];
+
+// รายวิชาที่ไม่รับคำร้องผ่านระบบ (แอดมินแก้ได้ในหน้า เปิด-ปิดระบบ & แจ้งเตือน) — ค่าเริ่มต้นเมื่อยังไม่เคยตั้ง
+var DEFAULT_BLOCKED_COURSES = [
+  { code: 'GE2100-243', name: 'สันติศึกษาเพื่อการสร้างสันติภาพที่ยั่งยืน',
+    message: 'รายวิชานี้ต้องติดต่อที่อาคารคณะอิสลามศึกษาและนิติศาสตร์เท่านั้น ไม่สามารถยื่นคำร้องผ่านระบบนี้ได้' }
+];
+
+function getBlockedCourses() {
+  var raw = readAllSettings().blocked_courses;
+  if (raw === undefined || raw === '') return DEFAULT_BLOCKED_COURSES;
+  try { var arr = JSON.parse(raw); return Array.isArray(arr) ? arr : DEFAULT_BLOCKED_COURSES; }
+  catch (e) { return DEFAULT_BLOCKED_COURSES; }
+}
+
+function findBlockedCourse(code, name) {
+  var c = String(code || '').toUpperCase().replace(/ /g, '');
+  var n = String(name || '').replace(/ /g, '');
+  var list = getBlockedCourses();
+  for (var i = 0; i < list.length; i++) {
+    var b = list[i] || {};
+    var bc = String(b.code || '').toUpperCase().replace(/ /g, '');
+    var bn = String(b.name || '').replace(/ /g, '');
+    if ((bc && c && bc === c) || (bn && n && n.indexOf(bn) !== -1)) return b;
+  }
+  return null;
+}
 
 function readAllSettings() {
   var cache = CacheService.getScriptCache();
@@ -1092,6 +1119,7 @@ function publicSettings() {
   var all = readAllSettings();
   var out = {};
   PUBLIC_SETTING_KEYS.forEach(function (k) { if (all[k] !== undefined) out[k] = all[k]; });
+  if (out.blocked_courses === undefined) out.blocked_courses = JSON.stringify(DEFAULT_BLOCKED_COURSES);
   return out;
 }
 
@@ -1768,6 +1796,12 @@ function handleSubmitRequest(data) {
   // ตรวจช่วงเวลาเปิดรับคำร้องที่ฝั่งเซิร์ฟเวอร์ด้วย (เดิมตรวจแค่ตอนเปิดหน้าเว็บ ถ้าเปิดหน้าค้างไว้ก่อนเวลาปิด ก็ยังส่งได้หลังปิดรับ)
   var closedMsg = checkSystemClosed();
   if (closedMsg) return jsonOut({ success: false, error: closedMsg });
+  // รายวิชาที่ไม่รับคำร้องผ่านระบบ
+  var blockedHit = null;
+  (data.courses || []).some(function (c) { blockedHit = findBlockedCourse(c.courseCode, c.courseName); return !!blockedHit; });
+  if (blockedHit) {
+    return jsonOut({ success: false, error: (blockedHit.code ? blockedHit.code + ': ' : '') + (blockedHit.message || 'รายวิชานี้ไม่รับคำร้องผ่านระบบ') });
+  }
 
   // กันคำร้องซ้ำ: เบราว์เซอร์ retry ตอนเน็ตหลุด ทั้งที่ครั้งแรกบันทึกสำเร็จไปแล้ว
   var cache = CacheService.getScriptCache();
@@ -4950,6 +4984,7 @@ function handleRecordAuditLog(data) {
   )}
 
   {activeAdminTab === 'schedule_settings' && <CourseCatalogSettings showToast={showToast} />}
+  {activeAdminTab === 'schedule_settings' && <BlockedCoursesSettings showToast={showToast} />}
 
   {/* --- TAB 4: AUDIT LOGS --- */}
   {activeAdminTab === 'audit_logs' && (

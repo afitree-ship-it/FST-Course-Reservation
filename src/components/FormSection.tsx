@@ -34,6 +34,7 @@ import { Calendar, Bell, Lock, ShieldAlert, Users, UserPlus, BookOpen } from 'lu
 import CourseCatalogBrowser from './CourseCatalogBrowser';
 import ScrambleText from './ScrambleText';
 import DriveImage from './DriveImage';
+import { DEFAULT_BLOCKED_COURSES, parseBlockedCourses, findBlockedCourse, blockedMessage, BlockedCourse } from '../utils/blockedCourses';
 
 // Helper to extract Google Drive file ID from various Drive URL formats
 const getDriveId = (url?: string): string | null => {
@@ -208,9 +209,13 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
 
+  // รายวิชาที่ไม่รับคำร้องผ่านระบบ (แอดมินตั้งค่าได้)
+  const [blockedList, setBlockedList] = useState<BlockedCourse[]>(DEFAULT_BLOCKED_COURSES);
+
   // Fetch opening schedule on mount
   useEffect(() => {
     getRemoteSettings().then(settings => {
+      setBlockedList(parseBlockedCourses(settings.blocked_courses));
       const mode = (settings.system_opening_mode as any) || 'always_open';
       const start = settings.system_open_start || '';
       const end = settings.system_open_end || '';
@@ -616,6 +621,8 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
     // กันกรอกวิชาเดียวกันซ้ำในคำร้องเดียว และกันใส่เพื่อนคนเดียวกันซ้ำในวิชาเดียวกัน
     const seenCourses = new Set<string>();
     courses.forEach((course, index) => {
+      const blocked = findBlockedCourse(blockedList, course.courseCode, course.courseName);
+      if (blocked) errors[`courseCode_${index}`] = blockedMessage(blocked, isTh);
       const key = course.courseCode.trim().toUpperCase();
       if (!key) return;
       if (seenCourses.has(key) && !errors[`courseCode_${index}`]) {
@@ -1767,10 +1774,21 @@ export default function FormSection({ onSuccess, showToast }: FormSectionProps) 
                         />
                         {renderCatalogDropdown(index, 'code', course.courseCode, course.courseCode)}
                         </div>
-                        {touched[`courseCode_${index}`] && validationErrors[`courseCode_${index}`] && (
+                        {touched[`courseCode_${index}`] && validationErrors[`courseCode_${index}`] && !findBlockedCourse(blockedList, course.courseCode, course.courseName) && (
                           <p className="mt-1 text-xs text-rose-500 font-sans font-medium">{validationErrors[`courseCode_${index}`]}</p>
                         )}
                         {(() => {
+                          const blocked = findBlockedCourse(blockedList, course.courseCode, course.courseName);
+                          if (blocked) return (
+                            <div role="alert" className="mt-1.5 text-xs leading-snug text-rose-800 bg-rose-50 border-2 border-rose-300 rounded-lg px-3 py-2 font-sans flex gap-2 items-start">
+                              <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                              <div>
+                                <div className="font-bold">{isTh ? 'ไม่สามารถยื่นคำร้องรายวิชานี้ผ่านระบบได้' : 'This course cannot be requested through this system'}</div>
+                                <div>{blockedMessage(blocked, isTh)}</div>
+                                <div className="text-[11px] text-rose-700 mt-0.5">{isTh ? 'กรุณาลบรายวิชานี้ออกจากคำร้อง จึงจะส่งคำร้องได้' : 'Please remove this course from the request to submit.'}</div>
+                              </div>
+                            </div>
+                          );
                           const kind = classifyCourseCode(course.courseCode);
                           if (kind === 'ge') return (
                             <p className="mt-1.5 text-[11px] leading-snug text-sky-700 bg-sky-50 border border-sky-200 rounded-lg px-2.5 py-1.5 font-sans">
