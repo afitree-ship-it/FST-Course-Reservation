@@ -1229,6 +1229,10 @@ function sendSafeEmail(toEmail, subject, textBody, htmlBody) {
   if (!toEmail || toEmail.indexOf('@') === -1) {
     return { success: false, message: 'อีเมลไม่ถูกต้อง' };
   }
+  // อีเมลที่เคยตีกลับ (ส่งไม่ถึง/ไม่มีอยู่จริง) => ไม่ส่งซ้ำ เพื่อไม่ให้มีอีเมลตีกลับเข้ากล่องแอดมินอีก
+  if (isBouncedEmail(toEmail)) {
+    return { success: false, message: 'อีเมลนี้เคยส่งไม่สำเร็จ (ตีกลับ) จึงไม่ส่งซ้ำ' };
+  }
   
   var quota = MailApp.getRemainingDailyQuota();
   if (quota <= 0) {
@@ -1256,6 +1260,106 @@ function sendSafeEmail(toEmail, subject, textBody, htmlBody) {
       return { success: false, message: mailErr.message };
     }
   }
+}
+
+// ================== จัดการอีเมลตีกลับ (Mail Delivery Subsystem) ==================
+// อีเมลผิด/กล่องเต็ม => Gmail ส่ง "การนำส่งยังไม่เสร็จสมบูรณ์" เข้ากล่องเจ้าของสคริปต์ซ้ำ ๆ
+// ฟังก์ชันนี้ (ตั้งเวลาทุก 30 นาที) จะ
+//   1) จำอีเมลที่ตีกลับ แล้วไม่ส่งอีเมลไปที่อยู่นั้นอีก
+//   2) บันทึกในคอลัมน์ "สถานะอีเมล" ของคำร้อง ให้แอดมินเห็นว่าอีเมลนักศึกษาใช้ไม่ได้
+//   3) ติดป้าย "FST-อีเมลตีกลับ" อ่านแล้ว และย้ายออกจากกล่องจดหมาย (ไม่ลบ ยังค้นดูได้)
+var BOUNCE_LABEL = 'FST-อีเมลตีกลับ';
+
+function getBouncedMap() {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('BOUNCED_EMAILS') || '{}'); }
+  catch (e) { return {}; }
+}
+
+function isBouncedEmail(email) {
+  var map = getBouncedMap();
+  return !!map[String(email || '').trim().toLowerCase()];
+}
+
+function handleBouncedEmails() {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return;
+  try {
+    var label = GmailApp.getUserLabelByName(BOUNCE_LABEL) || GmailApp.createLabel(BOUNCE_LABEL);
+    var threads = GmailApp.search('from:(mailer-daemon OR postmaster) in:inbox newer_than:14d', 0, 50);
+    if (!threads.length) return;
+    var me = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
+    var map = getBouncedMap();
+    var newly = {};
+    threads.forEach(function (th) {
+      var msgs = th.getMessages();
+      var isOurs = msgs.some(function (m) { return String(m.getSubject() || '').indexOf('FTU FST') !== -1; }) ||
+        String(th.getFirstMessageSubject() || '').indexOf('FTU FST') !== -1;
+      if (!isOurs) return; // ไม่ยุ่งกับอีเมลตีกลับเรื่องอื่น
+      msgs.forEach(function (m) {
+        var from = String(m.getFrom() || '').toLowerCase();
+        if (from.indexOf('mailer-daemon') === -1 && from.indexOf('postmaster') === -1) return;
+        var body = m.getPlainBody() || '';
+        var found = {};
+        var fr = body.match(/Final-Recipient:\\s*rfc822;\\s*([^\\s<>]+@[^\\s<>]+)/gi) || [];
+        fr.forEach(function (x) { found[x.replace(/.*;\\s*/, '').toLowerCase()] = true; });
+        if (!Object.keys(found).length) {
+          (body.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/g) || []).forEach(function (e) {
+            e = e.toLowerCase();
+            if (e !== me && e.indexOf('mailer-daemon') === -1 && e.indexOf('postmaster') === -1 && e.indexOf('google.com') === -1) found[e] = true;
+          });
+        }
+        var permanent = /(Address not found|ไม่พบที่อยู่|does not exist|ไม่มีอยู่|user unknown|no such user|550)/i.test(body);
+        Object.keys(found).forEach(function (e) {
+          if (!map[e]) newly[e] = true;
+          map[e] = { at: new Date().toISOString(), type: permanent ? 'ไม่มีอีเมลนี้' : 'ส่งไม่ถึงชั่วคราว' };
+        });
+      });
+      th.addLabel(label);
+      th.markRead();
+      th.moveToArchive();
+    });
+    // เก็บไม่เกิน 500 รายการล่าสุด
+    var keys = Object.keys(map);
+    if (keys.length > 500) {
+      keys.sort(function (a, b) { return String(map[a].at).localeCompare(String(map[b].at)); });
+      keys.slice(0, keys.length - 500).forEach(function (k) { delete map[k]; });
+    }
+    PropertiesService.getScriptProperties().setProperty('BOUNCED_EMAILS', JSON.stringify(map));
+    markBouncedRequests(newly, map);
+  } catch (err) {
+    Logger.log('handleBouncedEmails error: ' + err);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function markBouncedRequests(newly, map) {
+  var list = Object.keys(newly);
+  if (!list.length) return;
+  var sheet = getSpreadsheet().getSheetByName(SHEET_REQUESTS);
+  if (!sheet) return;
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    var email = String(data[i][22] || '').trim().toLowerCase(); // คอลัมน์ W = อีเมลติดต่อ
+    if (!email || !newly[email]) continue;
+    var note = ' | 📭 อีเมลตีกลับ (' + map[email].type + ') — ระบบหยุดส่งอีเมลไปที่อยู่นี้';
+    var cur = String(data[i][23] || '');
+    if (cur.indexOf('อีเมลตีกลับ') === -1) sheet.getRange(i + 1, 24).setValue(fitCell((cur + note).slice(-3000)));
+  }
+}
+
+/** แอดมินแก้อีเมลนักศึกษาแล้ว/อยากให้ลองส่งใหม่: รันฟังก์ชันนี้ใน Apps Script โดยใส่อีเมลที่ต้องการปลดบล็อก */
+function unblockBouncedEmail(email) {
+  var map = getBouncedMap();
+  delete map[String(email || '').trim().toLowerCase()];
+  PropertiesService.getScriptProperties().setProperty('BOUNCED_EMAILS', JSON.stringify(map));
+}
+
+function installBounceTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'handleBouncedEmails') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('handleBouncedEmails').timeBased().everyMinutes(30).create();
 }
 
 // ส่งข้อความแจ้งเตือนแอดมินผ่าน Webhook (Discord / Google Chat ฯลฯ)
@@ -1859,13 +1963,14 @@ function installProofCleanupTrigger() {
 function installAllTriggers() {
   installProofCleanupTrigger();
   installCatalogRefreshTrigger();
-  PropertiesService.getScriptProperties().setProperty('TRIGGERS_V3_OK', 'true');
+  installBounceTrigger();
+  PropertiesService.getScriptProperties().setProperty('TRIGGERS_V4_OK', 'true');
   Logger.log('ตั้งเวลาทำงานอัตโนมัติเรียบร้อย');
 }
 
 function ensureAppTriggers() {
   var props = PropertiesService.getScriptProperties();
-  if (props.getProperty('TRIGGERS_V3_OK') === 'true') return;
+  if (props.getProperty('TRIGGERS_V4_OK') === 'true') return;
   try { installAllTriggers(); } catch (e) { Logger.log('Cannot install triggers: ' + e); }
 }
 
